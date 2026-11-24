@@ -55,6 +55,13 @@ func (d *JOSDecoder) ReadByte() (byte, error) {
 	return d.r.ReadByte()
 }
 
+// ReadInt16 lê um int16 Big-Endian
+func (d *JOSDecoder) ReadInt16() (int16, error) {
+	var v int16
+	err := binary.Read(d.r, binary.BigEndian, &v)
+	return v, err
+}
+
 // ReadInt32 lê um int32 Big-Endian
 func (d *JOSDecoder) ReadInt32() (int32, error) {
 	var v int32
@@ -96,6 +103,18 @@ func (d *JOSDecoder) ReadUTF() (string, error) {
 		return "", err
 	}
 	return string(buf), nil
+}
+
+// ReadString lê um objeto string (TC_STRING ou TC_REFERENCE) do stream
+func (d *JOSDecoder) ReadString() (string, error) {
+	obj, err := d.ReadObject()
+	if err != nil {
+		return "", err
+	}
+	if s, ok := obj.(string); ok {
+		return s, nil
+	}
+	return fmt.Sprintf("%v", obj), nil
 }
 
 // ReadBlockData lê um bloco de dados opaco (TC_BLOCKDATA ou TC_BLOCKDATALONG)
@@ -349,7 +368,7 @@ func (d *JOSDecoder) readObjectInstance() (*JavaObject, error) {
 
 	// Ler os valores dos campos de cada classe na cadeia
 	for _, c := range chain {
-		if c.Flags&SC_WRITE_METHOD != 0 && c.CustomReader != nil {
+		if (c.Flags&SC_WRITE_METHOD != 0 || c.Flags&SC_EXTERNALIZABLE != 0) && c.CustomReader != nil {
 			// Classe possui deserialização customizada
 			if err := c.CustomReader(d, obj); err != nil {
 				return nil, fmt.Errorf("falha no CustomReader da classe %s: %w", c.Name, err)

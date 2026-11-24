@@ -13,6 +13,9 @@ import (
 )
 
 func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
+	if os.Getenv("PORTICO_LIVE_TEST") != "true" {
+		t.Skip("Skipping live Portico test (set PORTICO_LIVE_TEST=true to run against live external Portico)")
+	}
 	endpoint := os.Getenv("PORTICO_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "192.168.1.226:52295"

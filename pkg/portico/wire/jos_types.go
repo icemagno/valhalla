@@ -1,98 +1,54 @@
 package wire
 
-import "fmt"
+import "github.com/icemagno/valhalla/pkg/portico/wire/metamodel"
 
-// FieldType representa o código de tipo primitivo ou objeto da especificação JOS
-type FieldType byte
-
-const (
-	TypeBoolean FieldType = 'Z' // 0x5A
-	TypeByte    FieldType = 'B' // 0x42
-	TypeChar    FieldType = 'C' // 0x43
-	TypeShort   FieldType = 'S' // 0x53
-	TypeInt     FieldType = 'I' // 0x49
-	TypeLong    FieldType = 'J' // 0x4A
-	TypeFloat   FieldType = 'F' // 0x46
-	TypeDouble  FieldType = 'D' // 0x44
-	TypeObject  FieldType = 'L' // 0x4C
-	TypeArray   FieldType = '[' // 0x5B
+// Reexportação dos tipos fundamentais do metamodelo para compatibilidade
+type (
+	FieldType  = metamodel.FieldType
+	FieldDesc  = metamodel.FieldDesc
+	ClassDesc  = metamodel.ClassDesc
+	JavaObject = metamodel.JavaObject
+	JavaEnum   = metamodel.JavaEnum
 )
 
-func (t FieldType) String() string {
-	return string([]byte{byte(t)})
-}
+// Constantes do Java Object Serialization (JOS)
+const (
+	TypeBoolean = metamodel.TypeBoolean
+	TypeByte    = metamodel.TypeByte
+	TypeChar    = metamodel.TypeChar
+	TypeShort   = metamodel.TypeShort
+	TypeInt     = metamodel.TypeInt
+	TypeLong    = metamodel.TypeLong
+	TypeFloat   = metamodel.TypeFloat
+	TypeDouble  = metamodel.TypeDouble
+	TypeObject  = metamodel.TypeObject
+	TypeArray   = metamodel.TypeArray
 
-// FieldDesc descreve os metadados de um campo na declaração de classe Java
-type FieldDesc struct {
-	Name      string
-	Type      FieldType
-	ClassName string // Usado quando Type == TypeObject ou TypeArray (ex: "Ljava/lang/String;")
-}
+	TC_NULL         = metamodel.TC_NULL
+	TC_REFERENCE    = metamodel.TC_REFERENCE
+	TC_CLASSDESC    = metamodel.TC_CLASSDESC
+	TC_OBJECT       = metamodel.TC_OBJECT
+	TC_STRING       = metamodel.TC_STRING
+	TC_ARRAY        = metamodel.TC_ARRAY
+	TC_CLASS        = metamodel.TC_CLASS
+	TC_BLOCKDATA    = metamodel.TC_BLOCKDATA
+	TC_ENDBLOCKDATA = metamodel.TC_ENDBLOCKDATA
+	TC_RESET        = metamodel.TC_RESET
+	TC_ENUM         = metamodel.TC_ENUM
 
-// ClassDesc representa a árvore de metadados de uma classe serializável Java
-type ClassDesc struct {
-	Name             string
-	SerialVersionUID uint64
-	Flags            byte
-	Fields           []FieldDesc
-	Super            *ClassDesc
+	SC_WRITE_METHOD   = metamodel.SC_WRITE_METHOD
+	SC_SERIALIZABLE   = metamodel.SC_SERIALIZABLE
+	SC_EXTERNALIZABLE = metamodel.SC_EXTERNALIZABLE
+	SC_BLOCK_DATA     = metamodel.SC_BLOCK_DATA
+	SC_ENUM           = metamodel.SC_ENUM
 
-	// CustomWriter permite que classes com writeObject/writeExternal injetem seus blocos de dados
-	CustomWriter func(enc *JOSEncoder, obj *JavaObject)
+	BaseWireHandle = metamodel.BaseWireHandle
+)
 
-	// CustomReader permite que classes com readObject/readExternal consumam seus blocos de dados
-	CustomReader func(dec *JOSDecoder, obj *JavaObject) error
-}
-
-// JavaObject representa uma instância genérica de um objeto Java serializável
-type JavaObject struct {
-	Class  *ClassDesc
-	Fields map[string]any
-}
-
-// NewJavaObject instancia um novo objeto genérico com mapa de campos inicializado
-func NewJavaObject(class *ClassDesc) *JavaObject {
-	return &JavaObject{
-		Class:  class,
-		Fields: make(map[string]any),
-	}
-}
-
-// Set atribui valor a um campo com validação fluente
-func (o *JavaObject) Set(name string, value any) *JavaObject {
-	o.Fields[name] = value
-	return o
-}
-
-// Get obtém o valor de um campo
-func (o *JavaObject) Get(name string) any {
-	return o.Fields[name]
-}
-
-func (o *JavaObject) String() string {
-	if o.Class == nil {
-		return "JavaObject{Class: <nil>}"
-	}
-	return fmt.Sprintf("JavaObject{Class: %s, Fields: %v}", o.Class.Name, o.Fields)
-}
-
-// JavaEnum representa uma constante de enum Java serializável
-type JavaEnum struct {
-	Class *ClassDesc
-	Name  string
-}
-
-// NewJavaEnum cria uma nova referência a constante enum
-func NewJavaEnum(class *ClassDesc, name string) *JavaEnum {
-	return &JavaEnum{
-		Class: class,
-		Name:  name,
-	}
-}
-
-func (e *JavaEnum) String() string {
-	if e.Class == nil {
-		return fmt.Sprintf("JavaEnum{Class: <nil>, Name: %s}", e.Name)
-	}
-	return fmt.Sprintf("JavaEnum{Class: %s, Name: %s}", e.Class.Name, e.Name)
-}
+// Funções de instanciação delegadas para o pacote metamodel
+var (
+	NewJavaObject     = metamodel.NewJavaObject
+	NewJavaEnum       = metamodel.NewJavaEnum
+	RegisterClassDesc = metamodel.RegisterClassDesc
+	LookupClassDesc   = metamodel.LookupClassDesc
+)

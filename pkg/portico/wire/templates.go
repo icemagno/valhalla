@@ -1,63 +1,47 @@
 package wire
 
 import (
-	"bytes"
-	_ "embed"
-	"encoding/binary"
-	"fmt"
+	"github.com/icemagno/valhalla/pkg/portico/wire/metamodel"
 )
 
-//go:embed testdata/welcome_pack_base.bin
-var welcomePackBase []byte
-
-//go:embed testdata/response_message_base.bin
-var responseMessageBase []byte
-
-//go:embed testdata/create_federation_response_base.bin
-var createFederationResponseBase []byte
-
-// BuildSuccessResponsePayload retorna o payload canônico oficial de ResponseMessage (83 bytes)
+// BuildSuccessResponsePayload constrói dinamicamente em Go a ResponseMessage de sucesso oficial
 func BuildSuccessResponsePayload() []byte {
-	buf := make([]byte, len(responseMessageBase))
-	copy(buf, responseMessageBase)
-	return buf
+	resp := metamodel.NewResponseMessage(false)
+	data, err := SerializePorticoControlMessage(resp)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
-// BuildWelcomePackPayload gera um WelcomePack válido para o Portico com handles atribuídos
-func BuildWelcomePackPayload(fedHandle, federateHandle int32) ([]byte, error) {
-	if len(welcomePackBase) < 300 {
-		return nil, fmt.Errorf("jos wire: welcome_pack_base corrompido ou muito curto")
-	}
-
-	buf := make([]byte, len(welcomePackBase))
-	copy(buf, welcomePackBase)
-
-	idxWP := bytes.Index(buf, []byte("WelcomePack"))
-	if idxWP == -1 {
-		return nil, fmt.Errorf("jos wire: WelcomePack nao encontrado no template base")
-	}
-
-	// Pular nome da classe, SUID (8b), Flags (1b), Fields (2b), TC_ENDBLOCKDATA (1b), TC_NULL (1b), TC_BLOCKDATA (1b), BlockLen (1b)
-	// Total apos "WelcomePack": 8 + 1 + 2 + 1 + 1 + 1 + 1 = 15 bytes
-	offset := idxWP + len("WelcomePack") + 15
-	if offset+8 > len(buf) {
-		return nil, fmt.Errorf("jos wire: offset do WelcomePack excede tamanho do buffer")
-	}
-
-	binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(fedHandle))
-	binary.BigEndian.PutUint32(buf[offset+4:offset+8], uint32(federateHandle))
-
-	return buf, nil
-}
-
-// BuildCreateFederationResponsePayload gera uma ExtendedSuccessResponse canônica contendo o handle da federação como java.lang.Integer
+// BuildCreateFederationResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
+// com o handle da federação empacotado em java.lang.Integer
 func BuildCreateFederationResponsePayload(fedHandle int32) []byte {
-	buf := make([]byte, len(createFederationResponseBase))
-	copy(buf, createFederationResponseBase)
-
-	if len(buf) >= 6 {
-		offset := len(buf) - 6
-		binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(fedHandle))
+	intObj := metamodel.NewJavaInteger(fedHandle)
+	resp := metamodel.NewExtendedSuccessResponse(intObj)
+	data, err := SerializePorticoControlMessage(resp)
+	if err != nil {
+		return nil
 	}
-	return buf
+	return data
+}
+
+// BuildWelcomePackPayload constrói dinamicamente em Go o WelcomePack oficial com handles atribuídos
+func BuildWelcomePackPayload(fedHandle, federateHandle int32, optNames ...string) ([]byte, error) {
+	fedName := "ExampleFederation"
+	federateName := "Thor"
+	federateType := "ieee1516e"
+	if len(optNames) > 0 && optNames[0] != "" {
+		fedName = optNames[0]
+	}
+	if len(optNames) > 1 && optNames[1] != "" {
+		federateName = optNames[1]
+	}
+	if len(optNames) > 2 && optNames[2] != "" {
+		federateType = optNames[2]
+	}
+
+	wp := metamodel.NewWelcomePack(fedHandle, federateHandle, fedName, federateName, federateType)
+	resp := metamodel.NewExtendedSuccessResponse(wp)
+	return SerializePorticoControlMessage(resp)
 }

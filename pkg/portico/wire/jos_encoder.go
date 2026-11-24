@@ -8,27 +8,6 @@ import (
 	"math"
 )
 
-// Constantes fundamentais do Java Object Serialization (JOS)
-const (
-	TC_NULL         byte = 0x70
-	TC_REFERENCE    byte = 0x71
-	TC_CLASSDESC    byte = 0x72
-	TC_OBJECT       byte = 0x73
-	TC_STRING       byte = 0x74
-	TC_ARRAY        byte = 0x75
-	TC_CLASS        byte = 0x76
-	TC_BLOCKDATA    byte = 0x77
-	TC_ENDBLOCKDATA byte = 0x78
-	TC_RESET        byte = 0x79
-	TC_ENUM         byte = 0x7E
-
-	SC_WRITE_METHOD byte = 0x01
-	SC_SERIALIZABLE byte = 0x02
-	SC_ENUM         byte = 0x10
-
-	BaseWireHandle uint32 = 0x007E0000
-)
-
 // JOSEncoder é o motor genérico agnóstico de serialização Java em Go (equivalente ao ObjectOutputStream)
 type JOSEncoder struct {
 	w          *bytes.Buffer
@@ -60,6 +39,11 @@ func (e *JOSEncoder) WriteByte(b byte) {
 	e.w.WriteByte(b)
 }
 
+// WriteInt16 grava um inteiro de 16 bits Big-Endian no stream
+func (e *JOSEncoder) WriteInt16(v int16) {
+	binary.Write(e.w, binary.BigEndian, v)
+}
+
 // WriteInt32 grava um inteiro de 32 bits Big-Endian no stream
 func (e *JOSEncoder) WriteInt32(v int32) {
 	binary.Write(e.w, binary.BigEndian, v)
@@ -78,6 +62,11 @@ func (e *JOSEncoder) WriteUint64(v uint64) {
 // WriteDouble grava um ponto flutuante de 64 bits no stream
 func (e *JOSEncoder) WriteDouble(v float64) {
 	binary.Write(e.w, binary.BigEndian, math.Float64bits(v))
+}
+
+// WriteString escreve uma string Java como TC_STRING ou TC_REFERENCE
+func (e *JOSEncoder) WriteString(s string) {
+	e.writeString(s)
 }
 
 // WriteBlockData escreve um bloco opaco de dados binários (TC_BLOCKDATA)
@@ -172,9 +161,11 @@ func (e *JOSEncoder) writeJavaObject(obj *JavaObject) error {
 
 	// Escrever os valores de dados de cada classe na hierarquia (da base para a filha)
 	for _, cls := range chain {
-		if cls.Flags&SC_WRITE_METHOD != 0 && cls.CustomWriter != nil {
+		if (cls.Flags&SC_WRITE_METHOD != 0 || cls.Flags&SC_EXTERNALIZABLE != 0) && cls.CustomWriter != nil {
 			// Classe possui serialização customizada (writeObject / writeExternal)
-			cls.CustomWriter(e, obj)
+			if err := cls.CustomWriter(e, obj); err != nil {
+				return err
+			}
 		} else {
 			// Serialização de campos declarados da classe
 			for _, field := range cls.Fields {
