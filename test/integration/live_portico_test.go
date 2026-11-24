@@ -10,7 +10,7 @@ import (
 	"github.com/icemagno/valhalla/pkg/portico/wire"
 )
 
-func TestIntegration_LivePortico_Handshake(t *testing.T) {
+func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 	endpoint := os.Getenv("PORTICO_ENDPOINT")
 	if endpoint == "" {
 		endpoint = "192.168.1.226:52295"
@@ -36,17 +36,42 @@ func TestIntegration_LivePortico_Handshake(t *testing.T) {
 		t.Errorf("mensagem de boas-vindas inesperada: %s", welcome)
 	}
 
-	// Manter o socket aberto por 500ms para estabilidade
-	time.Sleep(500 * time.Millisecond)
+	// 1. Enviar pacote RtiProbe com payload oficial no formato JOS
+	probePayload := wire.NewRtiProbePayload()
+	probeHdr := wire.NewControlRequest(wire.MsgRtiProbe, 1, 0, 0, uint32(len(probePayload)))
 
-	// Enviar pacote oficial de RtiProbe usando enquadramento 0xCAFE e cabecalho exato de 12 bytes
-	probeHdr := wire.NewControlRequest(wire.MsgRtiProbe, 1, 0, 0, 0)
-	if err := client.SendPacket(probeHdr, nil); err != nil {
-		t.Fatalf("falha ao enviar pacote RtiProbe via bundle TCP: %v", err)
+	t.Logf("Enviando RtiProbe (cabecalho 12 bytes + payload JOS %d bytes, bundle 0xCAFE)...", len(probePayload))
+	if err := client.SendPacket(probeHdr, probePayload); err != nil {
+		t.Fatalf("falha ao enviar RtiProbe: %v", err)
 	}
-	t.Logf("Pacote RtiProbe (12 bytes, bundle 0xCAFE) enviado com sucesso ao Portico!")
 
-	// Aguardar brevemente para registrar no canal do servidor Portico
+	// Aguardar e ler resposta do Portico (timeout de 2 segundos)
+	respHdr, respPayload, err := client.ReadPacketTimeout(2 * time.Second)
+	if err != nil {
+		t.Logf("Aviso na leitura de resposta do RtiProbe: %v", err)
+	} else {
+		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA RtiProbe: Tipo: %s, Call: %s, ReqId: %d, PayloadLen: %d",
+			respHdr.MessageType, respHdr.CallType, respHdr.RequestId, len(respPayload))
+	}
+
+	// 2. Enviar JoinFederation para a ExampleFederation ativa onde o Thor está aguardando
+	joinPayload := wire.NewJoinFederationPayload("ExampleFederation", "ValhallaNode", "ExampleFederateType")
+	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 2, 0, 0, uint32(len(joinPayload)))
+
+	t.Logf("Enviando JoinFederation na ExampleFederation (payload JOS %d bytes)...", len(joinPayload))
+	if err := client.SendPacket(joinHdr, joinPayload); err != nil {
+		t.Fatalf("falha ao enviar JoinFederation: %v", err)
+	}
+
+	// Aguardar resposta de ingresso (timeout de 2 segundos)
+	joinRespHdr, joinRespPayload, err := client.ReadPacketTimeout(2 * time.Second)
+	if err != nil {
+		t.Logf("Aviso na leitura de resposta do JoinFederation: %v", err)
+	} else {
+		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA JoinFederation: Tipo: %s, Call: %s, ReqId: %d, PayloadLen: %d",
+			joinRespHdr.MessageType, joinRespHdr.CallType, joinRespHdr.RequestId, len(joinRespPayload))
+	}
+
 	time.Sleep(500 * time.Millisecond)
-	t.Logf("Conexao com o Portico finalizada graciosamente sem Broken Pipe.")
+	t.Logf("Sessao finalizada com sucesso.")
 }

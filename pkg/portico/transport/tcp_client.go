@@ -260,3 +260,17 @@ func (c *TCPClient) ReadPacket() (wire.Header, []byte, error) {
 
 	return hdr, payload, nil
 }
+
+// ReadPacketTimeout aguarda o proximo pacote de rede com timeout configuravel
+func (c *TCPClient) ReadPacketTimeout(timeout time.Duration) (wire.Header, []byte, error) {
+	if timeout > 0 && c.conn != nil {
+		_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
+		defer func() {
+			if c.conn != nil {
+				_ = c.conn.SetReadDeadline(time.Time{})
+			}
+		}()
+	}
+	return c.ReadPacket()
+}
+

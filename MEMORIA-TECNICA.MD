@@ -160,3 +160,37 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 ---
 
 *Fim da entrada diária de 24/11/2026. Próximo marco: Implementação das mensagens de ciclo de vida (CreateFederation, JoinFederation, ResignFederation) com correlation ID e serialização manual.*
+
+
+---
+
+### 14. Engenharia do Protocolo JOS (Java Object Serialization) e Ingresso Real na Federação (Sprint 1)
+
+1. **Diagnóstico do WARN `Couldn't convert byte[] (RtiProbe) into PorticoMessage`:**
+   * O código oficial de `MessageHelpers.inflate2` do Portico exige que mensagens administrativas venham no envelope binário do `ObjectInputStream` do Java. Um payload vazio de 0 bytes disparava `EOFException` imediato na JVM.
+2. **Implementação do Serializador JOS Canônico em Go (`pkg/portico/wire/jos.go`):**
+   * Desenvolvido sem qualquer dependência de JVM ou runtime Java, implementando a especificação binária formal do Java Object Serialization (RFC/JOS):
+     * Cabeçalho de stream: `STREAM_MAGIC` (`0xACED`) e `STREAM_VERSION` (`0x0005`).
+     * `TC_BLOCKDATA` com `0x00` indicando ausência de `ManualMarshal`.
+     * `TC_OBJECT` e `TC_CLASSDESC` para `PorticoMessage` (`serialVersionUID = 98121116105109L`, flags `0x03` = `SC_SERIALIZABLE | SC_WRITE_METHOD`).
+     * Escrita dos 6 campos primitivos ordenados de `PorticoMessage` (`immediate`, `isFromRti`, `sourceFederate`, `targetFederate`, `targetFederation`, `timestamp`).
+     * Descritor e valores para `JoinFederation` com as strings parametrizadas (`federateName`, `federateType`, `federationName`) e descritores de lista `ArrayList`.
+3. **Validação Unitária (`pkg/portico/wire/jos_test.go`):**
+   * Testes cobrindo validação de Magic, Versão, Tokens de Tipo, classes PorticoMessage/JoinFederation e integridade de nomes parametrizados. **Status: PASS (0.00s)**.
+4. **Teste de Integração Real: Ingresso do Valhalla na `ExampleFederation` Viva:**
+   * Executado `test/integration/live_portico_test.go` contra o contêiner Arcanjo (`192.168.1.226:52295`), onde a federação `ExampleFederation` estava ativa com o federado oficial Portico `Thor`:
+     ```
+     === RUN   TestIntegration_LivePortico_HandshakeAndProbe
+         live_portico_test.go:19: Iniciando conexao ao vivo contra o executivo Portico no Arcanjo: 192.168.1.226:52295
+         live_portico_test.go:33: >>> HANDSHAKE BEM-SUCEDIDO! Resposta oficial do Portico: [Portico Router (3.0.0 (build 0)): Your ID7]
+         live_portico_test.go:43: Enviando RtiProbe (cabecalho 12 bytes + payload JOS 247 bytes, bundle 0xCAFE)...
+         live_portico_test.go:61: Enviando JoinFederation na ExampleFederation (payload JOS 530 bytes)...
+         live_portico_test.go:71: >>> RESPOSTA RECEBIDA DO PORTICO PARA JoinFederation: Tipo: JoinFederation(4), Call: ControlResponseOK(3), ReqId: 2, PayloadLen: 33495
+         live_portico_test.go:76: Sessao finalizada com sucesso.
+     --- PASS: TestIntegration_LivePortico_HandshakeAndProbe (2.54s)
+     ```
+   * **Resultado Histórico:** O CRTI Portico oficial processou a solicitação `JoinFederation` em Go e respondeu com **`ControlResponseOK (CallType = 3)`**, entregando o pacote oficial de boas-vindas (*WelcomePack*) com **33.495 bytes** contendo os metadados da federação e o handle do novo federado!
+
+---
+
+*Fim da entrada diária de 24/11/2026. Próximo marco: Decodificação do WelcomePack, registro de sincronização e avanço de tempo com o Thor.*
