@@ -15,10 +15,24 @@ func BuildSuccessResponsePayload() []byte {
 }
 
 // BuildCreateFederationResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
-// com o handle da federação empacotado em java.lang.Integer
-func BuildCreateFederationResponsePayload(fedHandle int32) []byte {
+// com o handle da federação empacotado em java.lang.Integer sob as chaves oficiais "result" e "federationHandle"
+func BuildCreateFederationResponsePayload(fedHandle int32, optFedName ...string) []byte {
+	fedName := "ExampleFederation"
+	if len(optFedName) > 0 && optFedName[0] != "" {
+		fedName = optFedName[0]
+	}
+
 	intObj := metamodel.NewJavaInteger(fedHandle)
 	resp := metamodel.NewExtendedSuccessResponse(intObj)
+
+	// O CreateFederationHandler do Portico consulta explicitamente context.getSuccessResultAsInt("federationHandle")
+	if hm, ok := resp.Get("results").(*metamodel.JavaObject); ok {
+		if entries, ok := hm.Get("entries").(map[string]any); ok {
+			entries["federationHandle"] = intObj
+			entries["federationName"] = fedName
+		}
+	}
+
 	data, err := SerializePorticoControlMessage(resp)
 	if err != nil {
 		return nil
