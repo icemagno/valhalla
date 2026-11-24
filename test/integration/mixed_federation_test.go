@@ -32,13 +32,31 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 		t.Fatal("esperava que o cliente Thor estivesse conectado")
 	}
 
-	// Thor envia JoinFederation
+	// 2.1 Thor envia CreateFederationExecution
+	createObj := wire.NewCreateFederationObject("ExampleFederation")
+	createPayload, err := wire.SerializePorticoControlMessage(createObj)
+	if err != nil {
+		t.Fatalf("falha ao serializar CreateFederation do Thor: %v", err)
+	}
+	createHdr := wire.NewControlRequest(wire.MsgCreateFederation, 1, 0, 0, uint32(len(createPayload)))
+	if err := clientThor.SendPacket(createHdr, createPayload); err != nil {
+		t.Fatalf("falha ao enviar CreateFederation do Thor: %v", err)
+	}
+	_, cfRespPayload, err := clientThor.ReadPacketTimeout(3 * time.Second)
+	if err != nil {
+		t.Fatalf("falha ao receber resposta de CreateFederation do Thor: %v", err)
+	}
+	if len(cfRespPayload) == 0 {
+		t.Fatal("resposta de CreateFederation vazia")
+	}
+
+	// 2.2 Thor envia JoinFederation
 	joinObj := wire.NewJoinFederationObject("ExampleFederation", "ThorLegado", "ExampleFederateType")
 	joinPayload, err := wire.SerializePorticoControlMessage(joinObj)
 	if err != nil {
 		t.Fatalf("falha ao serializar JoinFederation do Thor: %v", err)
 	}
-	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 1, 0, 0, uint32(len(joinPayload)))
+	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 2, 0, 0, uint32(len(joinPayload)))
 	if err := clientThor.SendPacket(joinHdr, joinPayload); err != nil {
 		t.Fatalf("falha ao enviar JoinFederation do Thor: %v", err)
 	}

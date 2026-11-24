@@ -26,4 +26,9 @@ func TestTemplates_BuildWelcomePackAndSuccess(t *testing.T) {
 	if info.FederateHandle != 42 {
 		t.Errorf("FederateHandle esperado 42, obtido %d", info.FederateHandle)
 	}
+
+	cfResp := BuildCreateFederationResponsePayload(7)
+	if len(cfResp) == 0 {
+		t.Fatal("esperava payload nao vazio para CreateFederationResponse")
+	}
 }

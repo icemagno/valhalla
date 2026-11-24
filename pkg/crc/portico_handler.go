@@ -52,7 +52,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 			currentFed = fedManager.GetOrCreateFederation(fedName)
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			respPayload := wire.BuildCreateFederationResponsePayload(currentFed.Handle)
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
+			log.Printf("[CRC-Portico] Federation [%s] created with handle [%d]", fedName, currentFed.Handle)
 
 		case wire.MsgJoinFederation:
 			fedName := "ExampleFederation"
