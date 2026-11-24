@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -134,12 +136,24 @@ func main() {
 		for {
 			hdr, payload, err := client.ReadPacketTimeout(1 * time.Second)
 			if err != nil {
-				// Timeout normal de polling
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					// Timeout normal do polling periodico
+					select {
+					case <-done:
+						return
+					default:
+						continue
+					}
+				}
+
+				// Socket fechado pelo servidor, EOF ou ECONNRESET
 				select {
 				case <-done:
 					return
 				default:
-					continue
+					fmt.Printf("\n[-] Conexao com o Portico CRTI foi perdida ou encerrada pelo servidor: %v\n", err)
+					os.Exit(1)
 				}
 			}
 
