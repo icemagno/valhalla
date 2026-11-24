@@ -218,47 +218,53 @@ func (c *TCPClient) ReadPacket() (wire.Header, []byte, error) {
 		return hdr, nil, ErrNotConnected
 	}
 
-	// 1. Ler o magic do bundle (int32 = 0xCAFE)
-	var magic int32
-	if err := binary.Read(c.reader, binary.BigEndian, &magic); err != nil {
-		return hdr, nil, fmt.Errorf("falha lendo magic do bundle: %w", err)
-	}
-	if magic != MagicTCPBundle {
-		return hdr, nil, fmt.Errorf("%w: recebido 0x%X", ErrInvalidBundleMagic, magic)
-	}
-
-	// 2. Ler o tamanho do bundle
-	var bundleLen int32
-	if err := binary.Read(c.reader, binary.BigEndian, &bundleLen); err != nil {
-		return hdr, nil, fmt.Errorf("falha lendo tamanho do bundle: %w", err)
-	}
-	if bundleLen < wire.HeaderLength {
-		return hdr, nil, fmt.Errorf("bundle menor que tamanho minimo do cabecalho (12 bytes): %d", bundleLen)
-	}
-	if bundleLen > 0x01000000 { // 16 MB max
-		return hdr, nil, ErrBundleTooLarge
-	}
-
-	// 3. Ler o cabecalho de 12 bytes
-	var hdrBuf [wire.HeaderLength]byte
-	if _, err := io.ReadFull(c.reader, hdrBuf[:]); err != nil {
-		return hdr, nil, fmt.Errorf("falha lendo cabecalho do bundle: %w", err)
-	}
-	if err := hdr.UnmarshalBinary(hdrBuf[:]); err != nil {
-		return hdr, nil, fmt.Errorf("falha decodificando cabecalho: %w", err)
-	}
-
-	// 4. Ler o payload restante do pacote
-	payloadLen := int(bundleLen) - wire.HeaderLength
-	var payload []byte
-	if payloadLen > 0 {
-		payload = make([]byte, payloadLen)
-		if _, err := io.ReadFull(c.reader, payload); err != nil {
-			return hdr, nil, fmt.Errorf("falha lendo payload do bundle: %w", err)
+	for {
+		// 1. Ler o magic do bundle (int32 = 0xCAFE)
+		var magic int32
+		if err := binary.Read(c.reader, binary.BigEndian, &magic); err != nil {
+			return hdr, nil, fmt.Errorf("falha lendo magic do bundle: %w", err)
 		}
-	}
+		if magic != MagicTCPBundle {
+			return hdr, nil, fmt.Errorf("%w: recebido 0x%X", ErrInvalidBundleMagic, magic)
+		}
 
-	return hdr, payload, nil
+		// 2. Ler o tamanho do bundle
+		var bundleLen int32
+		if err := binary.Read(c.reader, binary.BigEndian, &bundleLen); err != nil {
+			return hdr, nil, fmt.Errorf("falha lendo tamanho do bundle: %w", err)
+		}
+		if bundleLen == 0 {
+			// Heartbeat / Keepalive / Bundle vazio enviado pelo Portico - ignora e le o proximo
+			continue
+		}
+		if bundleLen < wire.HeaderLength {
+			return hdr, nil, fmt.Errorf("bundle menor que tamanho minimo do cabecalho (12 bytes): %d", bundleLen)
+		}
+		if bundleLen > 0x01000000 { // 16 MB max
+			return hdr, nil, ErrBundleTooLarge
+		}
+
+		// 3. Ler o cabecalho de 12 bytes
+		var hdrBuf [wire.HeaderLength]byte
+		if _, err := io.ReadFull(c.reader, hdrBuf[:]); err != nil {
+			return hdr, nil, fmt.Errorf("falha lendo cabecalho do bundle: %w", err)
+		}
+		if err := hdr.UnmarshalBinary(hdrBuf[:]); err != nil {
+			return hdr, nil, fmt.Errorf("falha decodificando cabecalho: %w", err)
+		}
+
+		// 4. Ler o payload restante do pacote
+		payloadLen := int(bundleLen) - wire.HeaderLength
+		var payload []byte
+		if payloadLen > 0 {
+			payload = make([]byte, payloadLen)
+			if _, err := io.ReadFull(c.reader, payload); err != nil {
+				return hdr, nil, fmt.Errorf("falha lendo payload do bundle: %w", err)
+			}
+		}
+
+		return hdr, payload, nil
+	}
 }
 
 // ReadPacketTimeout aguarda o proximo pacote de rede com timeout configuravel
