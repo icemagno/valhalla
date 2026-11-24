@@ -39,6 +39,9 @@ type ClassDesc struct {
 
 	// CustomWriter permite que classes com writeObject/writeExternal injetem seus blocos de dados
 	CustomWriter func(enc *JOSEncoder, obj *JavaObject)
+
+	// CustomReader permite que classes com readObject/readExternal consumam seus blocos de dados
+	CustomReader func(dec *JOSDecoder, obj *JavaObject) error
 }
 
 // JavaObject representa uma instância genérica de um objeto Java serializável

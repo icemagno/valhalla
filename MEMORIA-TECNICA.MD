@@ -230,4 +230,29 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
+### 16. Documentação Arquitetural e Implementação da Contraparte JOSDecoder (Sprint 1)
+
+1. **Documento Explicativo de Arquitetura ([`docs/jos-encoder.md`](docs/jos-encoder.md)):**
+   * Elaborado documento técnico aprofundado detalhando para o time e comunidade a engenharia reversa e a arquitetura do motor JOS em Go:
+     * O desafio de interoperabilidade sem JVM e sem CGO.
+     * Anatomia da gramática JOS, tokens (`0x70` a `0x7E`), pool de handles (`0x007E0000 + n`) e ordenação canônica de campos (§4.3 da especificação JOS).
+     * Mapeamento de Java Enums e serialização de blocos `TC_BLOCKDATA`.
+     * Estrutura em camadas: metamodelo, codificador agnóstico e catálogo declarativo.
+2. **Implementação da Contraparte `JOSDecoder` ([`pkg/portico/wire/jos_decoder.go`](pkg/portico/wire/jos_decoder.go)):**
+   * Desenvolvido o motor genérico de deserialização equivalente ao `ObjectInputStream`:
+     * Validação canônica de `STREAM_MAGIC` (`0xACED`) e `STREAM_VERSION` (`0x0005`).
+     * Tabela de handles para resolução e desduplicação de referências (`TC_REFERENCE`).
+     * Suporte completo a `TC_OBJECT`, `TC_CLASSDESC`, `TC_STRING`, `TC_ENUM`, `TC_BLOCKDATA`, `TC_ENDBLOCKDATA`.
+     * Registro global de classes (`RegisterClassDesc` / `LookupKnownClassDesc`) para injeção e execução dinâmica de `CustomReader` (necessário para classes com `writeObject`/`writeExternal` como `PorticoMessage` e `ArrayList`).
+3. **Bateria de Testes Unitários de Roundtrip ([`pkg/portico/wire/jos_decoder_test.go`](pkg/portico/wire/jos_decoder_test.go)):**
+   * Testes cobrindo roundtrip completo (Codificação -> Deserialização):
+     * `RtiProbe` (preservação de campos de cabeçalho).
+     * `JoinFederation` (strings parametrizadas e listas encadeadas).
+     * `ResignFederation` (deserialização de `JavaEnum` e validação da constante `NO_ACTION`).
+     * `SyncPointAchieved` (validação de labels).
+     * Tratamento de cabeçalhos corrompidos/truncados.
+   * **Status: 100% PASS (0.00s)** em todos os cenários.
+
+---
+
 *Fim da entrada diária de 24/11/2026. Próximo marco: Decodificação do WelcomePack recebido, registro de sincronização e avanço de tempo com o Thor.*

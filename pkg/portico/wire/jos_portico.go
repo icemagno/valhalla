@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 )
 
@@ -67,6 +68,28 @@ var (
 			enc.WriteBlockData(block[:])
 			enc.WriteByte(TC_ENDBLOCKDATA)
 		},
+		CustomReader: func(dec *JOSDecoder, obj *JavaObject) error {
+			block, err := dec.ReadBlockData()
+			if err != nil {
+				return err
+			}
+			if len(block) >= 22 {
+				obj.Set("isFromRti", block[0] != 0)
+				obj.Set("sourceFederate", int32(binary.BigEndian.Uint32(block[1:5])))
+				obj.Set("targetFederate", int32(binary.BigEndian.Uint32(block[5:9])))
+				obj.Set("targetFederation", int32(binary.BigEndian.Uint32(block[9:13])))
+				obj.Set("timestamp", math.Float64frombits(binary.BigEndian.Uint64(block[13:21])))
+				obj.Set("immediate", block[21] != 0)
+			}
+			endMarker, err := dec.ReadByte()
+			if err != nil {
+				return err
+			}
+			if endMarker != TC_ENDBLOCKDATA {
+				return fmt.Errorf("esperado TC_ENDBLOCKDATA (0x78), recebido 0x%02X", endMarker)
+			}
+			return nil
+		},
 	}
 
 	// ClassDescArrayList representa java.util.ArrayList
@@ -82,6 +105,24 @@ var (
 			// ArrayList writeObject escreve capacidade no bloco:
 			enc.WriteBlockData([]byte{0x00, 0x00, 0x00, 0x00})
 			enc.WriteByte(TC_ENDBLOCKDATA)
+		},
+		CustomReader: func(dec *JOSDecoder, obj *JavaObject) error {
+			size, err := dec.ReadInt32()
+			if err != nil {
+				return err
+			}
+			obj.Set("size", size)
+			if _, err := dec.ReadBlockData(); err != nil {
+				return err
+			}
+			endMarker, err := dec.ReadByte()
+			if err != nil {
+				return err
+			}
+			if endMarker != TC_ENDBLOCKDATA {
+				return fmt.Errorf("esperado TC_ENDBLOCKDATA (0x78), recebido 0x%02X", endMarker)
+			}
+			return nil
 		},
 	}
 
@@ -162,6 +203,34 @@ var (
 		Super:            ClassDescPorticoMessage,
 	}
 )
+
+// Registro global de classes Java conhecidas pelo Portico
+var knownClassRegistry = make(map[string]*ClassDesc)
+
+// RegisterClassDesc registra metadados de uma classe no catálogo global
+func RegisterClassDesc(cls *ClassDesc) {
+	if cls != nil {
+		knownClassRegistry[cls.Name] = cls
+	}
+}
+
+// LookupKnownClassDesc busca metadados e hooks registrados para um nome de classe
+func LookupKnownClassDesc(name string) (*ClassDesc, bool) {
+	cls, ok := knownClassRegistry[name]
+	return cls, ok
+}
+
+func init() {
+	RegisterClassDesc(ClassDescPorticoMessage)
+	RegisterClassDesc(ClassDescArrayList)
+	RegisterClassDesc(ClassDescJoinFederation)
+	RegisterClassDesc(ClassDescCreateFederation)
+	RegisterClassDesc(ClassDescResignFederation)
+	RegisterClassDesc(ClassDescRtiProbe)
+	RegisterClassDesc(ClassDescSyncPointAchieved)
+	RegisterClassDesc(ClassDescJResignAction)
+	RegisterClassDesc(ClassDescJavaEnum)
+}
 
 // EmptyArrayList cria uma instância genérica de ArrayList vazio
 func EmptyArrayList() *JavaObject {
