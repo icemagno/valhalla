@@ -17,7 +17,8 @@ func main() {
 	port := flag.Int("port", 52295, "Porta TCP do executivo Portico CRTI")
 	fedName := flag.String("fed", "ExampleFederation", "Nome da federacao alvo")
 	fedType := flag.String("type", "ieee1516e", "Tipo do federado (ex: ieee1516e)")
-	nodeName := flag.String("name", "ValhallaWarrior", "Nome deste federado")
+	defaultName := fmt.Sprintf("Valhalla_%d", time.Now().UnixNano()%100000)
+	nodeName := flag.String("name", defaultName, "Nome deste federado")
 	syncPoint := flag.String("sync", "ReadyToRun", "Ponto de sincronizacao inicial")
 	flag.Parse()
 
@@ -83,7 +84,9 @@ func main() {
 	}
 
 	if joinRespHdr.CallType != wire.CallTypeControlResponseOK {
+		errMsg := wire.ExtractErrorMessage(joinRespPayload)
 		fmt.Printf("[-] CRTI rejeitou ingresso: %s\n", joinRespHdr.CallType)
+		fmt.Printf("[-] Detalhes do Portico: %s\n", errMsg)
 		client.Close()
 		os.Exit(1)
 	}
