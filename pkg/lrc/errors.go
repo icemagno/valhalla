@@ -3,11 +3,11 @@ package lrc
 import "errors"
 
 var (
-	ErrNotConnected                = errors.New("hla lrc: federado nao conectado ao rti")
-	ErrAlreadyConnected            = errors.New("hla lrc: federado ja conectado ao rti")
-	ErrFederateNotExecutionMember  = errors.New("hla lrc: federado nao ingressou em nenhuma federacao")
-	ErrFederateAlreadyExecutionMember = errors.New("hla lrc: federado ja eh membro de uma federacao")
-	ErrConnectionClosed            = errors.New("hla lrc: conexao de transporte encerrada")
-	ErrRequestTimeout              = errors.New("hla lrc: tempo limite esgotado aguardando resposta do crc")
-	ErrInvalidResponse             = errors.New("hla lrc: resposta invalida do crc")
+	ErrNotConnected                   = errors.New("hla lrc: federate not connected to rti")
+	ErrAlreadyConnected               = errors.New("hla lrc: federate already connected to rti")
+	ErrFederateNotExecutionMember     = errors.New("hla lrc: federate is not execution member")
+	ErrFederateAlreadyExecutionMember = errors.New("hla lrc: federate already execution member")
+	ErrConnectionClosed               = errors.New("hla lrc: transport connection closed")
+	ErrRequestTimeout                 = errors.New("hla lrc: request timeout waiting for crc response")
+	ErrInvalidResponse                = errors.New("hla lrc: invalid response from crc")
 )

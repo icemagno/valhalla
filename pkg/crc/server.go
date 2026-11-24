@@ -50,19 +50,18 @@ func (s *Server) Start() error {
 	defer s.mu.Unlock()
 
 	if s.running {
-		return errors.New("crc server: ja em execucao")
+		return errors.New("crc server: already running")
 	}
 
 	l, err := net.Listen("tcp", s.addr)
 	if err != nil {
-		return fmt.Errorf("crc server: falha ao escutar em %s: %w", s.addr, err)
+		return fmt.Errorf("crc server: failed to listen on %s: %w", s.addr, err)
 	}
 
 	s.listener = l
 	s.running = true
 
-	log.Printf("[CRC] Servidor Executivo Valhalla RTI ativo em %s", l.Addr())
-	log.Printf("[CRC] Multiplexador Ativo: Protocolo Nativo (VAL4) e Ponte Portico (52295) na mesma porta!")
+	log.Printf("[CRC] Valhalla RTI Executive active on %s", l.Addr())
 
 	s.wg.Add(1)
 	go s.acceptLoop()
@@ -80,7 +79,7 @@ func (s *Server) acceptLoop() {
 			case <-s.stopChan:
 				return
 			default:
-				log.Printf("[CRC] Aviso no accept: %v", err)
+				log.Printf("[CRC] Warning on accept: %v", err)
 				continue
 			}
 		}
@@ -102,16 +101,16 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	remoteAddr := conn.RemoteAddr().String()
-	log.Printf("[CRC] Nova conexao de %s detectada como: %s", remoteAddr, proto)
+	log.Printf("[CRC] Connection from %s identified as: %s", remoteAddr, proto)
 
 	switch proto {
 	case ProtocolNative:
 		if err := HandleNativeConnection(wrappedConn, wrappedConn, s.fedManager); err != nil {
-			log.Printf("[CRC-Native] Conexao %s finalizada: %v", remoteAddr, err)
+			log.Printf("[CRC-Native] Connection %s terminated: %v", remoteAddr, err)
 		}
 	case ProtocolPortico:
 		if err := HandlePorticoConnection(wrappedConn, wrappedConn, s.fedManager); err != nil {
-			log.Printf("[CRC-Portico] Conexao %s finalizada: %v", remoteAddr, err)
+			log.Printf("[CRC-Portico] Connection %s terminated: %v", remoteAddr, err)
 		}
 	}
 }
@@ -129,7 +128,7 @@ func (s *Server) Stop() error {
 	s.mu.Unlock()
 
 	s.wg.Wait()
-	log.Printf("[CRC] Servidor Executivo Valhalla encerrado com sucesso.")
+	log.Printf("[CRC] Valhalla RTI Executive shut down successfully.")
 	return err
 }
 

@@ -39,14 +39,14 @@ type Client struct {
 func NewClient(address string) (*Client, error) {
 	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("falha ao conectar no crc em %s: %w", address, err)
+		return nil, fmt.Errorf("failed to connect to crc at %s: %w", address, err)
 	}
 
-	// Transmitir preâmbulo nativo VAL4 ("VAL4")
+	// Transmit VAL4 native preamble ("VAL4")
 	preamble := []byte{'V', 'A', 'L', '4'}
 	if _, err := conn.Write(preamble); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("falha ao enviar preambulo VAL4: %w", err)
+		return nil, fmt.Errorf("failed to send VAL4 preamble: %w", err)
 	}
 
 	c := &Client{

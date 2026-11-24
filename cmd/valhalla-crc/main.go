@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	port := flag.String("port", ":52295", "Porta TCP de escuta unificada (ex: 52295 ou :52295)")
+	port := flag.String("port", ":52295", "Listening TCP port (e.g. 52295 or :52295)")
 	flag.Parse()
 
 	addr := *port
@@ -22,27 +22,22 @@ func main() {
 	}
 
 	fmt.Println("====================================================================")
-	fmt.Println("       PROJETO VALHALLA - CENTRAL RTI COMPONENT (CRC)")
-	fmt.Println("       IEEE 1516-2025 (HLA-4) | Executivo de Simulacao Soberano")
-	fmt.Println("====================================================================")
-	fmt.Printf("[+] Inicializando Valhalla CRC na porta unificada: %s\n", addr)
-	fmt.Println("[+] Protocolos Suportados na MESMA PORTA:")
-	fmt.Println("    1. Valhalla Nativo (HLA-4 / SSZ / Merkle Root / PQC Kyber)")
-	fmt.Println("    2. Portico Legado  (JOS / Header 12b / 0xCAFE / 0xBEEF)")
+	fmt.Println("               VALHALLA - CENTRAL RTI COMPONENT (CRC)")
+	fmt.Println("       IEEE 1516-2025 (HLA-4) | High-Performance Simulation Executive")
 	fmt.Println("====================================================================")
 
 	server := crc.NewServer(addr)
 	if err := server.Start(); err != nil {
-		log.Fatalf("[-] Erro fatal iniciando Valhalla CRC: %v", err)
+		log.Fatalf("[-] Fatal error starting Valhalla CRC: %v", err)
 	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	<-sigChan
-	fmt.Println("\n[!] Sinal de interrupcao recebido. Desligando Valhalla CRC...")
+	fmt.Println("\n[!] Interrupt signal received. Shutting down Valhalla CRC...")
 	if err := server.Stop(); err != nil {
-		log.Printf("[-] Erro durante desligamento: %v", err)
+		log.Printf("[-] Error during shutdown: %v", err)
 	}
-	fmt.Println("[+] Valhalla CRC encerrado com sucesso.")
+	fmt.Println("[+] Valhalla CRC shut down successfully.")
 }

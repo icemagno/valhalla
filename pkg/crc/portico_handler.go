@@ -75,7 +75,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			fed, err := currentFed.Join(nodeName, nodeType, ProtocolPortico, session)
 			if err != nil {
 				// Resposta de erro se nome em uso
-				log.Printf("[CRC-Portico] Erro no join de %s: %v", nodeName, err)
+				log.Printf("[CRC-Portico] Join error for %s: %v", nodeName, err)
 				_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
 				continue
 			}
@@ -86,12 +86,12 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			wpPayload, err := wire.BuildWelcomePackPayload(currentFed.Handle, federateID)
 			if err != nil {
-				log.Printf("[CRC-Portico] Erro gerando WelcomePack: %v", err)
+				log.Printf("[CRC-Portico] Error generating WelcomePack: %v", err)
 				wpPayload = wire.BuildSuccessResponsePayload()
 			}
 
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wpPayload)
-			log.Printf("[CRC-Portico] Federado [%s] ingressou com handle [%d] na federacao [%s]", nodeName, federateID, fedName)
+			log.Printf("[CRC-Portico] Federate [%s] joined with handle [%d] to federation [%s]", nodeName, federateID, fedName)
 
 		case wire.MsgRegisterSyncPoint:
 			label := "ReadyToRun"
@@ -105,7 +105,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				_, _ = currentFed.RegisterSyncPoint(label, nil, federateID)
 			}
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Ponto de sincronizacao '%s' registrado pelo federado [%d]", label, federateID)
+			log.Printf("[CRC-Portico] Synchronization point '%s' registered by federate [%d]", label, federateID)
 
 		case wire.MsgAchieveSyncPoint:
 			label := "ReadyToRun"
@@ -120,15 +120,15 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				var err error
 				isSynced, err = currentFed.AchieveSyncPoint(label, federateID)
 				if err != nil {
-					log.Printf("[CRC-Portico] Aviso ao conquistar ponto: %v", err)
+					log.Printf("[CRC-Portico] Warning achieving sync point: %v", err)
 				}
 			}
 
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Federado [%d] conquistou ponto '%s'", federateID, label)
+			log.Printf("[CRC-Portico] Federate [%d] achieved synchronization point '%s'", federateID, label)
 
 			if isSynced {
-				log.Printf("[CRC-Portico] >>> FEDERACAO SINCRONIZADA no ponto '%s'!", label)
+				log.Printf("[CRC-Portico] >>> FEDERATION SYNCHRONIZED at point '%s'!", label)
 				// Broadcast FederationSynchronized para todos os federados da federação
 				if currentFed != nil {
 					for _, f := range currentFed.GetAllFederates() {
@@ -184,7 +184,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				_, _ = currentFed.Resign(federateID)
 			}
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Federado [%d] desingressou graciosamente (Resign)", federateID)
+			log.Printf("[CRC-Portico] Federate [%d] resigned gracefully", federateID)
 			return nil
 
 		default:
