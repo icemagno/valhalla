@@ -6,26 +6,32 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/icemagno/valhalla/pkg/crc"
 )
 
 func main() {
-	port := flag.String("port", ":52295", "Porta TCP de escuta unificada (Nativo VAL4 + Ponte Portico)")
+	port := flag.String("port", ":52295", "Porta TCP de escuta unificada (ex: 52295 ou :52295)")
 	flag.Parse()
+
+	addr := *port
+	if !strings.Contains(addr, ":") {
+		addr = ":" + addr
+	}
 
 	fmt.Println("====================================================================")
 	fmt.Println("       PROJETO VALHALLA - CENTRAL RTI COMPONENT (CRC)")
 	fmt.Println("       IEEE 1516-2025 (HLA-4) | Executivo de Simulacao Soberano")
 	fmt.Println("====================================================================")
-	fmt.Printf("[+] Inicializando Valhalla CRC na porta unificada: %s\n", *port)
+	fmt.Printf("[+] Inicializando Valhalla CRC na porta unificada: %s\n", addr)
 	fmt.Println("[+] Protocolos Suportados na MESMA PORTA:")
 	fmt.Println("    1. Valhalla Nativo (HLA-4 / SSZ / Merkle Root / PQC Kyber)")
 	fmt.Println("    2. Portico Legado  (JOS / Header 12b / 0xCAFE / 0xBEEF)")
 	fmt.Println("====================================================================")
 
-	server := crc.NewServer(*port)
+	server := crc.NewServer(addr)
 	if err := server.Start(); err != nil {
 		log.Fatalf("[-] Erro fatal iniciando Valhalla CRC: %v", err)
 	}

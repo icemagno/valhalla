@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,6 +27,9 @@ type Server struct {
 func NewServer(addr string) *Server {
 	if addr == "" {
 		addr = ":52295"
+	}
+	if !strings.Contains(addr, ":") {
+		addr = ":" + addr
 	}
 	return &Server{
 		addr:        addr,
