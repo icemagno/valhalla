@@ -6,118 +6,255 @@ import (
 	"fmt"
 )
 
-// MagicPortico define o número mágico Big-Endian "PORT" (0x504F5254)
-const MagicPortico uint32 = 0x504F5254
+// HeaderLength define o tamanho fixo exato de 12 bytes do cabecalho Portico (Header.java)
+const HeaderLength = 12
 
-// HeaderSize define o tamanho fixo do cabeçalho binário em bytes
-const HeaderSize = 24
+// MagicTCPBundle define o marcador de enquadramento do canal TCP do Portico (0xCAFE = 52094)
+const MagicTCPBundle int32 = 0xcafe
 
-// Flags de controle de mensagem
+// CallType identifica a natureza da chamada segundo CallType.java do Portico
+type CallType uint8
+
 const (
-	FlagTimestampOrder uint16 = 0x0001
-	FlagCompressed     uint16 = 0x0002
-	FlagSyncResponse   uint16 = 0x0004
-	FlagValhallaExt    uint16 = 0x0080 // Extensão Valhalla (SSZ / KEM / HLA-4)
+	CallTypeDataMessage        CallType = 0
+	CallTypeNotification       CallType = 1
+	CallTypeControlRequest     CallType = 2
+	CallTypeControlResponseOK  CallType = 3
+	CallTypeControlResponseErr CallType = 4
 )
 
-// MessageType enumera os identificadores de operação compatíveis com Portico
-type MessageType uint16
+func (c CallType) String() string {
+	switch c {
+	case CallTypeDataMessage:
+		return "DataMessage(0)"
+	case CallTypeNotification:
+		return "Notification(1)"
+	case CallTypeControlRequest:
+		return "ControlRequest(2)"
+	case CallTypeControlResponseOK:
+		return "ControlResponseOK(3)"
+	case CallTypeControlResponseErr:
+		return "ControlResponseErr(4)"
+	default:
+		return fmt.Sprintf("CallTypeUnknown(%d)", c)
+	}
+}
+
+// MessageType enumera os identificadores oficiais do Portico segundo MessageType.java
+type MessageType uint8
 
 const (
-	MsgSuccessResp         MessageType = 0x0001
-	MsgErrorResp           MessageType = 0x0002
-	MsgCreateFederation    MessageType = 0x0010
-	MsgDestroyFederation   MessageType = 0x0011
-	MsgJoinFederation      MessageType = 0x0012
-	MsgResignFederation    MessageType = 0x0013
-	MsgRegisterObject      MessageType = 0x0020
-	MsgDiscoverObject      MessageType = 0x0021
-	MsgUpdateAttributes    MessageType = 0x0022
-	MsgReflectAttributes   MessageType = 0x0023
-	MsgSendInteraction     MessageType = 0x0030
-	MsgReceiveInteraction  MessageType = 0x0031
-	MsgTimeAdvanceRequest  MessageType = 0x0040
-	MsgTimeAdvanceGrant    MessageType = 0x0041
-	MsgSyncPointRegister   MessageType = 0x0050
-	MsgSyncPointAchieved   MessageType = 0x0051
+	// Mensagens de Ciclo de Vida e Sessao (000-009)
+	MsgConnect           MessageType = 0
+	MsgDisconnect        MessageType = 1
+	MsgRtiProbe          MessageType = 2
+	MsgCreateFederation  MessageType = 3
+	MsgJoinFederation    MessageType = 4
+	MsgResignFederation  MessageType = 5
+	MsgDestroyFederation MessageType = 6
+	MsgListFederations   MessageType = 7
+	MsgAuthenticate      MessageType = 8
+
+	// Respostas de Controle (010-039)
+	MsgSuccessResponse MessageType = 14
+	MsgErrorResponse   MessageType = 15
+
+	// Pontos de Sincronizacao (040-049)
+	MsgRegisterSyncPoint   MessageType = 40
+	MsgAnnounceSyncPoint   MessageType = 42
+	MsgAchieveSyncPoint    MessageType = 43
+	MsgSyncPointFederation MessageType = 45
+
+	// Gerenciamento de Objetos (050-079)
+	MsgPublishObjectClass   MessageType = 50
+	MsgSubscribeObjectClass MessageType = 51
+	MsgRegisterObject       MessageType = 52
+	MsgDiscoverObject       MessageType = 53
+	MsgUpdateAttributes     MessageType = 54
+	MsgReflectAttributes    MessageType = 55
+	MsgDeleteObject         MessageType = 56
+
+	// Interacoes (080-099)
+	MsgPublishInteractionClass   MessageType = 80
+	MsgSubscribeInteractionClass MessageType = 81
+	MsgSendInteraction           MessageType = 82
+	MsgReceiveInteraction        MessageType = 83
+
+	// Time Management (100-119)
+	MsgTimeAdvanceRequest MessageType = 100
+	MsgTimeAdvanceGrant   MessageType = 101
+)
+
+func (m MessageType) String() string {
+	switch m {
+	case MsgConnect:
+		return "Connect(0)"
+	case MsgDisconnect:
+		return "Disconnect(1)"
+	case MsgRtiProbe:
+		return "RtiProbe(2)"
+	case MsgCreateFederation:
+		return "CreateFederation(3)"
+	case MsgJoinFederation:
+		return "JoinFederation(4)"
+	case MsgResignFederation:
+		return "ResignFederation(5)"
+	case MsgDestroyFederation:
+		return "DestroyFederation(6)"
+	case MsgListFederations:
+		return "ListFederations(7)"
+	case MsgAuthenticate:
+		return "Authenticate(8)"
+	case MsgSuccessResponse:
+		return "SuccessResponse(14)"
+	case MsgErrorResponse:
+		return "ErrorResponse(15)"
+	case MsgUpdateAttributes:
+		return "UpdateAttributes(54)"
+	case MsgReflectAttributes:
+		return "ReflectAttributes(55)"
+	case MsgSendInteraction:
+		return "SendInteraction(82)"
+	case MsgReceiveInteraction:
+		return "ReceiveInteraction(83)"
+	default:
+		return fmt.Sprintf("MessageType(%d)", m)
+	}
+}
+
+// Flags de controle de cabecalho (Byte 0) - Mapeamento exato de BitHelpers.readBooleanBit(0..7)
+const (
+	FlagBundle              uint8 = 0x01 // Bit 0: Bundle presente
+	FlagEncrypted           uint8 = 0x02 // Bit 1: Encriptado (Nonce/IV presente)
+	FlagAuthenticated       uint8 = 0x04 // Bit 2: Autenticado (Token presente)
+	FlagManualMarshal       uint8 = 0x08 // Bit 3: Serializacao manual sem reflexao Java
+	FlagFiltering           uint8 = 0x10 // Bit 4: Filtro ativo (RequestId vira FilteringId)
+	FlagFilteringObjClass   uint8 = 0x20 // Bit 5: 1=Objeto, 0=Interacao
+	FlagReserved            uint8 = 0x40 // Bit 6: Reservado Portico
+	FlagValhallaExtended    uint8 = 0x80 // Bit 7: Extensao Valhalla (SSZ / Merkle / KEM)
 )
 
 var (
-	ErrInvalidMagic      = errors.New("portico wire: magic number invalido")
-	ErrBufferTooShort    = errors.New("portico wire: buffer menor que o tamanho minimo do cabecalho")
-	ErrPayloadSizeExceed = errors.New("portico wire: tamanho do payload excede o limite permitido")
+	ErrBufferTooShort  = errors.New("portico wire: buffer menor que 12 bytes do cabecalho")
+	ErrPayloadTooLarge = errors.New("portico wire: tamanho do payload excede 24 bits (16 MB)")
+	ErrInvalidCallType = errors.New("portico wire: calltype invalido")
 )
 
-// Header representa o cabeçalho binário de 24 bytes que prefixa mensagens Portico
+// Header representa com fidelidade absoluta de bits o cabecalho de 12 bytes do Portico (Header.java)
 type Header struct {
-	Magic         uint32
-	Version       uint16
-	Type          MessageType
-	SourceHandle  int32
-	TargetHandle  int32
-	Flags         uint16
-	Reserved      uint16
-	PayloadLength uint32
+	Flags         uint8       // Byte 0 (8 bits)
+	PayloadLength uint32      // Bytes 1-3 (24 bits Big-Endian, 0 a 16.777.215 bytes)
+	FederationID  uint8       // Byte 4 High Nibble (bits 4-7, 0..15)
+	CallType      CallType    // Byte 4 Low Nibble (bits 0-3, 0..4)
+	MessageType   MessageType // Byte 5 (8 bits)
+	RequestId     uint16      // Bytes 6-7 (16 bits Big-Endian) ou FilteringId
+	SourceHandle  uint16      // Bytes 8-9 (16 bits Big-Endian)
+	TargetHandle  uint16      // Bytes 10-11 (16 bits Big-Endian)
 }
 
-// NewHeader cria um cabeçalho válido inicializado com Magic e Versão padrão
-func NewHeader(msgType MessageType, source, target int32, payloadLen uint32) Header {
+// NewControlRequest cria um cabecalho para requisicoes de controle síncronas/assíncronas
+func NewControlRequest(msgType MessageType, reqId uint16, source, target uint16, payloadLen uint32) Header {
 	return Header{
-		Magic:         MagicPortico,
-		Version:       0x0002, // Portico v2.x
-		Type:          msgType,
+		Flags:         0,
+		PayloadLength: payloadLen,
+		FederationID:  0,
+		CallType:      CallTypeControlRequest,
+		MessageType:   msgType,
+		RequestId:     reqId,
 		SourceHandle:  source,
 		TargetHandle:  target,
-		Flags:         0,
-		Reserved:      0,
-		PayloadLength: payloadLen,
 	}
 }
 
-// MarshalTo codifica o cabeçalho diretamente em um slice pré-alocado (Zero-Alloc)
+// NewDataMessage cria um cabecalho para mensagens de simulacao (ex: UpdateAttributes, SendInteraction)
+func NewDataMessage(msgType MessageType, fedId uint8, source, target uint16, payloadLen uint32) Header {
+	return Header{
+		Flags:         FlagManualMarshal,
+		PayloadLength: payloadLen,
+		FederationID:  fedId,
+		CallType:      CallTypeDataMessage,
+		MessageType:   msgType,
+		RequestId:     0,
+		SourceHandle:  source,
+		TargetHandle:  target,
+	}
+}
+
+// MarshalTo codifica os 12 bytes diretamente no buffer de destino sem alocar memoria (Zero-Alloc)
 func (h Header) MarshalTo(buf []byte) error {
-	if len(buf) < HeaderSize {
+	if len(buf) < HeaderLength {
 		return ErrBufferTooShort
 	}
+	if h.PayloadLength > 0x00FFFFFF {
+		return ErrPayloadTooLarge
+	}
 
-	binary.BigEndian.PutUint32(buf[0:4], h.Magic)
-	binary.BigEndian.PutUint16(buf[4:6], h.Version)
-	binary.BigEndian.PutUint16(buf[6:8], uint16(h.Type))
-	binary.BigEndian.PutUint32(buf[8:12], uint32(h.SourceHandle))
-	binary.BigEndian.PutUint32(buf[12:16], uint32(h.TargetHandle))
-	binary.BigEndian.PutUint16(buf[16:18], h.Flags)
-	binary.BigEndian.PutUint16(buf[18:20], h.Reserved)
-	binary.BigEndian.PutUint32(buf[20:24], h.PayloadLength)
+	// Byte 0: Flags
+	buf[0] = h.Flags
+
+	// Bytes 1-3: PayloadLength (24-bit uint Big-Endian)
+	buf[1] = byte((h.PayloadLength >> 16) & 0xFF)
+	buf[2] = byte((h.PayloadLength >> 8) & 0xFF)
+	buf[3] = byte(h.PayloadLength & 0xFF)
+
+	// Byte 4: FederationID (bits 7-4) | CallType (bits 3-0)
+	buf[4] = ((h.FederationID & 0x0F) << 4) | (byte(h.CallType) & 0x0F)
+
+	// Byte 5: MessageType (8 bits)
+	buf[5] = byte(h.MessageType)
+
+	// Bytes 6-7: RequestId (16 bits Big-Endian)
+	binary.BigEndian.PutUint16(buf[6:8], h.RequestId)
+
+	// Bytes 8-9: SourceHandle (16 bits Big-Endian)
+	binary.BigEndian.PutUint16(buf[8:10], h.SourceHandle)
+
+	// Bytes 10-11: TargetHandle (16 bits Big-Endian)
+	binary.BigEndian.PutUint16(buf[10:12], h.TargetHandle)
 
 	return nil
 }
 
-// MarshalBinary serializa o cabeçalho em um novo slice de 24 bytes
+// MarshalBinary implementa encoding.BinaryMarshaler
 func (h Header) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, HeaderSize)
+	buf := make([]byte, HeaderLength)
 	err := h.MarshalTo(buf)
 	return buf, err
 }
 
-// UnmarshalBinary decodifica um cabeçalho a partir de um slice de bytes
+// UnmarshalBinary implementa encoding.BinaryUnmarshaler
 func (h *Header) UnmarshalBinary(data []byte) error {
-	if len(data) < HeaderSize {
+	if len(data) < HeaderLength {
 		return ErrBufferTooShort
 	}
 
-	magic := binary.BigEndian.Uint32(data[0:4])
-	if magic != MagicPortico {
-		return fmt.Errorf("%w: esperado 0x%X, obtido 0x%X", ErrInvalidMagic, MagicPortico, magic)
-	}
+	// Byte 0: Flags
+	h.Flags = data[0]
 
-	h.Magic = magic
-	h.Version = binary.BigEndian.Uint16(data[4:6])
-	h.Type = MessageType(binary.BigEndian.Uint16(data[6:8]))
-	h.SourceHandle = int32(binary.BigEndian.Uint32(data[8:12]))
-	h.TargetHandle = int32(binary.BigEndian.Uint32(data[12:16]))
-	h.Flags = binary.BigEndian.Uint16(data[16:18])
-	h.Reserved = binary.BigEndian.Uint16(data[18:20])
-	h.PayloadLength = binary.BigEndian.Uint32(data[20:24])
+	// Bytes 1-3: PayloadLength (24 bits Big-Endian)
+	h.PayloadLength = uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])
+
+	// Byte 4: FederationID (high nibble) e CallType (low nibble)
+	h.FederationID = (data[4] >> 4) & 0x0F
+	h.CallType = CallType(data[4] & 0x0F)
+
+	// Byte 5: MessageType
+	h.MessageType = MessageType(data[5])
+
+	// Bytes 6-7: RequestId
+	h.RequestId = binary.BigEndian.Uint16(data[6:8])
+
+	// Bytes 8-9: SourceHandle
+	h.SourceHandle = binary.BigEndian.Uint16(data[8:10])
+
+	// Bytes 10-11: TargetHandle
+	h.TargetHandle = binary.BigEndian.Uint16(data[10:12])
 
 	return nil
+}
+
+// String provê representacao legivel e descritiva para logging e auditoria
+func (h Header) String() string {
+	return fmt.Sprintf("PorticoHeader{Msg: %s, Call: %s, Fed: %d, ReqID: %d, Len: %d, Src: %d, Tgt: %d, Flags: 0x%02X}",
+		h.MessageType, h.CallType, h.FederationID, h.RequestId, h.PayloadLength, h.SourceHandle, h.TargetHandle, h.Flags)
 }

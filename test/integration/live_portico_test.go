@@ -36,17 +36,17 @@ func TestIntegration_LivePortico_Handshake(t *testing.T) {
 		t.Errorf("mensagem de boas-vindas inesperada: %s", welcome)
 	}
 
-	// Manter o socket aberto por 1 segundo para garantir estabilidade e ausencia de Broken Pipe
-	time.Sleep(1 * time.Second)
+	// Manter o socket aberto por 500ms para estabilidade
+	time.Sleep(500 * time.Millisecond)
 
-	// Enviar ping/header de teste estruturado
-	pingHdr := wire.NewHeader(wire.MsgCreateFederation, -1, 0, 0)
-	pingHdr.Flags = wire.FlagValhallaExt
-	if err := client.SendPacket(pingHdr, nil); err != nil {
-		t.Logf("aviso: envio de pacote inicial apos handshake (esperado se canal ainda nao autenticou federado): %v", err)
-	} else {
-		t.Logf("Pacote de cabecalho Valhalla enviado com sucesso pela conexao TCP!")
+	// Enviar pacote oficial de RtiProbe usando enquadramento 0xCAFE e cabecalho exato de 12 bytes
+	probeHdr := wire.NewControlRequest(wire.MsgRtiProbe, 1, 0, 0, 0)
+	if err := client.SendPacket(probeHdr, nil); err != nil {
+		t.Fatalf("falha ao enviar pacote RtiProbe via bundle TCP: %v", err)
 	}
+	t.Logf("Pacote RtiProbe (12 bytes, bundle 0xCAFE) enviado com sucesso ao Portico!")
 
+	// Aguardar brevemente para registrar no canal do servidor Portico
+	time.Sleep(500 * time.Millisecond)
 	t.Logf("Conexao com o Portico finalizada graciosamente sem Broken Pipe.")
 }

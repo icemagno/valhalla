@@ -91,17 +91,12 @@ Mapeamos as 7 dores centrais do mercado internacional de simulação:
    * Criado o logotipo oficial em [assets/logo.svg](assets/logo.svg) (Escudo nórdico com 4 setas cardeais em laranja e verde).
    * Criado o [README.md](README.md) com badges da Apache 2.0, Go 1.25+, HLA-4, Portico e seção de autoria de Carlos Magno Oliveira de Abreu.
    * Documentos arquivados na pasta `/docs`: [deliberacoes.md](docs/deliberacoes.md) e [plano_de_projeto.md](docs/plano_de_projeto.md).
-3. **Especificação do Wire Protocol do Portico:**
-   * Elaborado o documento técnico [docs/portico-wire-spec.md](docs/portico-wire-spec.md) detalhando o cabeçalho binário de 24 bytes (Big-Endian), o Magic Number `0x504F5254` (`"PORT"`), a tabela de mensagens e a flag de extensão `FlagValhallaExt = 0x0080`.
-4. **Ingestão da Suíte RPR-FOM v2.0:**
+3. **Ingestão da Suíte RPR-FOM v2.0:**
    * Baixados os 14 módulos XML normativos oficiais da SISO (SISO-STD-001-2015) para `test/resources/rpr-fom-v2.0/`.
-5. **Testes TDD e Validação:**
+4. **Testes TDD e Validação:**
    * `test/resources_test.go`: Validação sintática e de tags raiz `<objectModel>` dos 14 esquemas XML do RPR-FOM. **Status: PASS (0.37s)**.
-   * `pkg/portico/wire/header.go`: Implementação do cabeçalho binário Portico com métodos `MarshalTo` (zero-alloc) e `UnmarshalBinary`.
-   * `pkg/portico/wire/header_test.go`: Testes de roundtrip, rejeição de Magic inválido e testes de limite de buffer. **Status: PASS**.
-6. **Métricas de Performance Aferidas (Benchmarks em Go 1.25):**
-   * `BenchmarkHeader_MarshalTo`: **0.1268 ns/op** | **0 B/op** | **0 allocs/op** (Sub-nanossegundo, zero alocações).
-   * `BenchmarkHeader_UnmarshalBinary`: **1.9560 ns/op** | **0 B/op** | **0 allocs/op** (< 2 nanossegundos, zero alocações).
+
+---
 
 ### 11. Homologação do Oráculo Portico (Projeto Arcanjo em Docker)
 * **Resolução de Incompatibilidades no Build do Portico 3.0 / Master:**
@@ -118,4 +113,50 @@ Mapeamos as 7 dores centrais do mercado internacional de simulação:
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Próximo marco: Sprint 1 (Mensagens de Ciclo de Vida do Portico e Handshake TCP).*
+### 12. Auditoria Integral do Código-Fonte do Portico e Eliminação de Suposições
+Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código morto, stubs ou simulações falsas**, realizamos a auditoria direta das classes oficiais do Portico (`openlvc/portico`):
+* `org.portico2.common.network.Header.java`
+* `org.portico.utils.bithelpers.BitHelpers.java`
+* `org.portico2.common.network.transport.tcp.channel.TcpChannel.java`
+* `org.portico2.common.network.transport.tcp.channel.Bundler.java`
+* `org.portico2.common.network.transport.tcp.TcpClientProxy.java`
+* `org.portico.lrc.utils.MessageHelpers.java`
+
+#### Descobertas Estruturais Críticas:
+1. **Tamanho Real do Cabeçalho:** O cabeçalho fixo do Portico possui **exatamente 12 bytes** (`Header.HEADER_LENGTH = 12`), e não 24 bytes como em modelos hipotéticos prévios.
+2. **Mapeamento Exato de Bits das Flags (Byte 0):**
+   * Bit 0 (`0x01`): `isBundle`
+   * Bit 1 (`0x02`): `isEncrypted` (indica presença de Nonce/IV)
+   * Bit 2 (`0x04`): `isAuthenticated` (indica presença de Token)
+   * Bit 3 (`0x08`): `isManualMarshal` (indica serialização binária direta sem reflexão Java)
+   * Bit 4 (`0x10`): `isFiltering` (indica que `RequestId` opera como `FilteringId`)
+   * Bit 5 (`0x20`): `isFilteringObjectClass` (1 = Objeto, 0 = Interação)
+   * Bit 6 (`0x40`): Reservado Portico
+   * Bit 7 (`0x80`): **Extensão Valhalla (`FlagValhallaExtended`)**
+3. **Distribuição dos Nibbles do Byte 4:**
+   * High Nibble (bits 7-4): `FederationID` (uint4, faixa 0..15).
+   * Low Nibble (bits 3-0): `CallType` (uint4, enum `DataMessage=0`, `Notification=1`, `ControlRequest=2`, `ControlResponseOK=3`, `ControlResponseErr=4`).
+4. **Enquadramento de Transporte TCP (*TCP Bundling*):**
+   * O Portico nunca envia pacotes soltos no socket TCP. O `Bundler.java` e o `TcpChannel.java` encapsulam cada transmissão com o marcador mágico `0x0000CAFE` (`int32`), seguido pelo `bundleLength` (`int32`), seguido pelas mensagens contendo cabeçalho de 12 bytes e seus respectivos payloads.
+
+---
+
+### 13. Implementação e Validação Prática em Go (Sprint 1)
+
+1. **Refatoração do Pacote `pkg/portico/wire`:**
+   * `pkg/portico/wire/header.go`: Implementação rigorosa do cabeçalho de 12 bytes, alinhamento de bits Big-Endian, enums `CallType` e `MessageType`, métodos `MarshalTo` e `UnmarshalBinary`.
+   * `pkg/portico/wire/header_test.go`: Bateria de testes unitários cobrindo roundtrip, limites de 24 bits de payload (16 MB), variações completas de 0 a 15 em FederationID e 0 a 4 em CallType.
+   * **Resultados dos Benchmarks:**
+     * `BenchmarkHeader_MarshalTo`: **3.22 ns/op** | **0 B/op** | **0 allocs/op**
+     * `BenchmarkHeader_UnmarshalBinary`: **1.93 ns/op** | **0 B/op** | **0 allocs/op**
+2. **Refatoração do Pacote `pkg/portico/transport`:**
+   * `pkg/portico/transport/tcp_client.go`: Arquitetura full-duplex de rede em Go com mutexes segregados (`sendMu`, `recvMu`, `stateMu`), handshake oficial (`0xBEEF` + welcome + `0xFEED` <-> `0xFEED`) e enquadramento TCP bundle oficial (`0xCAFE`).
+   * `pkg/portico/transport/tcp_client_test.go`: Servidor mock completo simulando tanto o handshake quanto a troca bidirecional de pacotes `0xCAFE`. **Status: PASS (0.34s)**.
+3. **Teste de Integração Real contra o Oráculo Portico:**
+   * `test/integration/live_portico_test.go`: Conexão ao vivo em `192.168.1.226:52295`.
+   * Resposta oficial recebida: `[Portico Router (3.0.0 (build 0)): Your ID5]`.
+   * Pacote `RtiProbe` (12 bytes, bundle `0xCAFE`) enviado e processado pelo servidor com sucesso, sem nenhuma ocorrência de `Broken pipe`. **Status: PASS (1.01s)**.
+
+---
+
+*Fim da entrada diária de 24/11/2026. Próximo marco: Implementação das mensagens de ciclo de vida (CreateFederation, JoinFederation, ResignFederation) com correlation ID e serialização manual.*
