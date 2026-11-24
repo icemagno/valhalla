@@ -41,6 +41,9 @@ func main() {
 	}
 	fmt.Printf("[+] Conexao estabelecida: %s\n", client.WelcomeMessage())
 
+	var assignedFederateHandle int32 = -1
+	var assignedFederationHandle int32 = -1
+
 	// Interceptar Ctrl+C para saida graciosa (Resign)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -48,9 +51,17 @@ func main() {
 	cleanup := func() {
 		fmt.Printf("\n[!] Solicitando desligamento gracioso (ResignFederation)...\n")
 		resignObj := wire.NewResignFederationObject(*fedName, *nodeName, *fedType, "NO_ACTION")
+		if assignedFederateHandle > 0 {
+			resignObj.Set("sourceFederate", assignedFederateHandle)
+		}
 		resignPayload, err := wire.SerializePorticoControlMessage(resignObj)
 		if err == nil {
-			resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 999, 1, 0, uint32(len(resignPayload)))
+			srcHandle := uint16(1)
+			if assignedFederateHandle > 0 {
+				srcHandle = uint16(assignedFederateHandle)
+			}
+			resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 999, srcHandle, 0, uint32(len(resignPayload)))
+			resignHdr.SourceHandle = srcHandle
 			_ = client.SendPacket(resignHdr, resignPayload)
 			respHdr, _, err := client.ReadPacketTimeout(2 * time.Second)
 			if err == nil {
@@ -95,11 +106,30 @@ func main() {
 
 	fmt.Printf("[+] INGRESSO BEM-SUCEDIDO! WelcomePack recebido (%d bytes).\n", len(joinRespPayload))
 
+	wpInfo, err := wire.ParseWelcomePack(joinRespPayload)
+	if err != nil {
+		fmt.Printf("[!] Aviso ao processar WelcomePack: %v\n", err)
+	} else {
+		assignedFederationHandle = wpInfo.FederationHandle
+		assignedFederateHandle = wpInfo.FederateHandle
+		fmt.Printf("[+] WelcomePack validado: FedHandle=%d, FederateHandle=%d (%s)\n",
+			assignedFederationHandle, assignedFederateHandle, wpInfo.FederateType)
+	}
+
 	// 3. Enviar SyncPointAchieved
 	if *syncPoint != "" {
-		fmt.Printf("\n[3/4] Anunciando conquista do ponto de sincronizacao '%s'...\n", *syncPoint)
-		syncObj := wire.NewSyncPointAchievedObject(*syncPoint, 1)
-		syncObj.Set("targetFederation", int32(1)) // Handle da ExampleFederation
+		srcHandle := assignedFederateHandle
+		if srcHandle <= 0 {
+			srcHandle = 1
+		}
+		targetFed := assignedFederationHandle
+		if targetFed <= 0 {
+			targetFed = 1
+		}
+		fmt.Printf("\n[3/4] Anunciando conquista do ponto de sincronizacao '%s' (Handle %d)...\n", *syncPoint, srcHandle)
+		syncObj := wire.NewSyncPointAchievedObject(*syncPoint, srcHandle)
+		syncObj.Set("targetFederation", targetFed)
+		syncObj.Set("sourceFederate", srcHandle)
 
 		syncPayload, err := wire.SerializePorticoControlMessage(syncObj)
 		if err != nil {
@@ -108,7 +138,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		syncHdr := wire.NewControlRequest(wire.MsgAchieveSyncPoint, 2, 1, 0, uint32(len(syncPayload)))
+		syncHdr := wire.NewControlRequest(wire.MsgAchieveSyncPoint, 2, uint16(srcHandle), 0, uint32(len(syncPayload)))
+		syncHdr.SourceHandle = uint16(srcHandle)
 		if err := client.SendPacket(syncHdr, syncPayload); err != nil {
 			fmt.Printf("[-] Erro ao enviar SyncPointAchieved: %v\n", err)
 			cleanup()

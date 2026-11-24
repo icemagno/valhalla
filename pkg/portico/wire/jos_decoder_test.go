@@ -111,6 +111,46 @@ func TestJOSDecoder_Roundtrip_SyncPointAchieved(t *testing.T) {
 	}
 }
 
+func TestJOSDecoder_ParseWelcomePack(t *testing.T) {
+	// Payload simulando bloco serializado do WelcomePack
+	// "WelcomePack" + SUID (8b) + Flags (1b: 0x0C) + NumFields (2b: 0x0000) + TC_ENDBLOCKDATA (1b: 0x78) + SuperClass (1b: 0x70) + TC_BLOCKDATA (1b: 0x77) + BlockLen (1b: 0x41)
+	prefix := []byte("WelcomePack\x03\xCC\x42\xB0\xDA\x80\x25\xD4\x0C\x00\x00\x78\x70\x77\x41")
+	// 4 bytes fedHandle (1), 4 bytes federateHandle (42)
+	handles := []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x2A}
+	// UTF strings:
+	fedName := []byte("\x00\x11ExampleFederation")
+	fedNode := []byte("\x00\x0CValhallaNode")
+	fedType := []byte("\x00\x09ieee1516e")
+
+	var raw []byte
+	raw = append(raw, prefix...)
+	raw = append(raw, handles...)
+	raw = append(raw, fedName...)
+	raw = append(raw, fedNode...)
+	raw = append(raw, fedType...)
+
+	info, err := ParseWelcomePack(raw)
+	if err != nil {
+		t.Fatalf("falha ao parsear WelcomePack: %v", err)
+	}
+
+	if info.FederationHandle != 1 {
+		t.Errorf("FederationHandle esperado 1, obtido %d", info.FederationHandle)
+	}
+	if info.FederateHandle != 42 {
+		t.Errorf("FederateHandle esperado 42, obtido %d", info.FederateHandle)
+	}
+	if info.FederationName != "ExampleFederation" {
+		t.Errorf("FederationName esperado ExampleFederation, obtido %s", info.FederationName)
+	}
+	if info.FederateName != "ValhallaNode" {
+		t.Errorf("FederateName esperado ValhallaNode, obtido %s", info.FederateName)
+	}
+	if info.FederateType != "ieee1516e" {
+		t.Errorf("FederateType esperado ieee1516e, obtido %s", info.FederateType)
+	}
+}
+
 func TestJOSDecoder_InvalidHeaders(t *testing.T) {
 	// 1. Dados muito curtos
 	dec := NewJOSDecoder([]byte{0xAC, 0xED})

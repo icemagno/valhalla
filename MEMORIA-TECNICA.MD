@@ -255,4 +255,31 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Próximo marco: Decodificação do WelcomePack recebido, registro de sincronização e avanço de tempo com o Thor.*
+### 17. Extração Canônica do WelcomePack e Sincronização Dinâmica de Handles (Sprint 1)
+
+1. **Diagnóstico do Impasse do Thor ("Still waiting for announce"):**
+   * Nos logs do CRTI, verificou-se o aviso crítico:
+     `WARN portico.rti.{ExampleFederation}: Error sending message [AnnounceSyncPoint] via connection [multicast]`
+     `org.portico.lrc.compat.JRTIinternalError: Async Messages no longer supported - move to Notificatins`
+   * O executivo Portico falha ao despachar mensagens de controle assíncronas via `multicast`. Além disso, a imagem Docker define a variável de ambiente `ENV RTI_RID_FILE=/opt/portico-2.2.0/RTI.rid`, o que faz com que o Portico ignore qualquer arquivo `RTI.rid` local no diretório do exemplo e continue forçando `multicast`. Para que o Thor funcione, o arquivo `/opt/portico-2.2.0/RTI.rid` deve ser reconfigurado com `transport="tcp-client"` apontando para `127.0.0.1:52295`.
+2. **Diagnóstico do Impasse no Valhalla ("Federation still not synchronized"):**
+   * Ao ingressar na federação, o CRTI atribui um handle numérico sequencial único para o novo federado (ex: `2`, `3`, `10`).
+   * No Valhalla, a mensagem `SyncPointAchieved` estava enviando `sourceFederate = 1` (o handle do próprio Thor). Como resultado, o CRTI creditava o ponto de sincronização ao Thor duas vezes, enquanto o federado Valhalla permanecia sem atingir o ponto.
+3. **Engenharia Reversa do WelcomePack (`WelcomePack.java`):**
+   * O payload de 33 KB (`ExtendedSuccessResponse`) contém um mapa com a chave `"result"`, apontando para a instância de `org.portico2.common.services.federation.msg.WelcomePack`.
+   * A classe implementa `java.io.Externalizable` (`0x0C = SC_EXTERNALIZABLE | SC_BLOCK_DATA`). Seu bloco de dados (`0x77 0x41`) armazena sequencialmente:
+     * `federationHandle` (int32 big-endian)
+     * `federateHandle` (int32 big-endian)
+     * `federationName` (string UTF: len uint16 + bytes)
+     * `federateName` (string UTF: len uint16 + bytes)
+     * `federateType` (string UTF: len uint16 + bytes)
+4. **Implementação de `ParseWelcomePack` ([`pkg/portico/wire/jos_portico.go`](pkg/portico/wire/jos_portico.go)):**
+   * Função robusta que localiza e decodifica os campos essenciais do `WelcomePack`, preenchendo a struct `WelcomePackInfo`.
+   * Teste unitário adicionado em [`pkg/portico/wire/jos_decoder_test.go`](pkg/portico/wire/jos_decoder_test.go) com 100% de aprovação.
+5. **Atualização do Federado Valhalla ([`cmd/valhalla/main.go`](cmd/valhalla/main.go)):**
+   * O cliente Valhalla agora inspeciona dinamicamente o `WelcomePack`, adquire seu `FederateHandle` e `FederationHandle` reais atribuídos pelo CRTI, e despacha `SyncPointAchieved` e `ResignFederation` utilizando rigorosamente seus handles oficiais.
+   * O CRTI responde `ControlResponseOK(3)` imediatamente para ambas as operações.
+
+---
+
+*Fim da entrada diária de 24/11/2026. Próximo marco: Execução sincronizada em rede (Thor + Valhalla) e troca de atributos de objetos FOM.*

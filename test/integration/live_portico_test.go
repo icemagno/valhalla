@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -76,26 +77,52 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 		t.Fatalf("CRTI retornou erro na resposta: %s", joinRespHdr.CallType)
 	}
 
-	federateHandle := joinRespHdr.TargetHandle
-	t.Logf("Federado %s ingressado com sucesso absoluto na federação viva (Handle %d)!", nodeName, federateHandle)
+	t.Logf("Federado %s ingressou com sucesso (WelcomePack recebido, TargetHandle %d)!", nodeName, joinRespHdr.TargetHandle)
 
-	// 2. Anunciar que alcançou o ponto de sincronização ReadyToRun
-	// targetFederation deve ser 1 (ExampleFederation)
-	syncObj := wire.NewSyncPointAchievedObject("ReadyToRun", 3)
-	syncObj.Set("targetFederation", int32(1))
-	syncObj.Set("sourceFederate", int32(3))
+	// Inspecionar o objeto deserializado do WelcomePack
+	wpObj, wpErr := wire.DeserializePorticoControlMessage(joinRespPayload)
+	if wpErr != nil {
+		t.Logf("Aviso ao deserializar WelcomePack: %v", wpErr)
+	} else {
+		t.Logf("WelcomePack Class: %s (Flags: 0x%02X)", wpObj.Class.Name, wpObj.Class.Flags)
+		idxWP := bytes.Index(joinRespPayload, []byte("WelcomePack"))
+		if idxWP != -1 {
+			t.Logf("WelcomePack at index %d. Next 80 bytes HEX: %X", idxWP, joinRespPayload[idxWP:idxWP+80])
+		}
+		for curr := wpObj.Class; curr != nil; curr = curr.Super {
+			t.Logf("  Class %s:", curr.Name)
+			for _, f := range curr.Fields {
+				t.Logf("    field %s (%s)", f.Name, f.Type)
+			}
+		}
+		for k, v := range wpObj.Fields {
+			t.Logf("  Field [%s]: %v (Type: %T)", k, v, v)
+		}
+	}
+
+	wpInfo, err := wire.ParseWelcomePack(joinRespPayload)
+	if err != nil {
+		t.Fatalf("falha ao analisar WelcomePack: %v", err)
+	}
+	t.Logf("Federado %s ingressado com sucesso absoluto! FedHandle=%d, FederateHandle=%d (%s)",
+		wpInfo.FederateName, wpInfo.FederationHandle, wpInfo.FederateHandle, wpInfo.FederateType)
+
+	// 2. Anunciar que alcançou o ponto de sincronização ReadyToRun com o handle REAL
+	syncObj := wire.NewSyncPointAchievedObject("ReadyToRun", wpInfo.FederateHandle)
+	syncObj.Set("targetFederation", wpInfo.FederationHandle)
+	syncObj.Set("sourceFederate", wpInfo.FederateHandle)
 
 	syncPayload, err := wire.SerializePorticoControlMessage(syncObj)
 	if err != nil {
 		t.Fatalf("falha ao serializar SyncPointAchieved: %v", err)
 	}
 
-	syncHdr := wire.NewControlRequest(wire.MsgAchieveSyncPoint, 2, 1, 0, uint32(len(syncPayload)))
-	syncHdr.SourceHandle = 3
+	syncHdr := wire.NewControlRequest(wire.MsgAchieveSyncPoint, 2, uint16(wpInfo.FederateHandle), 0, uint32(len(syncPayload)))
+	syncHdr.SourceHandle = uint16(wpInfo.FederateHandle)
 	if err := client.SendPacket(syncHdr, syncPayload); err != nil {
 		t.Fatalf("falha ao enviar SyncPointAchieved: %v", err)
 	}
-	t.Logf("SyncPointAchieved ('ReadyToRun') enviado com sucesso pelo federado %s (Federation 1).", nodeName)
+	t.Logf("SyncPointAchieved ('ReadyToRun') enviado com sucesso pelo federado %s (Handle %d).", nodeName, wpInfo.FederateHandle)
 
 	// Aguardar e processar a resposta oficial de SyncPointAchieved do CRTI
 	syncRespHdr, syncRespPayload, err := client.ReadPacketTimeout(3 * time.Second)
@@ -116,8 +143,8 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 		t.Fatalf("falha ao serializar ResignFederation: %v", err)
 	}
 
-	resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 3, 0, 0, uint32(len(resignPayload)))
-	resignHdr.SourceHandle = federateHandle
+	resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 3, uint16(wpInfo.FederateHandle), 0, uint32(len(resignPayload)))
+	resignHdr.SourceHandle = uint16(wpInfo.FederateHandle)
 	if err := client.SendPacket(resignHdr, resignPayload); err != nil {
 		t.Fatalf("falha ao enviar ResignFederation: %v", err)
 	}
