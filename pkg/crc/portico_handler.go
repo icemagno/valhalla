@@ -109,6 +109,17 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
 			log.Printf("[CRC-Portico] Synchronization point '%s' registered by federate [%d]", label, federateID)
 
+			// Anunciar o ponto de sincronização para todos os federados da federação
+			if currentFed != nil {
+				if annPayload, err := wire.BuildAnnounceSyncPointPayload(label); err == nil {
+					for _, f := range currentFed.GetAllFederates() {
+						if f.Session != nil {
+							_ = f.Session.SendNotification(uint8(wire.MsgAnnounceSyncPoint), annPayload)
+						}
+					}
+				}
+			}
+
 		case wire.MsgAchieveSyncPoint:
 			label := "ReadyToRun"
 			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil {
@@ -133,9 +144,11 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				log.Printf("[CRC-Portico] >>> FEDERATION SYNCHRONIZED at point '%s'!", label)
 				// Broadcast FederationSynchronized para todos os federados da federação
 				if currentFed != nil {
-					for _, f := range currentFed.GetAllFederates() {
-						if f.Session != nil {
-							_ = f.Session.SendNotification(uint8(wire.MsgSyncPointFederation), wire.BuildSuccessResponsePayload())
+					if syncPayload, err := wire.BuildFederationSynchronizedPayload(label); err == nil {
+						for _, f := range currentFed.GetAllFederates() {
+							if f.Session != nil {
+								_ = f.Session.SendNotification(uint8(wire.MsgFederationSynchronized), syncPayload)
+							}
 						}
 					}
 				}

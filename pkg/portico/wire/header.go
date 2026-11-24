@@ -60,10 +60,12 @@ const (
 	MsgErrorResponse   MessageType = 15
 
 	// Pontos de Sincronizacao (040-049)
-	MsgRegisterSyncPoint   MessageType = 40
-	MsgAnnounceSyncPoint   MessageType = 42
-	MsgAchieveSyncPoint    MessageType = 43
-	MsgSyncPointFederation MessageType = 45
+	MsgRegisterSyncPoint       MessageType = 40
+	MsgRegisterSyncPointResult MessageType = 41
+	MsgAnnounceSyncPoint       MessageType = 42
+	MsgAchieveSyncPoint        MessageType = 43
+	MsgFederationSynchronized  MessageType = 44
+	MsgSyncPointFederation     MessageType = 44
 
 	// Gerenciamento de Objetos (050-079)
 	MsgPublishObjectClass   MessageType = 50

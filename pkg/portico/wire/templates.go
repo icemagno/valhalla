@@ -59,3 +59,15 @@ func BuildWelcomePackPayload(fedHandle, federateHandle int32, optNames ...string
 	resp := metamodel.NewExtendedSuccessResponse(wp)
 	return SerializePorticoControlMessage(resp)
 }
+
+// BuildAnnounceSyncPointPayload constrói o payload de notificação AnnounceSyncPoint
+func BuildAnnounceSyncPointPayload(label string) ([]byte, error) {
+	obj := metamodel.NewAnnounceSyncPoint(label)
+	return SerializePorticoControlMessage(obj)
+}
+
+// BuildFederationSynchronizedPayload constrói o payload de notificação FederationSynchronized
+func BuildFederationSynchronizedPayload(label string) ([]byte, error) {
+	obj := metamodel.NewFederationSynchronized(label)
+	return SerializePorticoControlMessage(obj)
+}
