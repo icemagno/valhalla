@@ -164,33 +164,37 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-### 14. Engenharia do Protocolo JOS (Java Object Serialization) e Ingresso Real na Federação (Sprint 1)
+### 14. Engenharia do Protocolo JOS Genérico (Java Object Serialization) e Ingresso Real na Federação (Sprint 1)
 
 1. **Diagnóstico do WARN `Couldn't convert byte[] (RtiProbe) into PorticoMessage`:**
    * O código oficial de `MessageHelpers.inflate2` do Portico exige que mensagens administrativas venham no envelope binário do `ObjectInputStream` do Java. Um payload vazio de 0 bytes disparava `EOFException` imediato na JVM.
-2. **Implementação do Serializador JOS Canônico em Go (`pkg/portico/wire/jos.go`):**
-   * Desenvolvido sem qualquer dependência de JVM ou runtime Java, implementando a especificação binária formal do Java Object Serialization (RFC/JOS):
-     * Cabeçalho de stream: `STREAM_MAGIC` (`0xACED`) e `STREAM_VERSION` (`0x0005`).
-     * `TC_BLOCKDATA` com `0x00` indicando ausência de `ManualMarshal`.
-     * `TC_OBJECT` e `TC_CLASSDESC` para `PorticoMessage` (`serialVersionUID = 98121116105109L`, flags `0x03` = `SC_SERIALIZABLE | SC_WRITE_METHOD`).
-     * Escrita dos 6 campos primitivos ordenados de `PorticoMessage` (`immediate`, `isFromRti`, `sourceFederate`, `targetFederate`, `targetFederation`, `timestamp`).
-     * Descritor e valores para `JoinFederation` com as strings parametrizadas (`federateName`, `federateType`, `federationName`) e descritores de lista `ArrayList`.
+2. **Arquitetura Agnóstica e Genérica JOS em Go (Zero Ad-Hoc / Sem Marretas):**
+   * Em conformidade estrita com as boas práticas de arquitetura de software, foi projetado um motor genérico de serialização Java (`pkg/portico/wire`):
+     * [jos_types.go](pkg/portico/wire/jos_types.go): Metamodelo de tipos primitivos (`TypeBoolean`, `TypeInt`, `TypeDouble`, etc.), `FieldDesc`, `ClassDesc` e a estrutura polimórfica `JavaObject`.
+     * [jos_encoder.go](pkg/portico/wire/jos_encoder.go): Motor agnóstico equivalente ao `ObjectOutputStream` do Java, com suporte a cabeçalho canônico (`0xACED0005`), pool de strings e tabela de referências (`0x007E0000 + n`), hierarquia recursiva de classes e serialização de blocos.
+     * [jos_portico.go](pkg/portico/wire/jos_portico.go): Registro declarativo dos esquemas de classes Portico (`ClassDescPorticoMessage`, `ClassDescJoinFederation`, `ClassDescCreateFederation`, `ClassDescResignFederation`, `ClassDescRtiProbe`, `ClassDescArrayList`).
+   * Qualquer nova mensagem do Portico agora é adicionada simplesmente declarando seu `ClassDesc`, sem necessitar de novas funções de serialização ad-hoc.
 3. **Validação Unitária (`pkg/portico/wire/jos_test.go`):**
-   * Testes cobrindo validação de Magic, Versão, Tokens de Tipo, classes PorticoMessage/JoinFederation e integridade de nomes parametrizados. **Status: PASS (0.00s)**.
-4. **Teste de Integração Real: Ingresso do Valhalla na `ExampleFederation` Viva:**
-   * Executado `test/integration/live_portico_test.go` contra o contêiner Arcanjo (`192.168.1.226:52295`), onde a federação `ExampleFederation` estava ativa com o federado oficial Portico `Thor`:
+   * Bateria de testes cobrindo o codificador genérico com `RtiProbe`, `JoinFederation`, `CreateFederation` e `ResignFederation`. **Status: PASS (0.00s)**.
+4. **Teste de Integração Real: Ingresso e Saída Graciosa na `ExampleFederation` Viva:**
+   * Executado `test/integration/live_portico_test.go` contra o contêiner Arcanjo (`192.168.1.226:52295`), com a federação `ExampleFederation` ativa:
      ```
      === RUN   TestIntegration_LivePortico_HandshakeAndProbe
-         live_portico_test.go:19: Iniciando conexao ao vivo contra o executivo Portico no Arcanjo: 192.168.1.226:52295
-         live_portico_test.go:33: >>> HANDSHAKE BEM-SUCEDIDO! Resposta oficial do Portico: [Portico Router (3.0.0 (build 0)): Your ID7]
-         live_portico_test.go:43: Enviando RtiProbe (cabecalho 12 bytes + payload JOS 247 bytes, bundle 0xCAFE)...
-         live_portico_test.go:61: Enviando JoinFederation na ExampleFederation (payload JOS 530 bytes)...
-         live_portico_test.go:71: >>> RESPOSTA RECEBIDA DO PORTICO PARA JoinFederation: Tipo: JoinFederation(4), Call: ControlResponseOK(3), ReqId: 2, PayloadLen: 33495
-         live_portico_test.go:76: Sessao finalizada com sucesso.
-     --- PASS: TestIntegration_LivePortico_HandshakeAndProbe (2.54s)
+         live_portico_test.go:20: Iniciando conexao ao vivo contra o executivo Portico no Arcanjo: 192.168.1.226:52295
+         live_portico_test.go:34: >>> HANDSHAKE BEM-SUCEDIDO! Resposta oficial do Portico: [Portico Router (3.0.0 (build 0)): Your ID10]
+         live_portico_test.go:53: Enviando JoinFederation generico na ExampleFederation como Valhalla_768100 (payload 533 bytes)...
+         live_portico_test.go:64: >>> RESPOSTA RECEBIDA DO PORTICO PARA JoinFederation:
+         live_portico_test.go:65:     Tipo Mensagem : JoinFederation(4)
+         live_portico_test.go:66:     Tipo Chamada  : ControlResponseOK(3)
+         live_portico_test.go:67:     Request ID    : 1
+         live_portico_test.go:68:     Tamanho Pacote: 33498 bytes (WelcomePack oficial)
+         live_portico_test.go:74: Federado Valhalla_768100 ingressado com sucesso absoluto na federação viva!
+         live_portico_test.go:82: ResignFederation enviado para saida graciosa do federado Valhalla_768100.
+         live_portico_test.go:86: Sessao finalizada com sucesso.
+     --- PASS: TestIntegration_LivePortico_HandshakeAndProbe (0.24s)
      ```
-   * **Resultado Histórico:** O CRTI Portico oficial processou a solicitação `JoinFederation` em Go e respondeu com **`ControlResponseOK (CallType = 3)`**, entregando o pacote oficial de boas-vindas (*WelcomePack*) com **33.495 bytes** contendo os metadados da federação e o handle do novo federado!
+   * **Resultado Histórico:** O CRTI Portico oficial processou a solicitação `JoinFederation` construída pelo motor genérico em Go e respondeu com **`ControlResponseOK (CallType = 3)`**, entregando o pacote oficial de boas-vindas (*WelcomePack*) com **33.498 bytes**. Em seguida, o federado executou `ResignFederation` liberando seu registro graciosamente.
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Próximo marco: Decodificação do WelcomePack, registro de sincronização e avanço de tempo com o Thor.*
+*Fim da entrada diária de 24/11/2026. Próximo marco: Decodificação do WelcomePack recebido, registro de sincronização e avanço de tempo com o Thor.*

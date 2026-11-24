@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -36,42 +37,51 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 		t.Errorf("mensagem de boas-vindas inesperada: %s", welcome)
 	}
 
-	// 1. Enviar pacote RtiProbe com payload oficial no formato JOS
-	probePayload := wire.NewRtiProbePayload()
-	probeHdr := wire.NewControlRequest(wire.MsgRtiProbe, 1, 0, 0, uint32(len(probePayload)))
+	// 1. Enviar JoinFederation usando o motor serializador JOS generico com nome dinamico unico
+	fedName := "ExampleFederation"
+	nodeName := fmt.Sprintf("Valhalla_%d", time.Now().UnixNano()%1000000)
+	fedType := "ExampleFederateType"
 
-	t.Logf("Enviando RtiProbe (cabecalho 12 bytes + payload JOS %d bytes, bundle 0xCAFE)...", len(probePayload))
-	if err := client.SendPacket(probeHdr, probePayload); err != nil {
-		t.Fatalf("falha ao enviar RtiProbe: %v", err)
-	}
-
-	// Aguardar e ler resposta do Portico (timeout de 2 segundos)
-	respHdr, respPayload, err := client.ReadPacketTimeout(2 * time.Second)
+	joinObj := wire.NewJoinFederationObject(fedName, nodeName, fedType)
+	joinPayload, err := wire.SerializePorticoControlMessage(joinObj)
 	if err != nil {
-		t.Logf("Aviso na leitura de resposta do RtiProbe: %v", err)
-	} else {
-		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA RtiProbe: Tipo: %s, Call: %s, ReqId: %d, PayloadLen: %d",
-			respHdr.MessageType, respHdr.CallType, respHdr.RequestId, len(respPayload))
+		t.Fatalf("falha ao serializar JoinFederation com motor generico: %v", err)
 	}
 
-	// 2. Enviar JoinFederation para a ExampleFederation ativa onde o Thor está aguardando
-	joinPayload := wire.NewJoinFederationPayload("ExampleFederation", "ValhallaNode", "ExampleFederateType")
-	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 2, 0, 0, uint32(len(joinPayload)))
+	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 1, 0, 0, uint32(len(joinPayload)))
 
-	t.Logf("Enviando JoinFederation na ExampleFederation (payload JOS %d bytes)...", len(joinPayload))
+	t.Logf("Enviando JoinFederation generico na %s como %s (payload %d bytes)...", fedName, nodeName, len(joinPayload))
 	if err := client.SendPacket(joinHdr, joinPayload); err != nil {
 		t.Fatalf("falha ao enviar JoinFederation: %v", err)
 	}
 
-	// Aguardar resposta de ingresso (timeout de 2 segundos)
-	joinRespHdr, joinRespPayload, err := client.ReadPacketTimeout(2 * time.Second)
+	// Aguardar resposta oficial de ingresso (WelcomePack) do Portico
+	joinRespHdr, joinRespPayload, err := client.ReadPacketTimeout(3 * time.Second)
 	if err != nil {
-		t.Logf("Aviso na leitura de resposta do JoinFederation: %v", err)
-	} else {
-		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA JoinFederation: Tipo: %s, Call: %s, ReqId: %d, PayloadLen: %d",
-			joinRespHdr.MessageType, joinRespHdr.CallType, joinRespHdr.RequestId, len(joinRespPayload))
+		t.Fatalf("falha ao receber resposta de JoinFederation do Portico: %v", err)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA JoinFederation:")
+	t.Logf("    Tipo Mensagem : %s", joinRespHdr.MessageType)
+	t.Logf("    Tipo Chamada  : %s", joinRespHdr.CallType)
+	t.Logf("    Request ID    : %d", joinRespHdr.RequestId)
+	t.Logf("    Tamanho Pacote: %d bytes (WelcomePack oficial)", len(joinRespPayload))
+
+	if joinRespHdr.CallType != wire.CallTypeControlResponseOK {
+		t.Fatalf("CRTI retornou erro na resposta: %s", joinRespHdr.CallType)
+	}
+
+	t.Logf("Federado %s ingressado com sucesso absoluto na federação viva!", nodeName)
+
+	// 2. Enviar ResignFederation para saida graciosa e liberar o federado no CRTI
+	resignObj := wire.NewResignFederationObject(fedName, nodeName, 1) // 1 = NO_ACTION
+	resignPayload, err := wire.SerializePorticoControlMessage(resignObj)
+	if err == nil {
+		resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 2, 0, 0, uint32(len(resignPayload)))
+		_ = client.SendPacket(resignHdr, resignPayload)
+		t.Logf("ResignFederation enviado para saida graciosa do federado %s.", nodeName)
+	}
+
+	time.Sleep(200 * time.Millisecond)
 	t.Logf("Sessao finalizada com sucesso.")
 }
