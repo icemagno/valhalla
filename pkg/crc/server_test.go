@@ -35,6 +35,12 @@ func TestCRCServer_DualProtocolMultiplexing(t *testing.T) {
 		t.Fatalf("falha lendo mensagem de boas-vindas: %v", err)
 	}
 
+	// Lê 0xFEED do servidor
+	var srvFeed [4]byte
+	if _, err := porticoConn.Read(srvFeed[:]); err != nil {
+		t.Fatalf("falha lendo 0xFEED do servidor: %v", err)
+	}
+
 	// Responde 0xFEED
 	var ready [4]byte
 	ready[2], ready[3] = 0xFE, 0xED

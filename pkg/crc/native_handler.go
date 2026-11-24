@@ -96,6 +96,23 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			_ = session.SendMessage(respHdr, idBuf[:])
 			log.Printf("[CRC-Native] Federado nativo [%s] ingressou com handle [%d]", nodeName, federateID)
 
+		case NativeMsgRegisterSyncPoint:
+			label := string(payload)
+			if currentFed != nil {
+				_, _ = currentFed.RegisterSyncPoint(label, nil, federateID)
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+			log.Printf("[CRC-Native] Federado nativo [%d] registrou ponto '%s'", federateID, label)
+
 		case NativeMsgAchieveSyncPoint:
 			label := string(payload)
 			if label == "" {
@@ -131,6 +148,68 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				}
 			}
 
+		case NativeMsgRegisterObject:
+			var classHandle int32
+			var objName string
+			if len(payload) >= 6 {
+				classHandle = int32(uint32(payload[0])<<24 | uint32(payload[1])<<16 | uint32(payload[2])<<8 | uint32(payload[3]))
+				nameLen := int(uint16(payload[4])<<8 | uint16(payload[5]))
+				if len(payload) >= 6+nameLen {
+					objName = string(payload[6 : 6+nameLen])
+				}
+			}
+
+			var objHandle int32 = 1
+			if currentFed != nil {
+				obj, err := currentFed.RegisterObjectInstance(classHandle, objName, federateID)
+				if err == nil {
+					objHandle = obj.Handle
+					objName = obj.Name
+				}
+			}
+
+			// Responder OK com o handle do objeto registrado
+			var respPayload [4]byte
+			respPayload[0] = byte(objHandle >> 24)
+			respPayload[1] = byte(objHandle >> 16)
+			respPayload[2] = byte(objHandle >> 8)
+			respPayload[3] = byte(objHandle)
+
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				PayloadLen: 4,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, respPayload[:])
+			log.Printf("[CRC-Native] Objeto registrado: handle=%d, class=%d, name=%s", objHandle, classHandle, objName)
+
+			// Broadcast DiscoverObject para os outros federados
+			if currentFed != nil {
+				discPayload := make([]byte, 10+len(objName))
+				discPayload[0] = byte(objHandle >> 24)
+				discPayload[1] = byte(objHandle >> 16)
+				discPayload[2] = byte(objHandle >> 8)
+				discPayload[3] = byte(objHandle)
+				discPayload[4] = byte(classHandle >> 24)
+				discPayload[5] = byte(classHandle >> 16)
+				discPayload[6] = byte(classHandle >> 8)
+				discPayload[7] = byte(classHandle)
+				discPayload[8] = byte(len(objName) >> 8)
+				discPayload[9] = byte(len(objName))
+				copy(discPayload[10:], []byte(objName))
+
+				for _, f := range currentFed.GetAllFederates() {
+					if f.ID != federateID && f.Session != nil {
+						_ = f.Session.SendNotification(NativeMsgDiscoverObject, discPayload)
+					}
+				}
+			}
+
 		case NativeMsgUpdateAttributes:
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
@@ -152,6 +231,43 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				}
 			}
 
+		case NativeMsgSendInteraction:
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+			// Replicar interacao para todos os federados na federação
+			if currentFed != nil {
+				for _, f := range currentFed.GetAllFederates() {
+					if f.ID != federateID && f.Session != nil {
+						_ = f.Session.SendNotification(NativeMsgReceiveInteraction, payload)
+					}
+				}
+			}
+
+		case NativeMsgTimeAdvanceRequest:
+			// Responder OK
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+			// Conceder TAG (Time Advance Grant) imediatamente de volta ao federado
+			_ = session.SendNotification(NativeMsgTimeAdvanceGrant, payload)
+
 		case NativeMsgResign:
 			if currentFed != nil && federateID > 0 {
 				_, _ = currentFed.Resign(federateID)
@@ -167,7 +283,8 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 			log.Printf("[CRC-Native] Federado nativo [%d] desingressou graciosamente (Resign)", federateID)
-			return nil
+			currentFed = nil
+			federateID = -1
 		}
 	}
 }

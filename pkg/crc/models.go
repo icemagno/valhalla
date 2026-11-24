@@ -1,6 +1,7 @@
 package crc
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -217,3 +218,60 @@ func (f *FederationExecution) GetAllFederates() []*Federate {
 	}
 	return list
 }
+
+// RegisterObjectInstance registra uma nova instância de objeto na federação
+func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name string, ownerID int32) (*ObjectInstance, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if name != "" {
+		if _, exists := f.nameToObjID[name]; exists {
+			return nil, ErrObjectInstanceNameNotUnique
+		}
+	} else {
+		name = fmt.Sprintf("HLAobjectRoot_%d", f.nextObjectHandle)
+	}
+
+	handle := f.nextObjectHandle
+	f.nextObjectHandle++
+
+	obj := &ObjectInstance{
+		Handle:      handle,
+		ClassHandle: classHandle,
+		Name:        name,
+		OwnerID:     ownerID,
+		Attributes:  make(map[int32][]byte),
+		UpdatedAt:   time.Now(),
+	}
+
+	f.objects[handle] = obj
+	f.nameToObjID[name] = handle
+	return obj, nil
+}
+
+// UpdateObjectAttributes atualiza os atributos de uma instância com Merkle Root
+func (f *FederationExecution) UpdateObjectAttributes(objHandle int32, attrs map[int32][]byte, merkleRoot [32]byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	obj, exists := f.objects[objHandle]
+	if !exists {
+		return ErrObjectInstanceNotFound
+	}
+
+	for k, v := range attrs {
+		obj.Attributes[k] = v
+	}
+	obj.MerkleRoot = merkleRoot
+	obj.UpdatedAt = time.Now()
+	return nil
+}
+
+// GetObjectInstance busca uma instância de objeto pelo handle
+func (f *FederationExecution) GetObjectInstance(handle int32) (*ObjectInstance, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	obj, exists := f.objects[handle]
+	return obj, exists
+}
+

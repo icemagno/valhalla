@@ -209,6 +209,14 @@ func performPorticoHandshake(conn net.Conn, writer io.Writer, reader io.Reader) 
 	if _, err := writer.Write([]byte(PorticoWelcomeMsg)); err != nil {
 		return err
 	}
+
+	// Servidor envia sinal de prontidão 0xFEED
+	var srvReady [4]byte
+	binary.BigEndian.PutUint32(srvReady[:], 0xFEED)
+	if _, err := writer.Write(srvReady[:]); err != nil {
+		return err
+	}
+
 	if flusher, ok := writer.(interface{ Flush() error }); ok {
 		if err := flusher.Flush(); err != nil {
 			return err

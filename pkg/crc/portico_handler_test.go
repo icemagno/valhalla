@@ -45,6 +45,12 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 		t.Fatalf("falha lendo texto de boas-vindas: %v", err)
 	}
 
+	// Ler 0xFEED do servidor
+	var srvFeed [4]byte
+	if _, err := clientConn.Read(srvFeed[:]); err != nil {
+		t.Fatalf("falha lendo 0xFEED do servidor: %v", err)
+	}
+
 	// Responder com 0xFEED (65261)
 	var ready [4]byte
 	ready[0], ready[1], ready[2], ready[3] = 0x00, 0x00, 0xFE, 0xED
