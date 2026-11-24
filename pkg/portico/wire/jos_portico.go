@@ -111,6 +111,23 @@ var (
 		Super: ClassDescPorticoMessage,
 	}
 
+	// ClassDescJavaEnum é a superclasse base de enums Java
+	ClassDescJavaEnum = &ClassDesc{
+		Name:             "java.lang.Enum",
+		SerialVersionUID: 0,
+		Flags:            SC_SERIALIZABLE | SC_ENUM,
+		Fields:           nil,
+	}
+
+	// ClassDescJResignAction é o enum oficial de ação de desligamento do Portico
+	ClassDescJResignAction = &ClassDesc{
+		Name:             "org.portico.lrc.compat.JResignAction",
+		SerialVersionUID: 0,
+		Flags:            SC_SERIALIZABLE | SC_ENUM,
+		Fields:           nil,
+		Super:            ClassDescJavaEnum,
+	}
+
 	// ClassDescResignFederation representa a saída voluntária de um federado
 	ClassDescResignFederation = &ClassDesc{
 		Name:             "org.portico2.common.services.federation.msg.ResignFederation",
@@ -118,8 +135,20 @@ var (
 		Flags:            SC_SERIALIZABLE,
 		Fields: []FieldDesc{
 			{Name: "federateName", Type: TypeObject, ClassName: "Ljava/lang/String;"},
+			{Name: "federateType", Type: TypeObject, ClassName: "Ljava/lang/String;"},
 			{Name: "federationName", Type: TypeObject, ClassName: "Ljava/lang/String;"},
-			{Name: "resignAction", Type: TypeInt},
+			{Name: "resignAction", Type: TypeObject, ClassName: "Lorg/portico/lrc/compat/JResignAction;"},
+		},
+		Super: ClassDescPorticoMessage,
+	}
+
+	// ClassDescSyncPointAchieved sinaliza que um ponto de sincronização foi alcançado
+	ClassDescSyncPointAchieved = &ClassDesc{
+		Name:             "org.portico2.common.services.sync.msg.SyncPointAchieved",
+		SerialVersionUID: 98121116105109,
+		Flags:            SC_SERIALIZABLE,
+		Fields: []FieldDesc{
+			{Name: "label", Type: TypeObject, ClassName: "Ljava/lang/String;"},
 		},
 		Super: ClassDescPorticoMessage,
 	}
@@ -173,8 +202,8 @@ func NewCreateFederationObject(federationName string) *JavaObject {
 	return obj
 }
 
-// NewResignFederationObject constrói uma instância de ResignFederation
-func NewResignFederationObject(federationName, federateName string, resignAction int32) *JavaObject {
+// NewResignFederationObject constrói uma instância canônica de ResignFederation
+func NewResignFederationObject(federationName, federateName, federateType, action string) *JavaObject {
 	obj := NewJavaObject(ClassDescResignFederation)
 	obj.Set("immediate", true)
 	obj.Set("isFromRti", false)
@@ -182,9 +211,26 @@ func NewResignFederationObject(federationName, federateName string, resignAction
 	obj.Set("targetFederate", int32(0))
 	obj.Set("targetFederation", int32(-1))
 	obj.Set("timestamp", float64(-1.0))
-	obj.Set("federationName", federationName)
 	obj.Set("federateName", federateName)
-	obj.Set("resignAction", resignAction)
+	obj.Set("federateType", federateType)
+	obj.Set("federationName", federationName)
+	if action == "" {
+		action = "NO_ACTION"
+	}
+	obj.Set("resignAction", NewJavaEnum(ClassDescJResignAction, action))
+	return obj
+}
+
+// NewSyncPointAchievedObject constrói uma instância de SyncPointAchieved
+func NewSyncPointAchievedObject(label string, federateHandle int32) *JavaObject {
+	obj := NewJavaObject(ClassDescSyncPointAchieved)
+	obj.Set("immediate", true)
+	obj.Set("isFromRti", false)
+	obj.Set("sourceFederate", federateHandle)
+	obj.Set("targetFederate", int32(0))
+	obj.Set("targetFederation", int32(-1))
+	obj.Set("timestamp", float64(-1.0))
+	obj.Set("label", label)
 	return obj
 }
 

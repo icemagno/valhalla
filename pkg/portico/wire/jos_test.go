@@ -92,12 +92,31 @@ func TestJOS_GenericEncoder_CreateAndResign(t *testing.T) {
 		t.Errorf("classe %s nao encontrada", ClassDescCreateFederation.Name)
 	}
 
-	resignObj := NewResignFederationObject("ValhallaExecution", "ValhallaNode", 1)
+	resignObj := NewResignFederationObject("ValhallaExecution", "ValhallaNode", "ieee1516e", "NO_ACTION")
 	resignBuf, err := SerializePorticoControlMessage(resignObj)
 	if err != nil {
 		t.Fatalf("falha ao serializar ResignFederation: %v", err)
 	}
 	if !bytes.Contains(resignBuf, []byte(ClassDescResignFederation.Name)) {
 		t.Errorf("classe %s nao encontrada", ClassDescResignFederation.Name)
+	}
+	if !bytes.Contains(resignBuf, []byte(ClassDescJResignAction.Name)) {
+		t.Errorf("classe enum %s nao encontrada", ClassDescJResignAction.Name)
+	}
+	if !bytes.Contains(resignBuf, []byte("NO_ACTION")) {
+		t.Errorf("constante enum NO_ACTION nao encontrada")
+	}
+
+	// Validar SyncPointAchieved
+	syncObj := NewSyncPointAchievedObject("ReadyToRun", 3)
+	syncBuf, err := SerializePorticoControlMessage(syncObj)
+	if err != nil {
+		t.Fatalf("falha ao serializar SyncPointAchieved: %v", err)
+	}
+	if !bytes.Contains(syncBuf, []byte(ClassDescSyncPointAchieved.Name)) {
+		t.Errorf("classe %s nao encontrada", ClassDescSyncPointAchieved.Name)
+	}
+	if !bytes.Contains(syncBuf, []byte("ReadyToRun")) {
+		t.Errorf("label ReadyToRun nao encontrada")
 	}
 }

@@ -72,3 +72,24 @@ func (o *JavaObject) String() string {
 	}
 	return fmt.Sprintf("JavaObject{Class: %s, Fields: %v}", o.Class.Name, o.Fields)
 }
+
+// JavaEnum representa uma constante de enum Java serializável
+type JavaEnum struct {
+	Class *ClassDesc
+	Name  string
+}
+
+// NewJavaEnum cria uma nova referência a constante enum
+func NewJavaEnum(class *ClassDesc, name string) *JavaEnum {
+	return &JavaEnum{
+		Class: class,
+		Name:  name,
+	}
+}
+
+func (e *JavaEnum) String() string {
+	if e.Class == nil {
+		return fmt.Sprintf("JavaEnum{Class: <nil>, Name: %s}", e.Name)
+	}
+	return fmt.Sprintf("JavaEnum{Class: %s, Name: %s}", e.Class.Name, e.Name)
+}

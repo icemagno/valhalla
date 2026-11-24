@@ -20,9 +20,11 @@ const (
 	TC_BLOCKDATA    byte = 0x77
 	TC_ENDBLOCKDATA byte = 0x78
 	TC_RESET        byte = 0x79
+	TC_ENUM         byte = 0x7E
 
 	SC_WRITE_METHOD byte = 0x01
 	SC_SERIALIZABLE byte = 0x02
+	SC_ENUM         byte = 0x10
 
 	BaseWireHandle uint32 = 0x007E0000
 )
@@ -100,9 +102,27 @@ func (e *JOSEncoder) WriteObject(obj any) error {
 		return nil
 	case *JavaObject:
 		return e.writeJavaObject(v)
+	case *JavaEnum:
+		return e.writeJavaEnum(v)
 	default:
 		return fmt.Errorf("jos encoder: tipo nao suportado para serializacao direta: %T", obj)
 	}
+}
+
+// writeJavaEnum serializa uma constante Enum Java (TC_ENUM)
+func (e *JOSEncoder) writeJavaEnum(en *JavaEnum) error {
+	if en == nil || en.Class == nil {
+		e.w.WriteByte(TC_NULL)
+		return nil
+	}
+
+	e.w.WriteByte(TC_ENUM)
+	if err := e.writeClassDesc(en.Class); err != nil {
+		return err
+	}
+	e.assignHandle(fmt.Sprintf("enum:%p", en))
+	e.writeString(en.Name)
+	return nil
 }
 
 // writeString escreve uma string Java como TC_STRING ou TC_REFERENCE se já poolada

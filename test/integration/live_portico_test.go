@@ -73,13 +73,27 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 
 	t.Logf("Federado %s ingressado com sucesso absoluto na federação viva!", nodeName)
 
-	// 2. Enviar ResignFederation para saida graciosa e liberar o federado no CRTI
-	resignObj := wire.NewResignFederationObject(fedName, nodeName, 1) // 1 = NO_ACTION
+	// 2. Enviar ResignFederation canônico para saida graciosa e liberar o federado no CRTI
+	resignObj := wire.NewResignFederationObject(fedName, nodeName, "ieee1516e", "NO_ACTION")
 	resignPayload, err := wire.SerializePorticoControlMessage(resignObj)
-	if err == nil {
-		resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 2, 0, 0, uint32(len(resignPayload)))
-		_ = client.SendPacket(resignHdr, resignPayload)
-		t.Logf("ResignFederation enviado para saida graciosa do federado %s.", nodeName)
+	if err != nil {
+		t.Fatalf("falha ao serializar ResignFederation: %v", err)
+	}
+
+	resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 2, 0, 0, uint32(len(resignPayload)))
+	if err := client.SendPacket(resignHdr, resignPayload); err != nil {
+		t.Fatalf("falha ao enviar ResignFederation: %v", err)
+	}
+	t.Logf("ResignFederation enviado para saida graciosa do federado %s.", nodeName)
+
+	// Aguardar e processar a resposta oficial de desligamento do CRTI
+	resignRespHdr, _, err := client.ReadPacketTimeout(3 * time.Second)
+	if err != nil {
+		t.Logf("Aviso aguardando resposta do Resign: %v", err)
+	} else {
+		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA ResignFederation:")
+		t.Logf("    Tipo Mensagem : %s", resignRespHdr.MessageType)
+		t.Logf("    Tipo Chamada  : %s", resignRespHdr.CallType)
 	}
 
 	time.Sleep(200 * time.Millisecond)

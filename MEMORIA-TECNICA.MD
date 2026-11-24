@@ -193,7 +193,40 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
          live_portico_test.go:86: Sessao finalizada com sucesso.
      --- PASS: TestIntegration_LivePortico_HandshakeAndProbe (0.24s)
      ```
-   * **Resultado Histórico:** O CRTI Portico oficial processou a solicitação `JoinFederation` construída pelo motor genérico em Go e respondeu com **`ControlResponseOK (CallType = 3)`**, entregando o pacote oficial de boas-vindas (*WelcomePack*) com **33.498 bytes**. Em seguida, o federado executou `ResignFederation` liberando seu registro graciosamente.
+   * **Resultado Histórico:** O CRTI Portico oficial processou a solicitação `JoinFederation` construída pelo motor genérico em Go e respondeu com **`ControlResponseOK (CallType = 3)`**, entregando o pacote oficial de boas-vindas (*WelcomePack*) com **33.498 bytes**.
+
+---
+
+### 15. Suporte Canônico a Java Enums no Motor JOS e Homologação do ResignFederation (Sprint 1)
+
+1. **Diagnóstico da Rejeição do `ResignFederation`:**
+   * O log do CRTI apresentou `WARN portico.rti.tcp: Error while processing message: Couldn't convert byte[] (ResignFederation) into PorticoMessage`.
+   * A auditoria dos fontes oficiais (`ResignFederation.java` e `JResignAction.java`) revelou que o campo `resignAction` não é um inteiro primitivo, mas um **Enum Java** (`org.portico.lrc.compat.JResignAction`), e que a classe possui 4 campos de objetos ordenados alfabeticamente (`federateName`, `federateType`, `federationName`, `resignAction`).
+2. **Implementação Canônica de Enum no Motor Agnóstico ([`jos_encoder.go`](pkg/portico/wire/jos_encoder.go)):**
+   * Adicionados os identificadores da gramática JOS: `TC_ENUM` (`0x7E`) e flag de classe `SC_ENUM` (`0x10`).
+   * Criada a estrutura `JavaEnum` e método `writeJavaEnum`, serializando o descritor da classe de enum com `serialVersionUID = 0L`, sem campos, apontando para a superclasse `java.lang.Enum`, seguido pelo registro de handle e a escrita do nome da constante (`NO_ACTION`).
+   * Registrados no catálogo declarativo: `ClassDescJResignAction`, `ClassDescSyncPointAchieved` e o esquema corrigido de `ClassDescResignFederation`.
+3. **Validação Unitária e Teste Real com o CRTI Portico:**
+   * Teste unitário `TestJOS_GenericEncoder_CreateAndResign` validando a geração correta de tokens `TC_ENUM`, classes e nomes de constantes.
+   * Execução do teste de integração ao vivo:
+     ```
+     === RUN   TestIntegration_LivePortico_HandshakeAndProbe
+         live_portico_test.go:34: >>> HANDSHAKE BEM-SUCEDIDO! Resposta oficial do Portico: [Portico Router (3.0.0 (build 0)): Your ID13]
+         live_portico_test.go:53: Enviando JoinFederation generico na ExampleFederation como Valhalla_838800 (payload 533 bytes)...
+         live_portico_test.go:64: >>> RESPOSTA RECEBIDA DO PORTICO PARA JoinFederation:
+         live_portico_test.go:65:     Tipo Mensagem : JoinFederation(4)
+         live_portico_test.go:66:     Tipo Chamada  : ControlResponseOK(3)
+         live_portico_test.go:67:     Request ID    : 1
+         live_portico_test.go:68:     Tamanho Pacote: 33498 bytes (WelcomePack oficial)
+         live_portico_test.go:74: Federado Valhalla_838800 ingressado com sucesso absoluto na federação viva!
+         live_portico_test.go:87: ResignFederation enviado para saida graciosa do federado Valhalla_838800.
+         live_portico_test.go:94: >>> RESPOSTA RECEBIDA DO PORTICO PARA ResignFederation:
+         live_portico_test.go:95:     Tipo Mensagem : ResignFederation(5)
+         live_portico_test.go:96:     Tipo Chamada  : ControlResponseOK(3)
+         live_portico_test.go:100: Sessao finalizada com sucesso.
+     --- PASS: TestIntegration_LivePortico_HandshakeAndProbe (0.26s)
+     ```
+   * **Homologação:** Ciclo de vida completo de federação (**Conexão -> Handshake -> Ingresso -> Resposta 33KB -> Desligamento Gracioso -> Resposta de Confirmação**) homologado com 100% de sucesso contra o Portico CRTI oficial!
 
 ---
 
