@@ -50,8 +50,8 @@ O logotipo do Projeto Valhalla é um **escudo nórdico** clássico nas cores **v
 
 ## 📚 Documentação do Projeto
 
-* 📋 [Deliberações Arquiteturais e Conceituais](file:///c:/Magno/Projetos/hla-rti/deliberacoes.md): Registro histórico completo de todas as decisões, análises de mercado (Pitch, MAK, Portico), viabilidade jurídica e princípios de engenharia.
-* 🗺️ [Plano de Projeto e Sprints TDD](file:///c:/Magno/Projetos/hla-rti/plano_de_projeto.md): Roadmap detalhado das Sprints 0 a 9 com metodologia Test-Driven Development (TDD) e critérios de aceitação.
+* 📋 [Deliberações Arquiteturais e Conceituais](docs/deliberacoes.md): Registro histórico completo de todas as decisões, análises de mercado (Pitch, MAK, Portico), viabilidade jurídica e princípios de engenharia.
+* 🗺️ [Plano de Projeto e Sprints TDD](docs/plano_de_projeto.md): Roadmap detalhado das Sprints 0 a 9 com metodologia Test-Driven Development (TDD) e critérios de aceitação.
 
 ---
 
