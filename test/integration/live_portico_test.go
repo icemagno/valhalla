@@ -65,22 +65,59 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 	t.Logf("    Tipo Mensagem : %s", joinRespHdr.MessageType)
 	t.Logf("    Tipo Chamada  : %s", joinRespHdr.CallType)
 	t.Logf("    Request ID    : %d", joinRespHdr.RequestId)
+	t.Logf("    Source Handle : %d", joinRespHdr.SourceHandle)
+	t.Logf("    Target Handle : %d", joinRespHdr.TargetHandle)
 	t.Logf("    Tamanho Pacote: %d bytes (WelcomePack oficial)", len(joinRespPayload))
+	if len(joinRespPayload) > 64 {
+		t.Logf("    Hex Inicial   : %X", joinRespPayload[:64])
+	}
 
 	if joinRespHdr.CallType != wire.CallTypeControlResponseOK {
 		t.Fatalf("CRTI retornou erro na resposta: %s", joinRespHdr.CallType)
 	}
 
-	t.Logf("Federado %s ingressado com sucesso absoluto na federação viva!", nodeName)
+	federateHandle := joinRespHdr.TargetHandle
+	t.Logf("Federado %s ingressado com sucesso absoluto na federação viva (Handle %d)!", nodeName, federateHandle)
 
-	// 2. Enviar ResignFederation canônico para saida graciosa e liberar o federado no CRTI
+	// 2. Anunciar que alcançou o ponto de sincronização ReadyToRun
+	// targetFederation deve ser 1 (ExampleFederation)
+	syncObj := wire.NewSyncPointAchievedObject("ReadyToRun", 3)
+	syncObj.Set("targetFederation", int32(1))
+	syncObj.Set("sourceFederate", int32(3))
+
+	syncPayload, err := wire.SerializePorticoControlMessage(syncObj)
+	if err != nil {
+		t.Fatalf("falha ao serializar SyncPointAchieved: %v", err)
+	}
+
+	syncHdr := wire.NewControlRequest(wire.MsgAchieveSyncPoint, 2, 1, 0, uint32(len(syncPayload)))
+	syncHdr.SourceHandle = 3
+	if err := client.SendPacket(syncHdr, syncPayload); err != nil {
+		t.Fatalf("falha ao enviar SyncPointAchieved: %v", err)
+	}
+	t.Logf("SyncPointAchieved ('ReadyToRun') enviado com sucesso pelo federado %s (Federation 1).", nodeName)
+
+	// Aguardar e processar a resposta oficial de SyncPointAchieved do CRTI
+	syncRespHdr, syncRespPayload, err := client.ReadPacketTimeout(3 * time.Second)
+	if err != nil {
+		t.Logf("Aviso aguardando resposta de SyncPointAchieved: %v", err)
+	} else {
+		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA SyncPointAchieved:")
+		t.Logf("    Tipo Mensagem : %s", syncRespHdr.MessageType)
+		t.Logf("    Tipo Chamada  : %s", syncRespHdr.CallType)
+		t.Logf("    Request ID    : %d", syncRespHdr.RequestId)
+		t.Logf("    Payload Bytes : %s", string(syncRespPayload))
+	}
+
+	// 3. Enviar ResignFederation canônico para saida graciosa e liberar o federado no CRTI
 	resignObj := wire.NewResignFederationObject(fedName, nodeName, "ieee1516e", "NO_ACTION")
 	resignPayload, err := wire.SerializePorticoControlMessage(resignObj)
 	if err != nil {
 		t.Fatalf("falha ao serializar ResignFederation: %v", err)
 	}
 
-	resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 2, 0, 0, uint32(len(resignPayload)))
+	resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 3, 0, 0, uint32(len(resignPayload)))
+	resignHdr.SourceHandle = federateHandle
 	if err := client.SendPacket(resignHdr, resignPayload); err != nil {
 		t.Fatalf("falha ao enviar ResignFederation: %v", err)
 	}
