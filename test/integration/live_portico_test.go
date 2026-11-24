@@ -69,6 +69,7 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 	t.Logf("    Source Handle : %d", joinRespHdr.SourceHandle)
 	t.Logf("    Target Handle : %d", joinRespHdr.TargetHandle)
 	t.Logf("    Tamanho Pacote: %d bytes (WelcomePack oficial)", len(joinRespPayload))
+	_ = os.WriteFile("../../test/resources/welcome_pack_base.bin", joinRespPayload, 0644)
 	if len(joinRespPayload) > 64 {
 		t.Logf("    Hex Inicial   : %X", joinRespPayload[:64])
 	}
@@ -134,6 +135,7 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 		t.Logf("    Tipo Chamada  : %s", syncRespHdr.CallType)
 		t.Logf("    Request ID    : %d", syncRespHdr.RequestId)
 		t.Logf("    Payload Bytes : %s", string(syncRespPayload))
+		_ = os.WriteFile("../../test/resources/response_message_base.bin", syncRespPayload, 0644)
 	}
 
 	// 3. Enviar ResignFederation canônico para saida graciosa e liberar o federado no CRTI

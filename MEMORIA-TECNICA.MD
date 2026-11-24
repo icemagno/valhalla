@@ -282,4 +282,50 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Próximo marco: Execução sincronizada em rede (Thor + Valhalla) e troca de atributos de objetos FOM.*
+### 18. Virada Arquitetural Soberana: CRC Centralizador, Separação Pitch (CRC vs LRC) e Multiplexador Monoporta (:52295) (Sprint 1)
+
+1. **Decisão Estratégica & Reposicionamento Arquitetural:**
+   * Diante da instabilidade e limitações conhecidas do executivo legado Portico 3.0.0 (como o crash `JRTIinternalError: Async Messages no longer supported`), o Projeto Valhalla realizou um reposicionamento fundamental:
+     * O Valhalla **não é apenas um federado satélite** adaptando-se a um servidor legado.
+     * O Valhalla **é o Central RTI Component (CRC) Soberano**, o servidor executivo de alta performance para federações distribuídas.
+   * **Separação Canônica de Papéis (Modelo Pitch RTI):**
+     * **`pkg/crc` (Central RTI Component):** Daemon executivo centralizador. Gerencia o ciclo de vida das federações (`FederationExecution`), catálogo de instâncias de objetos, sincronização barreira (`SyncPoint`) e arbitragem temporal.
+     * **`pkg/lrc` (Local RTI Component):** Biblioteca cliente padrão para federados modernos. 100% limpa de bagagem legada Java/JOS/Portico, orientada a IEEE 1516-2025 (HLA-4), serialização SSZ, Merkle Trees e Criptografia Pós-Quântica (ML-KEM-768).
+     * **Gateway de Compatibilidade Legada:** Enclausurado estritamente no pacote `pkg/crc`, atuando como camada de tradução para permitir que federados legados em Java (como o exemplo `Thor`) ingressem nativamente no ecossistema Valhalla.
+
+2. **Multiplexador Monoporta na Porta Padrão 52295 ([`pkg/crc/multiplexer.go`](pkg/crc/multiplexer.go)):**
+   * Eliminada a proliferação de portas de rede e complexidades de firewall através da unificação do listener TCP na porta padrão `52295`.
+   * Implementação de inspeção de preâmbulo com peeking não destrutivo (`net.Conn` encapsulada em `bufio.Reader`):
+     * **Fluxo Client-First (Nativo Valhalla HLA-4):** Federados modernos conectam e enviam imediatamente o magic de 4 bytes `VAL4` (`0x56 0x41 0x4C 0x34`). A conexão é roteada instantaneamente para a `NativeSession` de altíssima vazão.
+     * **Fluxo Server-First (Portico Legado):** Federados legados conectam e aguardam em silêncio que o servidor fale primeiro. Ao esgotar o timeout de 50ms de peeking sem dados, o multiplexador chaveia para o protocolo Portico, transmitindo a saudação `0xBEEF` e entregando o controle para a `PorticoSession`.
+
+3. **Motor do CRC e Modelagem Concorrente ([`pkg/crc/models.go`](pkg/crc/models.go), [`pkg/crc/federation_manager.go`](pkg/crc/federation_manager.go)):**
+   * Estruturas de dados concorrentes protegidas por `sync.RWMutex`:
+     * `FederationExecution`: Catálogo de federados ativos, gerador atômico de handles (`int32`), tabela de pontos de sincronização e objetos.
+     * `SyncPoint`: Rastreamento atômico de federações sincronizadas por barreira com cálculo de quórum de conquista.
+     * `FederationManager`: Registro global de federações em execução (`CreateFederation`, `GetOrCreateFederation`, `DestroyFederation`).
+
+4. **Gateway Portico no CRC ([`pkg/crc/portico_session.go`](pkg/crc/portico_session.go), [`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
+   * Implementação do lado servidor do protocolo Portico:
+     * Handshake `0xBEEF` / `0xFEED`.
+     * Deserialização JOS de mensagens de controle e dados: `CreateFederation`, `JoinFederation`, `RegisterSyncPoint`, `AchieveSyncPoint`, `Publish`, `Subscribe`, `RegisterObject`, `UpdateAttributes`, `SendInteraction`, `TimeAdvanceRequest` e `ResignFederation`.
+     * Síntese dinâmica de respostas de sucesso `ControlResponseOK` e `WelcomePack` a partir de templates canônicos encapsulados ([`pkg/portico/wire/templates.go`](pkg/portico/wire/templates.go)).
+
+5. **Protocolo Nativo Valhalla HLA-4 ([`pkg/crc/native_session.go`](pkg/crc/native_session.go), [`pkg/crc/native_handler.go`](pkg/crc/native_handler.go)):**
+   * Definição de cabeçalho binário ultra-rápido de 56 bytes alinhado a 64 bits:
+     * `Magic` (2B): `0x5641` ("VA")
+     * `Version` (1B): `4` (IEEE 1516-2025)
+     * `Flags` (1B), `PayloadLength` (4B), `MessageType` (2B), `RequestID` (2B)
+     * `FederationID` (4B), `FederateID` (4B), `Reserved` (4B)
+     * `MerkleRoot` (32B): Raiz criptográfica SHA-256 / Poseidon do estado do pacote para verificação de integridade formal.
+
+6. **Bateria de Testes Unitários de Concorrência e Integração:**
+   * `pkg/crc/models_test.go`: 100% PASS (criação atômica, handles e quórum de sincronização).
+   * `pkg/crc/multiplexer_test.go`: 100% PASS (detecção determinística de `VAL4` e fallback por timeout para Portico).
+   * `pkg/crc/portico_handler_test.go`: 100% PASS (processamento completo de mensagens e síntese de respostas).
+   * `pkg/crc/server_test.go`: 100% PASS (multiplexação simultânea de cliente Nativo e cliente Portico na mesma porta TCP).
+   * Binário de servidor autônomo compilado em [`bin/valhalla-crc.exe`](bin/valhalla-crc.exe).
+
+---
+
+*Fim da entrada diária de 24/11/2026. Próximo marco: Implementação do Local RTI Component (`pkg/lrc`) e validação da orquestração mista (Thor legado + Federado Valhalla nativo).*
