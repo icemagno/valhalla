@@ -89,6 +89,7 @@ type ClassDesc struct {
 	Flags            byte
 	Fields           []FieldDesc
 	Super            *ClassDesc
+	CustomOnly       bool // Se true, o writeObject da classe não executa defaultWriteObject (ex: PorticoMessage, ResponseMessage)
 
 	// CustomWriter permite que classes com writeObject/writeExternal injetem seus blocos de dados
 	CustomWriter func(w JOSWriter, obj *JavaObject) error

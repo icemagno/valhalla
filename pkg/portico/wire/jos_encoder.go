@@ -159,20 +159,32 @@ func (e *JOSEncoder) writeJavaObject(obj *JavaObject) error {
 	// Coletar hierarquia de classes da raiz (Object) até a folha (classe concreta)
 	chain := getClassHierarchy(obj.Class)
 
-	// Escrever os valores de dados de cada classe na hierarquia (da base para a filha)
-	for _, cls := range chain {
-		if (cls.Flags&SC_WRITE_METHOD != 0 || cls.Flags&SC_EXTERNALIZABLE != 0) && cls.CustomWriter != nil {
-			// Classe possui serialização customizada (writeObject / writeExternal)
-			if err := cls.CustomWriter(e, obj); err != nil {
+	// Se o objeto for Externalizable, apenas seu próprio CustomWriter (writeExternal) é executado
+	if obj.Class.Flags&SC_EXTERNALIZABLE != 0 {
+		if obj.Class.CustomWriter != nil {
+			if err := obj.Class.CustomWriter(e, obj); err != nil {
 				return err
 			}
-		} else {
-			// Serialização de campos declarados da classe
+		}
+		return nil
+	}
+
+	// Objeto Serializable padrão: percorrer da classe base até a classe concreta
+	for _, cls := range chain {
+		// 1. Escrever campos declarados da classe (defaultWriteObject) se não for CustomOnly
+		if !cls.CustomOnly {
 			for _, field := range cls.Fields {
 				val := obj.Fields[field.Name]
 				if err := e.writeFieldValue(field, val); err != nil {
 					return fmt.Errorf("falha ao gravar campo %q da classe %s: %w", field.Name, cls.Name, err)
 				}
+			}
+		}
+
+		// 2. Se a classe possuir writeObject customizado (SC_WRITE_METHOD), executá-lo
+		if cls.Flags&SC_WRITE_METHOD != 0 && cls.CustomWriter != nil {
+			if err := cls.CustomWriter(e, obj); err != nil {
+				return err
 			}
 		}
 	}
@@ -254,9 +266,27 @@ func (e *JOSEncoder) writeFieldValue(field FieldDesc, val any) error {
 			l = int64(v)
 		}
 		binary.Write(e.w, binary.BigEndian, l)
+	case TypeFloat:
+		var f float32
+		switch v := val.(type) {
+		case float32:
+			f = v
+		case float64:
+			f = float32(v)
+		}
+		binary.Write(e.w, binary.BigEndian, math.Float32bits(f))
 	case TypeDouble:
 		d, _ := val.(float64)
 		binary.Write(e.w, binary.BigEndian, math.Float64bits(d))
+	case TypeChar:
+		var c uint16
+		switch v := val.(type) {
+		case rune:
+			c = uint16(v)
+		case uint16:
+			c = v
+		}
+		binary.Write(e.w, binary.BigEndian, c)
 	case TypeObject, TypeArray:
 		return e.WriteObject(val)
 	default:

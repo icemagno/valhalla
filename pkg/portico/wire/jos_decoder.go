@@ -366,20 +366,33 @@ func (d *JOSDecoder) readObjectInstance() (*JavaObject, error) {
 	// Coletar hierarquia de classes da raiz (Object) até a folha (concreta)
 	chain := getClassHierarchy(cls)
 
-	// Ler os valores dos campos de cada classe na cadeia
-	for _, c := range chain {
-		if (c.Flags&SC_WRITE_METHOD != 0 || c.Flags&SC_EXTERNALIZABLE != 0) && c.CustomReader != nil {
-			// Classe possui deserialização customizada
-			if err := c.CustomReader(d, obj); err != nil {
-				return nil, fmt.Errorf("falha no CustomReader da classe %s: %w", c.Name, err)
+	// Se a classe for Externalizable, apenas seu próprio CustomReader (readExternal) é executado
+	if cls.Flags&SC_EXTERNALIZABLE != 0 {
+		if cls.CustomReader != nil {
+			if err := cls.CustomReader(d, obj); err != nil {
+				return nil, fmt.Errorf("falha no CustomReader da classe %s: %w", cls.Name, err)
 			}
-		} else {
+		}
+		return obj, nil
+	}
+
+	// Objeto Serializable padrão: percorrer hierarquia da classe base até a concreta
+	for _, c := range chain {
+		// 1. Ler campos declarados da classe (defaultReadObject) se não for CustomOnly
+		if !c.CustomOnly {
 			for _, field := range c.Fields {
 				val, err := d.readFieldValue(field)
 				if err != nil {
 					return nil, fmt.Errorf("falha ao ler campo %q da classe %s: %w", field.Name, c.Name, err)
 				}
 				obj.Fields[field.Name] = val
+			}
+		}
+
+		// 2. Se a classe possuir readObject customizado (SC_WRITE_METHOD), executá-lo
+		if c.Flags&SC_WRITE_METHOD != 0 && c.CustomReader != nil {
+			if err := c.CustomReader(d, obj); err != nil {
+				return nil, fmt.Errorf("falha no CustomReader da classe %s: %w", c.Name, err)
 			}
 		}
 	}

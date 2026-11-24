@@ -17,8 +17,7 @@ var ClassDescWelcomePack = &ClassDesc{
 		federateName, _ := obj.Get("federateName").(string)
 		federateType, _ := obj.Get("federateType").(string)
 
-		// Escrever bloco de dados da serialização Externalizable:
-		// [4B fedHandle] + [4B federateHandle] + [2B len + fedName] + [2B len + federateName] + [2B len + federateType]
+		// 1. Escrever bloco de strings e inteiros
 		var blk []byte
 		var hBuf [8]byte
 		binary.BigEndian.PutUint32(hBuf[0:4], uint32(fedHandle))
@@ -37,6 +36,16 @@ var ClassDescWelcomePack = &ClassDesc{
 		appendStr(federateType)
 
 		w.WriteBlockData(blk)
+
+		// 2. ObjectModel fom (null)
+		if err := w.WriteObject(nil); err != nil {
+			return err
+		}
+
+		// 3. Bloco final: federationKey.length = 0 (4 bytes) + syncpoints.size = 0 (4 bytes)
+		var tail [8]byte
+		w.WriteBlockData(tail[:])
+
 		w.WriteByte(TC_ENDBLOCKDATA)
 		return nil
 	},
@@ -68,7 +77,17 @@ var ClassDescWelcomePack = &ClassDesc{
 			obj.Set("federateName", readStr())
 			obj.Set("federateType", readStr())
 		}
-		_, _ = r.ReadByte() // Consumir TC_ENDBLOCKDATA
+
+		// Consumir fom (objeto)
+		fom, _ := r.ReadObject()
+		obj.Set("fom", fom)
+
+		// Consumir bloco de chaves e syncpoints
+		_, _ = r.ReadBlockData()
+
+		// Consumir TC_ENDBLOCKDATA
+		_, _ = r.ReadByte()
+
 		return nil
 	},
 }
@@ -77,7 +96,7 @@ func init() {
 	RegisterClassDesc(ClassDescWelcomePack)
 }
 
-// NewWelcomePack instancia um novo objeto WelcomePack
+// NewWelcomePack instancia o WelcomePack oficial pronto para entrega ao federado
 func NewWelcomePack(fedHandle, federateHandle int32, fedName, federateName, federateType string) *JavaObject {
 	obj := NewJavaObject(ClassDescWelcomePack)
 	obj.Set("federationHandle", fedHandle)

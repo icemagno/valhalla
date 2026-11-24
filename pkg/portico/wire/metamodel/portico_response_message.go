@@ -9,16 +9,28 @@ var ClassDescResponseMessage = &ClassDesc{
 	Fields: []FieldDesc{
 		{Name: "isError", Type: TypeBoolean},
 	},
-	Super: ClassDescObject,
+	Super:      ClassDescObject,
+	CustomOnly: true,
 	CustomWriter: func(w JOSWriter, obj *JavaObject) error {
-		// ResponseMessage.writeObject grava byte de controle adicional e fecha bloco
-		w.WriteBlockData([]byte{0x00})
+		// ResponseMessage.writeObject executa writeExternal gravando isError no bloco
+		isErr, _ := obj.Get("isError").(bool)
+		b := byte(0x00)
+		if isErr {
+			b = 0x01
+		}
+		w.WriteBlockData([]byte{b})
 		w.WriteByte(TC_ENDBLOCKDATA)
 		return nil
 	},
 	CustomReader: func(r JOSReader, obj *JavaObject) error {
-		_, _ = r.ReadBlockData()
-		_, _ = r.ReadByte() // Consumir TC_ENDBLOCKDATA se presente
+		blk, err := r.ReadBlockData()
+		if err != nil {
+			return err
+		}
+		if len(blk) > 0 {
+			obj.Set("isError", blk[0] != 0)
+		}
+		_, _ = r.ReadByte() // Consumir TC_ENDBLOCKDATA
 		return nil
 	},
 }

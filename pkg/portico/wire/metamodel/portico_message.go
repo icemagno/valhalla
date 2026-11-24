@@ -5,11 +5,12 @@ import "encoding/binary"
 // ClassDescPorticoMessage representa a classe base de todas as mensagens de controle do Portico
 // SUID oficial: 98121116105109L
 var ClassDescPorticoMessage = &ClassDesc{
-	Name:             "org.portico2.common.messaging.PorticoMessage",
+	Name:             "org.portico.utils.messaging.PorticoMessage",
 	SerialVersionUID: 98121116105109,
 	Flags:            SC_WRITE_METHOD | SC_SERIALIZABLE,
 	Fields:           nil,
 	Super:            ClassDescObject,
+	CustomOnly:       true,
 	CustomWriter: func(w JOSWriter, obj *JavaObject) error {
 		var block [22]byte
 		if isRti, _ := obj.Get("isFromRti").(bool); isRti {
