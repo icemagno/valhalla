@@ -9,6 +9,9 @@ This directory contains a **completely standalone, self-contained IEEE 1516e Jav
 - **Maven Dependency Resolution:** Consumes the official fat JAR `io.valhalla:valhalla-lrc:1.0.0` directly from the sovereign GitHub Maven repository branch (`mvn-repo`).
 - **Zero Local Footprint:** Does not inherit from any parent POM; depends purely on the Maven repository declarations.
 - **Embedded Dual-Platform Binaries:** The `valhalla-lrc` JAR bundles both `valhalla_lrc.dll` (Windows x64) and `libvalhalla_lrc.so` (Linux x86_64). At runtime, `ValhallaNativeLoader` detects the operating system and extracts the appropriate native library transparently.
+- **Official SISO & IEEE FOMs:** Bundles standard FOM modules in `foms/`:
+  - `foms/siso-rpr-v2.0/`: Complete official **SISO-STD-001-2015 (RPR-FOM v2.0)** module suite (Base, Physical, Warfare, Logistics, Communication, etc.).
+  - `foms/ValhallaAdvanced.xml`: Advanced IEEE 1516-2010 DIF XML module defining tactical aerospace/military entities with 3D spatial routing and attribute ownership.
 - **IEEE 1516e / HLA-4 Homologation:** Implements the official 11-stage compliance test verifying the full simulation lifecycle.
 
 ---
@@ -38,7 +41,7 @@ When executed, the federate validates all 11 core RTI service areas:
 ### Prerequisites
 - Java JDK 17+
 - Apache Maven 3.8+
-- Active Valhalla CRC (optional; `run.bat` / `run.sh` will start a local CRC automatically if `dist/bin/valhalla-crc` is present)
+- Running Valhalla CRC server endpoint (local or remote)
 
 ### On Windows
 ```cmd
