@@ -201,10 +201,29 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 
-		case wire.MsgTimeAdvanceRequest:
+		case wire.MsgEnableTimeRegulation:
+			var currentTime float64 = 0.0
+			respPayload := wire.BuildDoubleResponsePayload(currentTime)
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
+			log.Printf("[CRC-Portico] Federate [%d] enabled time regulation at time %f", federateID, currentTime)
+
+		case wire.MsgEnableTimeConstrained:
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			// Conceder avanço temporal (TimeAdvanceGrant)
-			_ = session.SendNotification(uint8(wire.MsgTimeAdvanceGrant), wire.BuildSuccessResponsePayload())
+			log.Printf("[CRC-Portico] Federate [%d] enabled time constrained", federateID)
+
+		case wire.MsgTimeAdvanceRequest:
+			requestedTime := 1.0
+			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+				if t, ok := obj.Get("time").(float64); ok {
+					requestedTime = t
+				}
+			}
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			// Conceder avanço temporal (TimeAdvanceGrant) para o federado
+			if tagPayload, err := wire.BuildTimeAdvanceGrantPayload(federateID, requestedTime); err == nil {
+				_ = session.SendNotification(uint8(wire.MsgTimeAdvanceGrant), tagPayload)
+			}
+			log.Printf("[CRC-Portico] Federate [%d] granted time advance to %f", federateID, requestedTime)
 
 		case wire.MsgResignFederation:
 			if currentFed != nil && federateID > 0 {

@@ -82,6 +82,24 @@ func BuildErrorResponsePayload(errMsg string) []byte {
 	return data
 }
 
+// BuildDoubleResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
+// empacotando um java.lang.Double como resultado (ex: EnableTimeRegulation)
+func BuildDoubleResponsePayload(val float64) []byte {
+	dblObj := metamodel.NewJavaDouble(val)
+	resp := metamodel.NewExtendedSuccessResponse(dblObj)
+	data, err := SerializePorticoControlMessage(resp)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// BuildTimeAdvanceGrantPayload constrói o payload de notificação TimeAdvanceGrant
+func BuildTimeAdvanceGrantPayload(targetFederate int32, time float64) ([]byte, error) {
+	tag := metamodel.NewTimeAdvanceGrant(targetFederate, time)
+	return SerializePorticoControlMessage(tag)
+}
+
 // ExtractFederateNameFromJoinPayload extrai o federateName do payload cru de JoinFederation
 // como mecanismo de resiliência caso estruturas complexas e opcionais do FOM falhem na árvore
 func ExtractFederateNameFromJoinPayload(payload []byte) string {

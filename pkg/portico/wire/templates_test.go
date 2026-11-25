@@ -63,3 +63,39 @@ func TestHashSet_MetamodelRoundtrip(t *testing.T) {
 		t.Fatalf("esperava 2 elementos no HashSet, obtido %v", elements)
 	}
 }
+
+func TestTimeManagement_MetamodelPayloads(t *testing.T) {
+	dblResp := BuildDoubleResponsePayload(0.0)
+	if len(dblResp) == 0 {
+		t.Fatal("esperava payload nao vazio para DoubleResponse")
+	}
+
+	obj, err := DeserializePorticoControlMessage(dblResp)
+	if err != nil {
+		t.Fatalf("falha ao decodificar DoubleResponse: %v", err)
+	}
+	resultsMap, ok := obj.Get("results").(*metamodel.JavaObject)
+	if !ok {
+		t.Fatalf("esperava results HashMap, obtido %T", obj.Get("results"))
+	}
+	entries, ok := resultsMap.Get("entries").(map[any]any)
+	if !ok {
+		t.Fatalf("esperava entries map, obtido %T", resultsMap.Get("entries"))
+	}
+	resObj, ok := entries["result"].(*metamodel.JavaObject)
+	if !ok {
+		t.Fatalf("esperava resObj *JavaObject, obtido %T", entries["result"])
+	}
+	val, ok := resObj.Get("value").(float64)
+	if !ok || val != 0.0 {
+		t.Fatalf("esperava double 0.0, obtido %v", resObj.Get("value"))
+	}
+
+	tagPayload, err := BuildTimeAdvanceGrantPayload(1, 1.0)
+	if err != nil {
+		t.Fatalf("falha ao gerar TimeAdvanceGrant: %v", err)
+	}
+	if len(tagPayload) == 0 {
+		t.Fatal("esperava payload nao vazio para TimeAdvanceGrant")
+	}
+}

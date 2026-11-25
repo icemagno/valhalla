@@ -82,9 +82,16 @@ const (
 	MsgSendInteraction           MessageType = 82
 	MsgReceiveInteraction        MessageType = 83
 
-	// Time Management (100-119)
-	MsgTimeAdvanceRequest MessageType = 100
-	MsgTimeAdvanceGrant   MessageType = 101
+	// Time Management (120-139)
+	MsgEnableTimeConstrained  MessageType = 120
+	MsgDisableTimeConstrained MessageType = 121
+	MsgEnableTimeRegulation   MessageType = 122
+	MsgDisableTimeRegulation  MessageType = 123
+	MsgModifyLookahead        MessageType = 124
+	MsgTimeAdvanceRequest     MessageType = 125
+	MsgTimeAdvanceGrant       MessageType = 126
+	MsgNextEventRequest       MessageType = 127
+	MsgFlushQueueRequest      MessageType = 128
 )
 
 func (m MessageType) String() string {
