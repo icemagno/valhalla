@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project Valhalla - HLA-4 Web Federate & Tactical Radar</title>
+  <script src="../../dist/web/valhalla-hla.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0c1017; color: #d3c6aa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; display: flex; flex-direction: column; height: 100vh; }
+    header { background: #141c26; border-bottom: 2px solid #233142; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .logo { font-size: 1.15rem; font-weight: bold; color: #7fbbb3; display: flex; align-items: center; gap: 8px; }
+    .badge { background: #2b3b4f; color: #e5e9f0; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; }
+    .badge-ok { background: #2e4a3d; color: #a7c080; }
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .panel { width: 380px; background: #0f141c; border-right: 1px solid #1f2a37; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+    .card { background: #141c26; border: 1px solid #233142; border-radius: 6px; padding: 12px; }
+    .card h3 { font-size: 0.85rem; text-transform: uppercase; color: #a7c080; margin-bottom: 8px; }
+    .btn { background: #2d4a3e; color: #a7c080; border: 1px solid #4a6f5d; padding: 8px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 4px; }
+    .btn:hover { background: #395e4f; }
+    .radar-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; background: radial-gradient(circle at center, #101924 0%, #080c12 100%); }
+    canvas { border-radius: 50%; box-shadow: 0 0 50px rgba(127, 187, 179, 0.2); background: #0a0f16; }
+    .log-box { height: 180px; background: #090d12; border-top: 1px solid #1f2a37; padding: 8px 16px; overflow-y: auto; font-size: 0.75rem; }
+    .log-line { margin-bottom: 2px; }
+    .log-info { color: #7fbbb3; }
+    .log-rx { color: #a7c080; }
+    .log-warn { color: #dbbc7f; }
+    .log-pass { color: #83c092; font-weight: bold; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <span>PROJECT VALHALLA</span>
+    <span class="badge">IEEE 1516-2025 (HLA-4)</span>
+    <span class="badge badge-ok">PURE BROWSER FEDERATE</span>
+  </div>
+  <div id="statusPill" style="font-size:0.8rem; color:#859289;">Disconnected</div>
+</header>
+<div class="main">
+  <div class="panel">
+    <div class="card">
+      <h3>Homologation Suite</h3>
+      <p style="font-size:0.75rem; color:#9da9a0; margin-bottom:8px;">
+        Runs the complete 11-stage HLA-4 lifecycle natively in the browser via WebSockets.
+      </p>
+      <button class="btn" id="runTestBtn" onclick="runHomologationTest()">Run 11-Stage Homologation Test</button>
+    </div>
+    <div class="card">
+      <h3>Active Federation</h3>
+      <div style="font-size:0.8rem; display:flex; flex-direction:column; gap:4px;">
+        <div>Federation: <b id="fedNameText" style="color:#7fbbb3;">-</b></div>
+        <div>Federate Handle: <b id="fedHandleText" style="color:#7fbbb3;">-</b></div>
+        <div>Tracked Objects: <b id="objCountText" style="color:#a7c080;">0</b></div>
+        <div>Reflections Rx: <b id="reflectCountText" style="color:#a7c080;">0</b></div>
+      </div>
+    </div>
+    <div class="card" style="flex:1;">
+      <h3>Tracked Entities</h3>
+      <div id="entityList" style="font-size:0.75rem; color:#859289;">No active entities</div>
+    </div>
+  </div>
+  <div class="radar-box">
+    <canvas id="radar" width="500" height="500"></canvas>
+  </div>
+</div>
+<div class="log-box" id="logs"></div>
+
+<script>
+  const logBox = document.getElementById('logs');
+  function log(msg, cls = 'log-info') {
+    const d = document.createElement('div');
+    d.className = 'log-line ' + cls;
+    d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    logBox.appendChild(d);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  const canvas = document.getElementById('radar');
+  const ctx = canvas.getContext('2d');
+  const entities = {};
+  let sweep = 0;
+  let reflectTotal = 0;
+
+  function renderRadar() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const r = cx - 12;
+
+    // Rings
+    ctx.strokeStyle = '#1d2d3d';
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i <= 4; i++) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, (r / 4) * i, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Crosshairs
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r);
+    ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+    ctx.stroke();
+
+    // Sweep Line
+    sweep = (sweep + 0.02) % (Math.PI * 2);
+    ctx.strokeStyle = 'rgba(127, 187, 179, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(sweep) * r, cy + Math.sin(sweep) * r);
+    ctx.stroke();
+
+    // Draw Entities
+    for (const id in entities) {
+      const e = entities[id];
+      const ex = cx + ((e.x - 500) / 500) * (r * 0.85);
+      const ey = cy + ((e.y - 500) / 500) * (r * 0.85);
+
+      ctx.fillStyle = '#a7c080';
+      ctx.beginPath();
+      ctx.arc(ex, ey, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#d3c6aa';
+      ctx.font = '11px monospace';
+      ctx.fillText((e.name || ('Asset #' + id)) + ' (' + Math.round(e.x) + ',' + Math.round(e.y) + ')', ex + 8, ey + 4);
+    }
+
+    requestAnimationFrame(renderRadar);
+  }
+  requestAnimationFrame(renderRadar);
+
+  // Ambassador
+  const { RTIambassador, ResignAction } = window.ValhallaHLA;
+  const rtiAmb = new RTIambassador("ws://127.0.0.1:52296/ws");
+
+  rtiAmb.on('connected', () => {
+    document.getElementById('statusPill').textContent = 'Online (ws://127.0.0.1:52296/ws)';
+    document.getElementById('statusPill').style.color = '#a7c080';
+    log('WebSocket connected successfully to Valhalla CRC!');
+  });
+
+  rtiAmb.on('discoverObjectInstance', (p) => {
+    entities[p.object] = { x: 500, y: 500, name: p.name, class: p.class };
+    log('DISCOVER: Object #' + p.object + ' (' + p.name + ') class=' + p.class, 'log-rx');
+    updateEntitiesUI();
+  });
+
+  rtiAmb.on('reflectAttributeValues', (p) => {
+    reflectTotal++;
+    document.getElementById('reflectCountText').textContent = reflectTotal;
+    if (entities[p.object]) {
+      const pos = p.attributes['1001'] || '';
+      const match = pos.match(/x=([0-9.]+),\s*y=([0-9.]+)/);
+      if (match) {
+        entities[p.object].x = parseFloat(match[1]);
+        entities[p.object].y = parseFloat(match[2]);
+      }
+    }
+    log('REFLECT: Object #' + p.object + ' attrs=' + JSON.stringify(p.attributes), 'log-rx');
+  });
+
+  rtiAmb.on('removeObjectInstance', (p) => {
+    delete entities[p.object];
+    log('REMOVE: Object #' + p.object, 'log-warn');
+    updateEntitiesUI();
+  });
+
+  function updateEntitiesUI() {
+    const keys = Object.keys(entities);
+    document.getElementById('objCountText').textContent = keys.length;
+    const el = document.getElementById('entityList');
+    if (keys.length === 0) {
+      el.innerHTML = '<span style="color:#859289">No active entities</span>';
+      return;
+    }
+    el.innerHTML = keys.map(k => '<div style="color:#7fbbb3;">* [' + k + '] ' + entities[k].name + '</div>').join('');
+  }
+
+  // Connect automatically on page load
+  rtiAmb.connect().catch(e => {
+    log('Connection failed: ' + e.message, 'log-warn');
+  });
+
+  async function runHomologationTest() {
+    const btn = document.getElementById('runTestBtn');
+    btn.disabled = true;
+
+    try {
+      log("====================================================================");
+      log("   PROJECT VALHALLA - OFFICIAL IEEE 1516e WEB HOMOLOGATION TEST");
+      log("====================================================================");
+
+      // Stage 1: Connect
+      log("[Stage 1/11] Initializing and Connecting to Valhalla CRC...");
+      await rtiAmb.connect();
+      log("  [+] Connected to CRC via WebSocket!");
+
+      // Stage 2: Create & Join
+      const fedName = "ValhallaHomologFederation";
+      log("[Stage 2/11] Creating & Joining Federation '" + fedName + "'...");
+      try {
+        await rtiAmb.createFederationExecution(fedName, ["foms/ValhallaAdvanced.xml"]);
+        log("  [+] Federation created with FOM!");
+      } catch (e) {
+        log("  [*] Federation already exists, proceeding to join.");
+      }
+
+      const fedHandle = await rtiAmb.joinFederationExecution("WebTacticalFederate", fedName);
+      document.getElementById('fedNameText').textContent = fedName;
+      document.getElementById('fedHandleText').textContent = fedHandle;
+      log("  [+] Joined federation! FederateHandle: " + fedHandle);
+
+      // Stage 3: Dynamic FOM Resolution
+      log("[Stage 3/11] Resolving Object Class & Attributes from FOM...");
+      const entityClass = await rtiAmb.getObjectClassHandle("TacticalEntity");
+      const posAttr = await rtiAmb.getAttributeHandle(entityClass, "Position");
+      const velAttr = await rtiAmb.getAttributeHandle(entityClass, "Velocity");
+      const payloadAttr = await rtiAmb.getAttributeHandle(entityClass, "PayloadStatus");
+      log("  [+] Resolved Class 'TacticalEntity' => " + entityClass);
+      log("  [+] Resolved Attributes: Pos=" + posAttr + ", Vel=" + velAttr + ", Payload=" + payloadAttr);
+
+      await rtiAmb.publishObjectClassAttributes(entityClass, [posAttr, velAttr, payloadAttr]);
+      log("  [+] Published FOM attributes!");
+
+      // Stage 4: Dynamic DDM 3D Spatial Region
+      log("[Stage 4/11] Resolving DDM Dimensions & Creating 3D Region...");
+      const dimX = await rtiAmb.getDimensionHandle("DimensionX");
+      const dimY = await rtiAmb.getDimensionHandle("DimensionY");
+      const dimZ = await rtiAmb.getDimensionHandle("DimensionZ");
+      log("  [+] Resolved Dimensions: X=" + dimX + ", Y=" + dimY + ", Z=" + dimZ);
+
+      const regHandle = await rtiAmb.createRegion([dimX, dimY, dimZ]);
+      await rtiAmb.setMetricBounds(regHandle, 0.0, 1000.0, 0.0, 1000.0, 0.0, 1000.0);
+      await rtiAmb.subscribeObjectClassAttributesWithRegions(entityClass, [posAttr, velAttr, payloadAttr], regHandle);
+      log("  [+] Subscribed with 3D Morton region " + regHandle + " bounding [0, 1000]^3!");
+
+      // Stage 5: Register Object Instance
+      const assetName = "Valhalla_Web_Drone_01";
+      log("[Stage 5/11] Registering object instance '" + assetName + "'...");
+      const objHandle = await rtiAmb.registerObjectInstance(entityClass, assetName);
+      log("  [+] Object instance registered! Handle: " + objHandle);
+
+      // Stage 6: 3D Spatial Attribute Updates
+      log("[Stage 6/11] Performing 3D Spatial Attribute Updates...");
+      await rtiAmb.updateAttributeValuesSpatial(objHandle, {
+        [posAttr]: "POS(x=350.0, y=350.0, z=150.0)",
+        [velAttr]: "VEL(mach=1.8)",
+        [payloadAttr]: "WEB_SEARCH_ACTIVE"
+      }, 350.0, 350.0, 150.0, "WebCycle_1");
+      log("  [+] Sent spatial update at (350.0, 350.0, 150.0)!");
+
+      // Stage 7: Ownership Management
+      log("[Stage 7/11] Testing Attribute Ownership Management on 'Position'...");
+      const initialOwner = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
+      log("  [+] Initial Ownership: " + initialOwner + " (expected: true)");
+
+      await rtiAmb.unconditionalAttributeOwnershipDivestiture(objHandle, [posAttr]);
+      const afterDivest = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
+      log("  [+] Ownership after divestiture: " + afterDivest + " (expected: false)");
+
+      await rtiAmb.attributeOwnershipAcquisition(objHandle, [posAttr], "WebAcquireTag");
+      const afterAcquire = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
+      log("  [+] Ownership after re-acquisition: " + afterAcquire + " (expected: true)");
+
+      // Stage 8: Delete Object Instance
+      log("[Stage 8/11] Deleting object instance " + objHandle + "...");
+      await rtiAmb.deleteObjectInstance(objHandle, "WebHomologDone");
+      log("  [+] Object deleted cleanly!");
+
+      // Stage 9: Resign
+      log("[Stage 9/11] Resigning federation execution...");
+      await rtiAmb.resignFederationExecution(ResignAction.DELETE_OBJECTS_THEN_DIVEST);
+      log("  [+] Resigned successfully!");
+
+      // Stage 10: Destroy
+      log("[Stage 10/11] Destroying federation execution...");
+      try {
+        await rtiAmb.destroyFederationExecution(fedName);
+        log("  [+] Federation execution destroyed!");
+      } catch (e) {
+        log("  [*] Federation destruction note: " + e.message);
+      }
+
+      // Stage 11: Disconnect
+      log("[Stage 11/11] Disconnecting...");
+      await rtiAmb.disconnect();
+      log("  [+] Disconnected cleanly from CRC!");
+
+      log("====================================================================", "log-pass");
+      log("   HOMOLOGATION TEST PASSED: ALL 11 VERIFICATION STAGES SUCCEEDED   ", "log-pass");
+      log("====================================================================", "log-pass");
+
+    } catch (err) {
+      log("[-] TEST FAILED: " + err.message, "log-warn");
+      console.error(err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>

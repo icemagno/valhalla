@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,12 +18,14 @@ var (
 	logCRCPortico = logger.NewLogger("CRC-Portico")
 )
 
-// Server represents the Valhalla Central RTI Component (CRC) executive supporting dual-protocol multiplexing
+// Server represents the Valhalla Central RTI Component (CRC) executive supporting tri-protocol multiplexing
 type Server struct {
 	addr        string
+	webAddr     string
 	listener    net.Listener
 	fedManager  *FederationManager
 	peekTimeout time.Duration
+	webGateway  *WebGateway
 
 	conns   map[net.Conn]struct{}
 	connsMu sync.Mutex
@@ -41,13 +44,33 @@ func NewServer(addr string) *Server {
 	if !strings.Contains(addr, ":") {
 		addr = ":" + addr
 	}
+
+	webAddr := ":52296"
+	parts := strings.Split(addr, ":")
+	if len(parts) == 2 {
+		if pNum, err := strconv.Atoi(parts[1]); err == nil {
+			webAddr = fmt.Sprintf("%s:%d", parts[0], pNum+1)
+		}
+	}
+
 	return &Server{
 		addr:        addr,
+		webAddr:     webAddr,
 		fedManager:  NewFederationManager(),
 		peekTimeout: 50 * time.Millisecond,
 		conns:       make(map[net.Conn]struct{}),
 		stopChan:    make(chan struct{}),
 	}
+}
+
+// SetWebAddr configures a custom HTTP/WebSocket port for the HLA-4 Web Profile
+func (s *Server) SetWebAddr(webAddr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !strings.Contains(webAddr, ":") {
+		webAddr = ":" + webAddr
+	}
+	s.webAddr = webAddr
 }
 
 // FederationManager returns the central federation manager
@@ -73,6 +96,11 @@ func (s *Server) Start() error {
 	s.running = true
 
 	logCRC.Info("Valhalla RTI Executive active on %s", l.Addr())
+
+	s.webGateway = NewWebGateway(s.webAddr, s.fedManager)
+	if err := s.webGateway.Start(); err != nil {
+		logCRC.Error("Failed to start Web Gateway on %s: %v", s.webAddr, err)
+	}
 
 	s.wg.Add(1)
 	go s.acceptLoop()
@@ -146,6 +174,10 @@ func (s *Server) Stop() error {
 	s.running = false
 	close(s.stopChan)
 	err := s.listener.Close()
+
+	if s.webGateway != nil {
+		_ = s.webGateway.Stop()
+	}
 
 	// Proactively close all active connections to unblock read loops
 	s.connsMu.Lock()

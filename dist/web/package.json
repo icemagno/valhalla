@@ -1,0 +1,21 @@
+{
+  "name": "@valhalla/hla-web",
+  "version": "1.0.0",
+  "description": "Valhalla HLA-4 Web Profile SDK (IEEE 1516-2025)",
+  "main": "valhalla-hla.js",
+  "types": "valhalla-hla.d.ts",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "hla",
+    "ieee1516",
+    "ieee1516-2025",
+    "hla-4",
+    "simulation",
+    "rti",
+    "valhalla"
+  ],
+  "author": "Carlos Magno Oliveira de Abreu <magno.mabreu@gmail.com>",
+  "license": "Apache-2.0"
+}

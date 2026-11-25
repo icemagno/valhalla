@@ -16,6 +16,7 @@ func main() {
 	defer logger.Flush()
 
 	port := flag.String("port", ":52295", "Listening TCP port (e.g. 52295 or :52295)")
+	webPort := flag.String("web-port", "", "Listening HTTP/WebSocket port for HLA-4 Web Profile (defaults to port+1)")
 	flag.Parse()
 
 	addr := *port
@@ -31,6 +32,9 @@ func main() {
 	logMain := logger.NewLogger("CRC")
 
 	server := crc.NewServer(addr)
+	if *webPort != "" {
+		server.SetWebAddr(*webPort)
+	}
 	if err := server.Start(); err != nil {
 		logMain.Critical("Fatal error starting Valhalla CRC: %v", err)
 		logger.Flush()

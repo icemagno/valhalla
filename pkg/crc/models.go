@@ -16,6 +16,7 @@ type ProtocolType = common.ProtocolType
 const (
 	ProtocolNative  = common.ProtocolNative
 	ProtocolPortico = common.ProtocolPortico
+	ProtocolWeb     = common.ProtocolWeb
 )
 
 // Session defines the transport interface for asynchronous message dispatch to a federate

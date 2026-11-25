@@ -43,6 +43,7 @@ type ProtocolType uint8
 const (
 	ProtocolNative  ProtocolType = 1 // Valhalla Native (SSZ / Merkle / PQC / VAL4)
 	ProtocolPortico ProtocolType = 2 // Portico Legacy (JOS / Header 12b / 0xCAFE / 0xBEEF)
+	ProtocolWeb     ProtocolType = 3 // HLA-4 Web Profile (IEEE 1516-2025 WebSockets / JSON)
 )
 
 func (p ProtocolType) String() string {
@@ -51,6 +52,8 @@ func (p ProtocolType) String() string {
 		return "Valhalla-Native(VAL4)"
 	case ProtocolPortico:
 		return "Portico-Legacy(JOS)"
+	case ProtocolWeb:
+		return "HLA4-WebProfile(JSON-WS)"
 	default:
 		return "Unknown"
 	}
