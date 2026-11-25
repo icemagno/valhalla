@@ -396,4 +396,27 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Marcos concluídos: CRC Soberano, Multiplexador Monoporta, LRC Nativo IEEE 1516-2025, Metamodelo Modular JOS em Go Puro e Homologação ao Vivo com Portico (Thor).*
+### 21. Resolução Definitiva de Desserialização no Ingress (`JoinFederation`), Suporte a `HashSet` e Resiliência em Árvores de Objetos
+
+1. **Diagnóstico da Falha `token desconhecido ou nao suportado: 0x78`:**
+   * Ao executar `JoinFederation` com o federado `Thor`, a requisição continha uma árvore complexa de FOM com dezenas de classes (`ObjectModel`, `ICMetadata`, `OCMetadata`, etc.). O decodificador JOS falhava com erro ao tentar ler o campo `name` de `org.portico.lrc.model.ICMetadata` encontrando `0x78` (`TC_ENDBLOCKDATA`).
+   * **Causa Raiz Identificada:**
+     * O campo `children` de `ICMetadata` é uma instância de `java.util.HashSet`. O `HashSet` na JVM implementa `writeObject()` customizado (`SC_WRITE_METHOD`) que grava um bloco de 12 bytes (`capacity`, `loadFactor`, `size`) seguido de `TC_ENDBLOCKDATA` (0x78).
+     * Como o metamodelo do Valhalla não possuía `java.util.HashSet` registrado e o decodificador Go não possuía o mecanismo de descarte de dados customizados (`skipCustomData`), o bloco de dados e o terminador `0x78` ficavam não consumidos no stream, corrompendo a leitura dos campos subsequentes (`name`).
+     * O `CustomReader` de `java.util.HashMap` lia chaves com `ReadString()` em vez de `ReadObject()`, incompatível com mapas cujas chaves são instâncias de `java.lang.Integer` (ex: handles de classes de interação).
+
+2. **Implementações Realizadas:**
+   * **Metamodelo Canônico de `java.util.HashSet` ([`pkg/portico/wire/metamodel/java_util_hashset.go`](pkg/portico/wire/metamodel/java_util_hashset.go)):**
+     * Registrado com SUID `-5024744406713321676L` (`0xBA44859596B8B734`), flags `SC_WRITE_METHOD | SC_SERIALIZABLE` e decodificação precisa dos elementos e cabeçalho de 12 bytes.
+   * **Mecanismo Universal `skipCustomData()` no `JOSDecoder` ([`pkg/portico/wire/jos_decoder.go`](pkg/portico/wire/jos_decoder.go)):**
+     * Implementado alinhamento com a especificação da Oracle: para qualquer classe no grafo com flag `SC_WRITE_METHOD` que não possua `CustomReader` específico, o decodificador consome e salta os blocos primitivos e objetos aninhados até o delimitador `TC_ENDBLOCKDATA` (0x78).
+   * **Alinhamento do `HashMap` para Chaves Polimórficas (`r.ReadObject()`):**
+     * Suporte a mapas heterogêneos `map[any]any` com chaves inteiras ou string.
+   * **Resiliência e Fallback Seguro no `JoinFederationHandler` ([`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
+     * Os campos vitais (`federateName`, `federateType`, `federationName`) são extraídos com sucesso. Caso alguma estrutura acessória e opcional do FOM do cliente apresente inconsistência profunda, o nó não é abortado, garantindo ingresso suave como `"Thor"`.
+   * **Formatação Canônica de Erros de Controle (`SendControlResponseErr`):**
+     * Respostas de erro transmitem agora um payload JOS válido de `ResponseMessage(isError: true)` em vez de bytes vazios, impedindo que o LRC do Portico lance `Couldn't convert byte[] into ResponseMessage`.
+
+---
+
+*Fim da entrada diária de 24/11/2026. Marcos concluídos: CRC Soberano, Multiplexador Monoporta, LRC Nativo IEEE 1516-2025, Metamodelo Modular JOS em Go Puro, Suporte a HashSet/HashMap Polimórfico e Homologação ao Vivo com Portico (Thor).*

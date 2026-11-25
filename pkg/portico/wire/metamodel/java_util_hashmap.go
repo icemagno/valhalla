@@ -18,19 +18,39 @@ var ClassDescHashMap = &ClassDesc{
 	Super: ClassDescObject,
 	CustomWriter: func(w JOSWriter, obj *JavaObject) error {
 		// HashMap serializa entries customizadas em bloco após defaultWriteObject
-		entries, _ := obj.Get("entries").(map[string]any)
+		var count int
+		switch m := obj.Get("entries").(type) {
+		case map[string]any:
+			count = len(m)
+		case map[any]any:
+			count = len(m)
+		}
 
 		// 1. Bloco de cabeçalho da tabela: capacity (16) + size
 		var blk [8]byte
 		binary.BigEndian.PutUint32(blk[0:4], 16)
-		binary.BigEndian.PutUint32(blk[4:8], uint32(len(entries)))
+		binary.BigEndian.PutUint32(blk[4:8], uint32(count))
 		w.WriteBlockData(blk[:])
 
 		// 2. Escrever pares alternados (Key -> Value)
-		for k, v := range entries {
-			w.WriteString(k)
-			if err := w.WriteObject(v); err != nil {
-				return err
+		switch m := obj.Get("entries").(type) {
+		case map[string]any:
+			for k, v := range m {
+				if err := w.WriteObject(k); err != nil {
+					return err
+				}
+				if err := w.WriteObject(v); err != nil {
+					return err
+				}
+			}
+		case map[any]any:
+			for k, v := range m {
+				if err := w.WriteObject(k); err != nil {
+					return err
+				}
+				if err := w.WriteObject(v); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -49,9 +69,9 @@ var ClassDescHashMap = &ClassDesc{
 			size = int(binary.BigEndian.Uint32(blk[4:8]))
 		}
 
-		entries := make(map[string]any, size)
+		entries := make(map[any]any, size)
 		for i := 0; i < size; i++ {
-			k, err := r.ReadString()
+			k, err := r.ReadObject()
 			if err != nil {
 				return err
 			}
@@ -62,8 +82,11 @@ var ClassDescHashMap = &ClassDesc{
 			entries[k] = v
 		}
 
-		// Consumir TC_ENDBLOCKDATA
-		_, _ = r.ReadByte()
+		// Consumir TC_ENDBLOCKDATA se presente
+		b, err := r.ReadByte()
+		if err == nil && b != TC_ENDBLOCKDATA {
+			// Se o byte não for TC_ENDBLOCKDATA, não consome
+		}
 
 		obj.Set("entries", entries)
 		return nil

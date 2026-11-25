@@ -100,9 +100,10 @@ func (s *PorticoSession) SendControlResponseOK(reqID uint16, msgType wire.Messag
 
 // SendControlResponseErr envia uma resposta de erro para uma requisição de controle
 func (s *PorticoSession) SendControlResponseErr(reqID uint16, msgType wire.MessageType, errMsg string) error {
+	payload := wire.BuildErrorResponsePayload(errMsg)
 	hdr := wire.Header{
 		Flags:         0,
-		PayloadLength: 0,
+		PayloadLength: uint32(len(payload)),
 		FederationID:  uint8(s.fedHandle),
 		CallType:      wire.CallTypeControlResponseErr,
 		MessageType:   msgType,
@@ -110,7 +111,7 @@ func (s *PorticoSession) SendControlResponseErr(reqID uint16, msgType wire.Messa
 		SourceHandle:  0,
 		TargetHandle:  uint16(s.id),
 	}
-	return s.SendPacket(hdr, nil)
+	return s.SendPacket(hdr, payload)
 }
 
 // SendNotification envia uma notificação assíncrona (ex: AnnounceSyncPoint, FederationSynchronized, TAG)

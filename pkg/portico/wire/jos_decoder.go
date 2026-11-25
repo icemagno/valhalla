@@ -3,6 +3,7 @@ package wire
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -200,6 +201,20 @@ func (d *JOSDecoder) ReadObject() (any, error) {
 		}
 		return buf, nil
 
+	case 0x7A: // TC_BLOCKDATALONG
+		var iLen int32
+		if err := binary.Read(d.r, binary.BigEndian, &iLen); err != nil {
+			return nil, err
+		}
+		buf := make([]byte, iLen)
+		if _, err := io.ReadFull(d.r, buf); err != nil {
+			return nil, err
+		}
+		return buf, nil
+
+	case TC_ENDBLOCKDATA:
+		return nil, io.EOF
+
 	default:
 		return nil, fmt.Errorf("jos decoder: token desconhecido ou nao suportado: 0x%02X", tc)
 	}
@@ -390,15 +405,65 @@ func (d *JOSDecoder) readObjectInstance() (*JavaObject, error) {
 			}
 		}
 
-		// 2. Se a classe possuir readObject customizado (SC_WRITE_METHOD), executá-lo
-		if c.Flags&SC_WRITE_METHOD != 0 && c.CustomReader != nil {
-			if err := c.CustomReader(d, obj); err != nil {
-				return nil, fmt.Errorf("falha no CustomReader da classe %s: %w", c.Name, err)
+		// 2. Se a classe possuir readObject customizado (SC_WRITE_METHOD), executá-lo ou pular custom data
+		if c.Flags&SC_WRITE_METHOD != 0 {
+			if c.CustomReader != nil {
+				if err := c.CustomReader(d, obj); err != nil {
+					return nil, fmt.Errorf("falha no CustomReader da classe %s: %w", c.Name, err)
+				}
+			} else {
+				if err := d.skipCustomData(); err != nil {
+					return nil, fmt.Errorf("falha ao pular dados customizados da classe %s: %w", c.Name, err)
+				}
 			}
 		}
 	}
 
 	return obj, nil
+}
+
+// skipCustomData avança o stream ignorando blocos primitivos e objetos customizados até TC_ENDBLOCKDATA (0x78)
+func (d *JOSDecoder) skipCustomData() error {
+	for {
+		tc, err := d.ReadByte()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		switch tc {
+		case TC_ENDBLOCKDATA:
+			return nil
+		case TC_BLOCKDATA:
+			bLen, err := d.ReadByte()
+			if err != nil {
+				return err
+			}
+			if _, err := d.r.Seek(int64(bLen), io.SeekCurrent); err != nil {
+				return err
+			}
+		case 0x7A: // TC_BLOCKDATALONG
+			var iLen int32
+			if err := binary.Read(d.r, binary.BigEndian, &iLen); err != nil {
+				return err
+			}
+			if _, err := d.r.Seek(int64(iLen), io.SeekCurrent); err != nil {
+				return err
+			}
+		default:
+			// Objeto gravado em writeObject
+			if _, err := d.r.Seek(-1, io.SeekCurrent); err != nil {
+				return err
+			}
+			if _, err := d.ReadObject(); err != nil {
+				if errors.Is(err, io.EOF) {
+					return nil
+				}
+				return err
+			}
+		}
+	}
 }
 
 func (d *JOSDecoder) readFieldValue(field FieldDesc) (any, error) {

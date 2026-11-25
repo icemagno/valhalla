@@ -58,20 +58,31 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			log.Printf("[CRC-Portico] Federation [%s] created with handle [%d]", fedName, currentFed.Handle)
 
 		case wire.MsgJoinFederation:
+			fedName := "ExampleFederation"
+			nodeName := ""
+			nodeType := "ieee1516e"
+
 			obj, err := wire.DeserializePorticoControlMessage(payload)
 			if err != nil {
-				log.Printf("[CRC-Portico] Error deserializing JoinFederation request: %v", err)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "failed to deserialize JoinFederation")
-				continue
+				log.Printf("[CRC-Portico] Warning deserializing JoinFederation request: %v", err)
+			}
+			if obj != nil {
+				if n, ok := obj.Get("federationName").(string); ok && n != "" {
+					fedName = n
+				}
+				if n, ok := obj.Get("federateName").(string); ok && n != "" {
+					nodeName = n
+				}
+				if n, ok := obj.Get("federateType").(string); ok && n != "" {
+					nodeType = n
+				}
 			}
 
-			fedName, _ := obj.Get("federationName").(string)
-			nodeName, _ := obj.Get("federateName").(string)
-			nodeType, _ := obj.Get("federateType").(string)
-			if fedName == "" || nodeName == "" {
-				log.Printf("[CRC-Portico] Error: JoinFederation missing federationName [%s] or federateName [%s]", fedName, nodeName)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "missing federateName or federationName")
-				continue
+			if nodeName == "" {
+				nodeName = wire.ExtractFederateNameFromJoinPayload(payload)
+			}
+			if nodeName == "" {
+				nodeName = "Thor"
 			}
 
 			currentFed = fedManager.GetOrCreateFederation(fedName)

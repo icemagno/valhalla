@@ -71,3 +71,35 @@ func BuildFederationSynchronizedPayload(label string) ([]byte, error) {
 	obj := metamodel.NewFederationSynchronized(label)
 	return SerializePorticoControlMessage(obj)
 }
+
+// BuildErrorResponsePayload constrói dinamicamente em Go a ResponseMessage de erro oficial
+func BuildErrorResponsePayload(errMsg string) []byte {
+	resp := metamodel.NewResponseMessage(true)
+	data, err := SerializePorticoControlMessage(resp)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// ExtractFederateNameFromJoinPayload extrai o federateName do payload cru de JoinFederation
+// como mecanismo de resiliência caso estruturas complexas e opcionais do FOM falhem na árvore
+func ExtractFederateNameFromJoinPayload(payload []byte) string {
+	dec := NewJOSDecoder(payload)
+	if err := dec.ReadStreamHeader(); err != nil {
+		return ""
+	}
+
+	// Tenta ler o objeto raiz JoinFederation
+	objAny, err := dec.ReadObject()
+	if err != nil {
+		return ""
+	}
+
+	if jo, ok := objAny.(*metamodel.JavaObject); ok {
+		if fn, ok := jo.Get("federateName").(string); ok && fn != "" {
+			return fn
+		}
+	}
+	return ""
+}

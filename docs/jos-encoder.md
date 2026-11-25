@@ -138,6 +138,13 @@ Para modelar isso declarativamente em Go, introduzimos a flag `CustomOnly bool` 
 ### 4.3. Regra de Classes `Externalizable` (`SC_EXTERNALIZABLE = 0x04`)
 Quando uma classe implementa `java.io.Externalizable` (como `ExtendedSuccessResponse` e `WelcomePack`), a JVM ignora a hierarquia de superclasses durante a gravação/leitura de dados. O codificador e o decodificador Go executam exclusivamente o `CustomWriter` / `CustomReader` da própria classe concreta, sem emitir blocos espúrios de superclasses que provocariam `java.io.OptionalDataException` na JVM.
 
+### 4.4. Suporte Canônico a Coleções: `java.util.HashSet` e `java.util.HashMap`
+* **`java.util.HashSet` (`pkg/portico/wire/metamodel/java_util_hashset.go`):** SUID `-5024744406713321676L` (`0xBA44859596B8B734`). O `HashSet` grava cabeçalho de 12 bytes (`capacity`, `loadFactor`, `size`), seguido por seus elementos individuais e terminador `TC_ENDBLOCKDATA` (0x78).
+* **`java.util.HashMap` Polimórfico:** Chaves e valores são desserializados como `r.ReadObject()`, suportando chaves do tipo `Integer` (handles) e `String` sem corromper o fluxo.
+
+### 4.5. Descarte Universal de Dados Customizados (`skipCustomData`)
+Em árvores de classes com `SC_WRITE_METHOD` onde a classe concreta não possui leitor customizado no metamodelo Go, o decodificador executa `skipCustomData()`, avançando os blocos binários e sub-objetos com segurança até o delimitador `TC_ENDBLOCKDATA` (0x78), assegurando que leituras de campos subsequentes no objeto não colidam com tokens residuais.
+
 ---
 
 ## 5. Chaves Oficiais do Portico no `ExtendedSuccessResponse`
