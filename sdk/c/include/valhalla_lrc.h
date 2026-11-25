@@ -1,0 +1,81 @@
+#ifndef VALHALLA_LRC_H
+#define VALHALLA_LRC_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Valhalla C-ABI Status Codes
+#define VALHALLA_OK 0
+#define VALHALLA_ERR_NOT_CONNECTED 1
+#define VALHALLA_ERR_INVALID_ARG 2
+#define VALHALLA_ERR_RTI_EXCEPTION 3
+#define VALHALLA_ERR_NOT_OWNER 4
+#define VALHALLA_ERR_ALREADY_OWNED 5
+
+typedef void* ValhallaAmbassador;
+
+// Callback function pointer types for C FederateAmbassador
+typedef void (*ValhallaDiscoverObjectCallback)(int32_t theObject, int32_t theObjectClass, const char* objectName);
+typedef void (*ValhallaRemoveObjectCallback)(int32_t theObject, const uint8_t* tag, int32_t tagLen);
+typedef void (*ValhallaReflectAttributesCallback)(int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen);
+typedef void (*ValhallaTimeAdvanceGrantCallback)(double time);
+
+typedef struct {
+    ValhallaDiscoverObjectCallback onDiscoverObject;
+    ValhallaRemoveObjectCallback onRemoveObject;
+    ValhallaReflectAttributesCallback onReflectAttributes;
+    ValhallaTimeAdvanceGrantCallback onTimeAdvanceGrant;
+} ValhallaCallbacks;
+
+// Lifecycle
+ValhallaAmbassador valhalla_create_ambassador(void);
+void valhalla_destroy_ambassador(ValhallaAmbassador amb);
+int32_t valhalla_set_callbacks(ValhallaAmbassador amb, ValhallaCallbacks callbacks);
+
+// Connection & Federation Execution
+int32_t valhalla_connect(ValhallaAmbassador amb, char* address);
+int32_t valhalla_disconnect(ValhallaAmbassador amb);
+int32_t valhalla_create_federation(ValhallaAmbassador amb, char* fedName);
+int32_t valhalla_destroy_federation(ValhallaAmbassador amb, char* fedName);
+int32_t valhalla_join_federation(ValhallaAmbassador amb, char* federateName, char* fedName, int32_t* outFederateHandle);
+int32_t valhalla_resign_federation(ValhallaAmbassador amb);
+
+// Declaration Management
+int32_t valhalla_publish_object_class(ValhallaAmbassador amb, int32_t classHandle, int32_t* attrHandles, int32_t attrCount);
+int32_t valhalla_subscribe_object_class(ValhallaAmbassador amb, int32_t classHandle, int32_t* attrHandles, int32_t attrCount);
+
+// Object Management
+int32_t valhalla_register_object(ValhallaAmbassador amb, int32_t classHandle, char* objectName, int32_t* outObjectHandle);
+int32_t valhalla_delete_object(ValhallaAmbassador amb, int32_t objectHandle, uint8_t* tag, int32_t tagLen);
+int32_t valhalla_update_attributes(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, uint8_t** attrValues, int32_t* attrLens, int32_t attrCount, uint8_t* tag, int32_t tagLen);
+
+// Time Management
+int32_t valhalla_enable_time_regulation(ValhallaAmbassador amb, double lookahead);
+int32_t valhalla_enable_time_constrained(ValhallaAmbassador amb);
+int32_t valhalla_time_advance_request(ValhallaAmbassador amb, double time);
+int32_t valhalla_next_message_request(ValhallaAmbassador amb, double time);
+
+// Ownership Management (Sprint 6 & IEEE 1516-2025)
+int32_t valhalla_divest_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, int32_t attrCount);
+int32_t valhalla_acquire_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, int32_t attrCount);
+int32_t valhalla_query_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t attrHandle, int32_t* outOwner, _Bool* outIsOwned);
+
+// Data Distribution Management (DDM) (Sprint 6 & IEEE 1516-2025)
+int32_t valhalla_create_region(ValhallaAmbassador amb, int32_t* dimensions, int32_t dimCount, uint32_t* outRegionHandle);
+int32_t valhalla_set_range_bounds(ValhallaAmbassador amb, uint32_t regionHandle, int32_t dimension, uint32_t lowerBound, uint32_t upperBound);
+int32_t valhalla_set_metric_bounds(ValhallaAmbassador amb, uint32_t regionHandle, double minX, double maxX, double minY, double maxY, double minZ, double maxZ);
+int32_t valhalla_subscribe_with_region(ValhallaAmbassador amb, int32_t classHandle, int32_t* attrHandles, int32_t attrCount, uint32_t regionHandle);
+int32_t valhalla_update_attributes_spatial(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, uint8_t** attrValues, int32_t* attrLens, int32_t attrCount, double x, double y, double z, uint8_t* tag, int32_t tagLen);
+
+// Callback Dispatching
+int32_t valhalla_evoke_callback(ValhallaAmbassador amb, double timeoutSeconds, _Bool* outEvoked);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // VALHALLA_LRC_H

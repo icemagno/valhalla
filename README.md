@@ -72,12 +72,9 @@ Project Valhalla separates source packages, language SDKs, test suites, and dist
 
 ```
 hla-rti/
-├── dist/                               # Ready-to-go distributions and pre-compiled libraries
-│   ├── bin/                            # Standalone server executables (valhalla-crc, valhalla-observer)
-│   ├── c/                              # C/C++ Native SDK distribution
-│   │   ├── include/                    # C-ABI headers (valhalla_lrc.h)
-│   │   └── lib/                        # Dynamic link libraries (.dll / .so)
-│   └── java/                           # Java Client SDK distribution (valhalla-lrc.jar fat JAR)
+├── dist/                               # Ready-to-go compiled binaries
+│   ├── bin/                            # Native binaries (valhalla-crc, valhalla-observer, valhalla_lrc.dll, libvalhalla_lrc.so)
+│   └── java/                           # Java Client SDK distribution (valhalla-lrc.jar fat JAR with embedded DLL + SO)
 ├── cmd/                                # Application entry points
 │   ├── valhalla-crc/                   # Central RTI Component (CRC server)
 │   └── valhalla-observer/              # Real-time Web/CLI inspection tool
@@ -92,6 +89,7 @@ hla-rti/
 │   ├── observer/                       # WebSockets and terminal telemetry observer
 │   └── vector/                         # 64-bit vectorized bitset operations
 ├── sdk/                                # Language-specific client SDKs
+│   ├── c/                              # Native C/C++ Client SDK (headers, wrapper, CMake integration)
 │   └── java/                           # Native Java Client SDK (IEEE 1516e interfaces + embedded JNA)
 ├── scripts/                            # Build automation and release scripts (build-sdk, publish-maven)
 ├── test/                               # Verification suites & test federates
@@ -103,9 +101,9 @@ hla-rti/
 
 ### What is Produced When Compiling LRC?
 When you compile the Local RTI Component (LRC), the build produces:
-1. **Native C-ABI Shared Library (`dist/c/lib/valhalla_lrc.dll` / `.so`):** A zero-dependency shared dynamic library exporting standard C functions for connection, federation execution, publication/subscription, object registration, attribute reflection, 3D Morton DDM routing, and attribute ownership handover.
-2. **C Header Files (`dist/c/include/valhalla_lrc.h`):** Complete C/C++ interface definition allowing direct integration into C, C++, Rust, Python, or legacy simulation engines.
-3. **Java SDK Fat JAR (`dist/java/valhalla-lrc.jar`):** A standalone, fully self-contained Java archive implementing the canonical **IEEE 1516e (`hla.rti1516e.*`)** interfaces. It internally embeds the native shared library and shaded JNA loader. End users simply drop `valhalla-lrc.jar` onto their Java classpath without installing external prerequisites or configuring system library paths.
+1. **Native C-ABI Shared Libraries (`dist/bin/valhalla_lrc.dll` and `dist/bin/libvalhalla_lrc.so`):** Zero-dependency shared dynamic libraries exporting standard C functions for connection, federation execution, publication/subscription, object registration, attribute reflection, 3D Morton DDM routing, and attribute ownership handover.
+2. **C Header Files (`sdk/c/include/valhalla_lrc.h`):** Complete C/C++ interface definition allowing direct integration into C, C++, Rust, Python, or legacy simulation engines.
+3. **Java SDK Fat JAR (`dist/java/valhalla-lrc.jar`):** A standalone, fully self-contained Java archive implementing the canonical **IEEE 1516e (`hla.rti1516e.*`)** interfaces. It internally embeds **both** the Windows DLL and Linux SO native shared libraries alongside shaded JNA. End users simply drop `valhalla-lrc.jar` onto their Java classpath or declare it in Maven without installing external prerequisites or configuring system library paths.
 
 ---
 
@@ -273,18 +271,18 @@ powershell -File test/java_test/run_test.ps1
 
 ### 4. Developing and Running a Native C / C++ Federate
 
-Using the native C-ABI shared library (`dist/c/include/valhalla_lrc.h` and `dist/c/lib/valhalla_lrc.dll`):
+Using the native C SDK ([`sdk/c/include/valhalla_lrc.h`](sdk/c/include/valhalla_lrc.h)) and dynamic linking against `dist/bin/`:
 
 #### Compiling and Running
 ```powershell
 # Windows (MinGW-W64 GCC)
-gcc -I dist/c/include test/c_test/main.c -L dist/c/lib -lvalhalla_lrc -o test/c_test/c_test.exe
-$env:PATH += ";dist/c/lib"
+gcc -I sdk/c/include test/c_test/main.c -L dist/bin -lvalhalla_lrc -o test/c_test/c_test.exe
+$env:PATH += ";dist/bin"
 .\test\c_test\c_test.exe
 
 # Linux
-gcc -I dist/c/include test/c_test/main.c -L dist/c/lib -lvalhalla_lrc -o test/c_test/c_test
-LD_LIBRARY_PATH=dist/c/lib ./test/c_test/c_test
+gcc -I sdk/c/include test/c_test/main.c -L dist/bin -lvalhalla_lrc -o test/c_test/c_test
+LD_LIBRARY_PATH=dist/bin ./test/c_test/c_test
 ```
 
 ---

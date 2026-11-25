@@ -1,3 +1,4 @@
+javac -cp "dist\java\valhalla-lrc.jar" -d "test\java_test" "test\java_test\JavaFederateTest.java"
 $crcProc = Start-Process -FilePath "dist\bin\valhalla-crc.exe" -ArgumentList "-port", ":4005" -PassThru
 Start-Sleep -Milliseconds 800
 try {
