@@ -15,7 +15,7 @@ var (
 	ErrInvalidMerkleProof         = errors.New("hla merkle: proof verification failed against root")
 )
 
-// HashPair computa o hash SHA-256 de dois nós contíguos de 32 bytes sem alocação na heap
+// HashPair computes the SHA-256 hash of two contiguous 32-byte nodes without heap allocation
 func HashPair(left, right [32]byte) [32]byte {
 	var buf [64]byte
 	copy(buf[:32], left[:])
@@ -23,7 +23,7 @@ func HashPair(left, right [32]byte) [32]byte {
 	return sha256.Sum256(buf[:])
 }
 
-// ComputeAttributeLeaf computa o hash da folha de um atributo: SHA-256(AttrHandle || Value)
+// ComputeAttributeLeaf computes the leaf hash for an attribute: SHA-256(AttrHandle || Value)
 func ComputeAttributeLeaf(handle common.AttributeHandle, value []byte) [32]byte {
 	h := sha256.New()
 	var handleBuf [4]byte
@@ -35,31 +35,31 @@ func ComputeAttributeLeaf(handle common.AttributeHandle, value []byte) [32]byte 
 	return res
 }
 
-// ComputeObjectMerkleRoot calcula a raiz de Merkle (hash_tree_root) dos atributos de uma entidade
+// ComputeObjectMerkleRoot calculates the deterministic Merkle root (hash_tree_root) of an entity's attributes
 func ComputeObjectMerkleRoot(attributes map[common.AttributeHandle][]byte) [32]byte {
 	if len(attributes) == 0 {
 		return [32]byte{}
 	}
 
-	// 1. Extrair e ordenar deterministicamente as chaves de atributos
+	// 1. Extract and deterministically sort attribute handles
 	keys := make([]int, 0, len(attributes))
 	for k := range attributes {
 		keys = append(keys, int(k))
 	}
 	sort.Ints(keys)
 
-	// 2. Computar folhas
+	// 2. Compute attribute leaf hashes
 	leaves := make([][32]byte, len(keys))
 	for i, k := range keys {
 		h := common.AttributeHandle(k)
 		leaves[i] = ComputeAttributeLeaf(h, attributes[h])
 	}
 
-	// 3. Reduzir em árvore binária Merkle
+	// 3. Binary Merkle tree reduction
 	return reduceMerkleTree(leaves)
 }
 
-// nextPowerOfTwo calcula a próxima potência de 2 maior ou igual a n
+// nextPowerOfTwo calculates the next power of 2 greater than or equal to n
 func nextPowerOfTwo(n int) int {
 	if n <= 1 {
 		return 1
@@ -71,7 +71,7 @@ func nextPowerOfTwo(n int) int {
 	return p
 }
 
-// reduceMerkleTree executa a redução binária de baixo para cima das folhas até a raiz
+// reduceMerkleTree performs bottom-up pairwise reduction of leaves to a single root
 func reduceMerkleTree(leaves [][32]byte) [32]byte {
 	n := len(leaves)
 	if n == 0 {
@@ -94,7 +94,7 @@ func reduceMerkleTree(leaves [][32]byte) [32]byte {
 	return tree[0]
 }
 
-// FederationStateTree mantém a árvore de estado criptográfico de todas as entidades ativas da simulação
+// FederationStateTree maintains the cryptographic state tree for all active simulation entities
 type FederationStateTree struct {
 	mu          sync.RWMutex
 	entityRoots map[common.ObjectInstanceHandle][32]byte
@@ -102,7 +102,7 @@ type FederationStateTree struct {
 	isDirty     bool
 }
 
-// NewFederationStateTree inicializa a árvore de estado de uma federação
+// NewFederationStateTree initializes a federation's state tree
 func NewFederationStateTree() *FederationStateTree {
 	return &FederationStateTree{
 		entityRoots: make(map[common.ObjectInstanceHandle][32]byte),
@@ -111,7 +111,7 @@ func NewFederationStateTree() *FederationStateTree {
 	}
 }
 
-// UpdateObjectState atualiza a raiz Merkle de uma entidade viva na simulação
+// UpdateObjectState updates the Merkle root of an active entity in the simulation
 func (t *FederationStateTree) UpdateObjectState(handle common.ObjectInstanceHandle, root [32]byte) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -119,7 +119,7 @@ func (t *FederationStateTree) UpdateObjectState(handle common.ObjectInstanceHand
 	t.isDirty = true
 }
 
-// RemoveObjectState remove a entidade da árvore de estado (após exclusão)
+// RemoveObjectState removes an entity from the state tree upon deletion
 func (t *FederationStateTree) RemoveObjectState(handle common.ObjectInstanceHandle) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -127,7 +127,7 @@ func (t *FederationStateTree) RemoveObjectState(handle common.ObjectInstanceHand
 	t.isDirty = true
 }
 
-// GetGlobalRoot retorna a raiz Merkle determinística de 32 bytes do estado atual da federação
+// GetGlobalRoot returns the deterministic 32-byte Merkle root of the entire federation state
 func (t *FederationStateTree) GetGlobalRoot() [32]byte {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -142,7 +142,7 @@ func (t *FederationStateTree) GetGlobalRoot() [32]byte {
 		return t.cachedRoot
 	}
 
-	// Ordenar entidades por handle
+	// Sort entities deterministically by handle
 	handles := make([]int, 0, len(t.entityRoots))
 	for h := range t.entityRoots {
 		handles = append(handles, int(h))
@@ -152,7 +152,7 @@ func (t *FederationStateTree) GetGlobalRoot() [32]byte {
 	leaves := make([][32]byte, len(handles))
 	for i, h := range handles {
 		leafHash := t.entityRoots[common.ObjectInstanceHandle(h)]
-		// Combinar handle e raiz do objeto como folha da federação
+		// Combine handle and entity root as a federation leaf
 		var handleBuf [4]byte
 		binary.BigEndian.PutUint32(handleBuf[:], uint32(h))
 		var combined [64]byte
@@ -166,7 +166,7 @@ func (t *FederationStateTree) GetGlobalRoot() [32]byte {
 	return t.cachedRoot
 }
 
-// MerkleProof representa o caminho de auditoria criptográfica de uma entidade
+// MerkleProof represents the cryptographic audit path for an entity
 type MerkleProof struct {
 	LeafHash   [32]byte
 	AuditPath  [][32]byte
@@ -174,7 +174,7 @@ type MerkleProof struct {
 	GlobalRoot [32]byte
 }
 
-// GenerateProof constrói o caminho de auditoria criptográfica de um objeto contra a raiz global
+// GenerateProof builds the cryptographic audit path (multiproof) of an object against the global root
 func (t *FederationStateTree) GenerateProof(handle common.ObjectInstanceHandle) (*MerkleProof, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -213,7 +213,7 @@ func (t *FederationStateTree) GenerateProof(handle common.ObjectInstanceHandle) 
 	auditPath := make([][32]byte, 0)
 
 	for size := power; size > 1; size /= 2 {
-		siblingIdx := targetIdx ^ 1 // índice do irmão no par (0->1, 1->0)
+		siblingIdx := targetIdx ^ 1 // Sibling index (0->1, 1->0)
 		auditPath = append(auditPath, currentLevel[siblingIdx])
 
 		nextLevel := make([][32]byte, size/2)
@@ -236,7 +236,7 @@ func (t *FederationStateTree) GenerateProof(handle common.ObjectInstanceHandle) 
 	}, nil
 }
 
-// VerifyMerkleProof valida matematicamente uma prova de Merkle contra a raiz global
+// VerifyMerkleProof mathematically validates a Merkle proof against the global root
 func VerifyMerkleProof(proof *MerkleProof) bool {
 	if proof == nil {
 		return false

@@ -10,11 +10,11 @@ import (
 const (
 	NativeHeaderMagic   uint16 = 0x5641 // "VA" (Valhalla)
 	NativeProtocolVer   uint8  = 4      // HLA-4 (IEEE 1516-2025)
-	NativeHeaderLength         = 56     // 24 bytes cabeçalho alinhado + 32 bytes Merkle Root
-	MaxNativePayloadLen uint32 = 64 * 1024 * 1024 // Limite de 64 MB contra esgotamento de memória (OOM)
+	NativeHeaderLength         = 56     // 24 aligned header bytes + 32-byte Merkle Root
+	MaxNativePayloadLen uint32 = 64 * 1024 * 1024 // 64 MB maximum safety limit against OOM DoS
 )
 
-// Tipos de Mensagem do Protocolo Nativo Valhalla (HLA-4 / IEEE 1516-2025)
+// Native Protocol Message Types (HLA-4 / IEEE 1516-2025)
 const (
 	// 01-19: Federation Management & Lifecycle
 	NativeMsgConnect                uint8 = 1
@@ -66,34 +66,34 @@ const (
 	NativeMsgQueryAttributeOwnership uint8 = 80
 	NativeMsgAttributeIsOwned        uint8 = 81
 
-	// 90-99: Respostas Genéricas de Controle
+	// 90-99: Generic Control Responses
 	NativeMsgSuccessOK uint8 = 90
 	NativeMsgError     uint8 = 91
 )
 
-// Flags de cabeçalho nativo
+// Native Header Flags
 const (
-	FlagNativeSSZ    uint8 = 0x01 // Bit 0: Payload codificado em SSZ
-	FlagNativeMerkle uint8 = 0x02 // Bit 1: Merkle Root válida presente no cabeçalho
-	FlagNativePQC    uint8 = 0x04 // Bit 2: Payload protegido com chave PQC (ML-KEM / Kyber)
+	FlagNativeSSZ    uint8 = 0x01 // Bit 0: SSZ-encoded payload
+	FlagNativeMerkle uint8 = 0x02 // Bit 1: Valid Merkle Root present in header
+	FlagNativePQC    uint8 = 0x04 // Bit 2: Payload protected with PQC key (ML-KEM / Kyber)
 )
 
-// NativeHeader define o cabeçalho canônico linear e de alta velocidade do protocolo nativo do Valhalla
+// NativeHeader defines the canonical, high-speed linear binary header for Project Valhalla
 type NativeHeader struct {
-	Magic      uint16   // 0x5641
-	Version    uint8    // 4
+	Magic      uint16   // 0x5641 ("VA")
+	Version    uint8    // 4 (HLA-4 / IEEE 1516-2025)
 	Flags      uint8    // Bit 0: SSZ, Bit 1: Merkle, Bit 2: PQC
-	PayloadLen uint32   // Tamanho do payload SSZ
-	MsgType    uint8    // Tipo de mensagem nativa
-	Reserved   uint8    // Alinhamento
-	ReqID      uint16   // Identificador da requisição
-	FedID      uint32   // ID da Federação
-	FederateID uint32   // ID do Federado
-	Reserved2  uint32   // Alinhamento para Merkle Root
-	MerkleRoot [32]byte // Raiz de Merkle do estado/dados (32 bytes)
+	PayloadLen uint32   // SSZ payload length
+	MsgType    uint8    // Native message type identifier
+	Reserved   uint8    // Alignment byte
+	ReqID      uint16   // Request identifier for sync correlation
+	FedID      uint32   // Federation execution ID
+	FederateID uint32   // Federate member ID
+	Reserved2  uint32   // Alignment for 32-byte Merkle Root
+	MerkleRoot [32]byte // 32-byte deterministic state Merkle Root
 }
 
-// ReadNativeHeader desserializa o cabeçalho binário nativo de 56 bytes a partir de um reader
+// ReadNativeHeader deserializes the 56-byte native binary header from an io.Reader
 func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 	var buf [NativeHeaderLength]byte
 	if _, err := io.ReadFull(r, buf[:]); err != nil {
@@ -112,7 +112,7 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 
 	payloadLen := binary.BigEndian.Uint32(buf[4:8])
 	if payloadLen > MaxNativePayloadLen {
-		return NativeHeader{}, fmt.Errorf("%w: %d bytes (limite: %d)", ErrNativePayloadTooLarge, payloadLen, MaxNativePayloadLen)
+		return NativeHeader{}, fmt.Errorf("%w: %d bytes (limit: %d)", ErrNativePayloadTooLarge, payloadLen, MaxNativePayloadLen)
 	}
 
 	var merkle [32]byte
@@ -133,7 +133,7 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 	}, nil
 }
 
-// WriteNativeHeader serializa o cabeçalho binário nativo de 56 bytes
+// WriteNativeHeader serializes the 56-byte native binary header into a fixed array
 func WriteNativeHeader(hdr NativeHeader) [NativeHeaderLength]byte {
 	var buf [NativeHeaderLength]byte
 	binary.BigEndian.PutUint16(buf[0:2], NativeHeaderMagic)
@@ -150,9 +150,9 @@ func WriteNativeHeader(hdr NativeHeader) [NativeHeaderLength]byte {
 	return buf
 }
 
-// Erros comuns de protocolo
+// Common native protocol errors
 var (
-	ErrNativeInvalidMagic    = errors.New("native protocol: magic invalido")
-	ErrNativeInvalidVersion  = errors.New("native protocol: versao nao suportada")
-	ErrNativePayloadTooLarge = errors.New("native protocol: payload excede o limite maximo de seguranca")
+	ErrNativeInvalidMagic    = errors.New("native protocol: invalid magic")
+	ErrNativeInvalidVersion  = errors.New("native protocol: unsupported version")
+	ErrNativePayloadTooLarge = errors.New("native protocol: payload exceeds maximum safety limit")
 )

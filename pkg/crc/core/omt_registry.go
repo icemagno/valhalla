@@ -20,7 +20,7 @@ var (
 	ErrInvalidParentClass   = errors.New("hla omt: invalid or non-existent parent class")
 )
 
-// Constantes normativas do Standard MIM (IEEE 1516)
+// Normative Standard MIM Constants (IEEE 1516-2025)
 const (
 	HLAobjectRootName                = common.HLAobjectRootName
 	HLAobjectRootHandle              = common.HLAobjectRootHandle
@@ -31,7 +31,7 @@ const (
 	HLAinteractionRootHandle = common.HLAinteractionRootHandle
 )
 
-// AttributeDef define os metadados de um atributo em uma classe de objeto
+// AttributeDef defines metadata for an attribute within an object class
 type AttributeDef struct {
 	Handle      common.AttributeHandle
 	Name        string
@@ -39,26 +39,26 @@ type AttributeDef struct {
 	ClassHandle common.ObjectClassHandle
 }
 
-// ObjectClass define uma classe de objeto na árvore OMT do HLA
+// ObjectClass defines an object class in the HLA OMT hierarchy
 type ObjectClass struct {
 	Handle       common.ObjectClassHandle
 	Name         string
 	ParentHandle common.ObjectClassHandle
 	Children     []common.ObjectClassHandle
 
-	// Atributos definidos diretamente nesta classe
-	Attributes        map[common.AttributeHandle]*AttributeDef
-	AttrNameToHandle  map[string]common.AttributeHandle
+	// Attributes defined directly in this class
+	Attributes       map[common.AttributeHandle]*AttributeDef
+	AttrNameToHandle map[string]common.AttributeHandle
 
-	// Interval Encoding (Euler Tour) para verificação polimórfica O(1)
+	// Euler Tour Interval Encoding for O(1) polymorphic checks
 	IntervalLeft  uint32
 	IntervalRight uint32
 
-	// Lista linear pré-computada de ancestrais (do pai imediato até HLAobjectRoot)
+	// Precomputed linear ancestor list (from immediate parent to HLAobjectRoot)
 	Ancestors []common.ObjectClassHandle
 }
 
-// ParameterDef define os metadados de um parâmetro de interação
+// ParameterDef defines metadata for a parameter within an interaction class
 type ParameterDef struct {
 	Handle            common.ParameterHandle
 	Name              string
@@ -66,46 +66,47 @@ type ParameterDef struct {
 	InteractionHandle common.InteractionClassHandle
 }
 
-// InteractionClass define uma classe de interação na árvore OMT do HLA
+// InteractionClass defines an interaction class in the HLA OMT hierarchy
 type InteractionClass struct {
 	Handle       common.InteractionClassHandle
 	Name         string
 	ParentHandle common.InteractionClassHandle
 	Children     []common.InteractionClassHandle
 
-	// Parâmetros definidos diretamente nesta classe
+	// Parameters defined directly in this interaction
 	Parameters        map[common.ParameterHandle]*ParameterDef
 	ParamNameToHandle map[string]common.ParameterHandle
 
-	// Interval Encoding (Euler Tour) para verificação polimórfica O(1)
+	// Euler Tour Interval Encoding for O(1) polymorphic checks
 	IntervalLeft  uint32
 	IntervalRight uint32
 
-	// Lista linear pré-computada de ancestrais (do pai imediato até HLAinteractionRoot)
+	// Precomputed linear ancestor list (from immediate parent to HLAinteractionRoot)
 	Ancestors []common.InteractionClassHandle
 }
 
-// OMTRegistry gerencia o metamodelo de classes e interações da federação.
-// Pré-populado com o Standard MIM do IEEE 1516 e otimizado com Interval Encoding.
+// OMTRegistry manages the federation's class and interaction metamodel.
+// Pre-populated with the IEEE 1516 Standard MIM and optimized with Euler Tour Interval Encoding.
 type OMTRegistry struct {
 	mu sync.RWMutex
 
-	// Classes de Objeto
+	// Object Classes
 	objectClasses     map[common.ObjectClassHandle]*ObjectClass
 	objectNameToClass map[string]common.ObjectClassHandle
 
-	// Classes de Interação
+	// Interaction Classes
 	interactionClasses     map[common.InteractionClassHandle]*InteractionClass
 	interactionNameToClass map[string]common.InteractionClassHandle
 
-	// Geradores de Handles sequenciais monotônicos
+	// Monotonic Sequential Handle Generators
 	nextObjectClassHandle      common.ObjectClassHandle
 	nextAttributeHandle        common.AttributeHandle
 	nextInteractionClassHandle common.InteractionClassHandle
 	nextParameterHandle        common.ParameterHandle
 }
 
-// NewOMTRegistry inicializa o registro OMT carregando o Standard MIM nativo (HLAobjectRoot e HLAinteractionRoot)
+// NewOMTRegistry initializes the OMT registry, pre-populating native Standard MIM
+// (HLAobjectRoot with HLAprivilegeToDeleteObject, and HLAinteractionRoot)
 func NewOMTRegistry() *OMTRegistry {
 	reg := &OMTRegistry{
 		objectClasses:              make(map[common.ObjectClassHandle]*ObjectClass),
@@ -118,7 +119,7 @@ func NewOMTRegistry() *OMTRegistry {
 		nextParameterHandle:        1,
 	}
 
-	// 1. Instalar HLAobjectRoot com HLAprivilegeToDeleteObject
+	// 1. Install HLAobjectRoot with HLAprivilegeToDeleteObject
 	objRoot := &ObjectClass{
 		Handle:           HLAobjectRootHandle,
 		Name:             HLAobjectRootName,
@@ -140,7 +141,7 @@ func NewOMTRegistry() *OMTRegistry {
 	reg.objectClasses[HLAobjectRootHandle] = objRoot
 	reg.objectNameToClass[HLAobjectRootName] = HLAobjectRootHandle
 
-	// 2. Instalar HLAinteractionRoot
+	// 2. Install HLAinteractionRoot
 	intRoot := &InteractionClass{
 		Handle:            HLAinteractionRootHandle,
 		Name:              HLAinteractionRootName,
@@ -153,13 +154,13 @@ func NewOMTRegistry() *OMTRegistry {
 	reg.interactionClasses[HLAinteractionRootHandle] = intRoot
 	reg.interactionNameToClass[HLAinteractionRootName] = HLAinteractionRootHandle
 
-	// Computar intervalos iniciais
+	// Compute initial Euler intervals
 	reg.recomputeIntervalsLocked()
 
 	return reg
 }
 
-// AddObjectClass registra uma nova subclasse de objeto na árvore OMT
+// AddObjectClass registers a new object subclass in the OMT hierarchy
 func (r *OMTRegistry) AddObjectClass(name string, parentHandle common.ObjectClassHandle) (*ObjectClass, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -198,7 +199,7 @@ func (r *OMTRegistry) AddObjectClass(name string, parentHandle common.ObjectClas
 	return class, nil
 }
 
-// AddAttribute adiciona um novo atributo a uma classe de objeto existente
+// AddAttribute adds a new attribute to an existing object class
 func (r *OMTRegistry) AddAttribute(classHandle common.ObjectClassHandle, name, datatype string) (*AttributeDef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -227,7 +228,7 @@ func (r *OMTRegistry) AddAttribute(classHandle common.ObjectClassHandle, name, d
 	return attr, nil
 }
 
-// AddInteractionClass registra uma nova subclasse de interação na árvore OMT
+// AddInteractionClass registers a new interaction subclass in the OMT hierarchy
 func (r *OMTRegistry) AddInteractionClass(name string, parentHandle common.InteractionClassHandle) (*InteractionClass, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -266,7 +267,7 @@ func (r *OMTRegistry) AddInteractionClass(name string, parentHandle common.Inter
 	return interaction, nil
 }
 
-// AddParameter adiciona um parâmetro a uma classe de interação existente
+// AddParameter adds a parameter to an existing interaction class
 func (r *OMTRegistry) AddParameter(interactionHandle common.InteractionClassHandle, name, datatype string) (*ParameterDef, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -295,13 +296,13 @@ func (r *OMTRegistry) AddParameter(interactionHandle common.InteractionClassHand
 	return param, nil
 }
 
-// recomputeIntervalsLocked executa uma travessia DFS Euler Tour para codificar intervalos [L, R]
+// recomputeIntervalsLocked runs a DFS Euler Tour traversal to assign [L, R] intervals
 func (r *OMTRegistry) recomputeIntervalsLocked() {
-	// 1. Árvore de Objetos
+	// 1. Object Class Tree
 	counter := uint32(1)
 	r.eulerTourObjects(HLAobjectRootHandle, &counter)
 
-	// 2. Árvore de Interações
+	// 2. Interaction Class Tree
 	counter = uint32(1)
 	r.eulerTourInteractions(HLAinteractionRootHandle, &counter)
 }
@@ -338,7 +339,7 @@ func (r *OMTRegistry) eulerTourInteractions(handle common.InteractionClassHandle
 	*counter++
 }
 
-// IsSubclassOfObject determina em O(1) se child é a mesma classe ou subclasse de ancestor
+// IsSubclassOfObject determines in O(1) CPU time whether child is the same or a subclass of ancestor
 func (r *OMTRegistry) IsSubclassOfObject(child, ancestor common.ObjectClassHandle) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -352,7 +353,7 @@ func (r *OMTRegistry) IsSubclassOfObject(child, ancestor common.ObjectClassHandl
 	return a.IntervalLeft <= c.IntervalLeft && c.IntervalRight <= a.IntervalRight
 }
 
-// IsSubclassOfInteraction determina em O(1) se child é a mesma interação ou subclasse de ancestor
+// IsSubclassOfInteraction determines in O(1) CPU time whether child is the same or a subclass of ancestor
 func (r *OMTRegistry) IsSubclassOfInteraction(child, ancestor common.InteractionClassHandle) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -366,7 +367,7 @@ func (r *OMTRegistry) IsSubclassOfInteraction(child, ancestor common.Interaction
 	return a.IntervalLeft <= c.IntervalLeft && c.IntervalRight <= a.IntervalRight
 }
 
-// GetObjectClass busca os metadados de uma classe pelo handle
+// GetObjectClass retrieves object class metadata by handle
 func (r *OMTRegistry) GetObjectClass(handle common.ObjectClassHandle) (*ObjectClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -374,7 +375,7 @@ func (r *OMTRegistry) GetObjectClass(handle common.ObjectClassHandle) (*ObjectCl
 	return c, exists
 }
 
-// GetObjectClassByName busca uma classe pelo nome
+// GetObjectClassByName retrieves object class metadata by name
 func (r *OMTRegistry) GetObjectClassByName(name string) (*ObjectClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -385,7 +386,7 @@ func (r *OMTRegistry) GetObjectClassByName(name string) (*ObjectClass, bool) {
 	return r.objectClasses[h], true
 }
 
-// GetInteractionClass busca os metadados de uma interação pelo handle
+// GetInteractionClass retrieves interaction class metadata by handle
 func (r *OMTRegistry) GetInteractionClass(handle common.InteractionClassHandle) (*InteractionClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -393,7 +394,7 @@ func (r *OMTRegistry) GetInteractionClass(handle common.InteractionClassHandle) 
 	return i, exists
 }
 
-// GetInteractionClassByName busca uma interação pelo nome
+// GetInteractionClassByName retrieves interaction class metadata by name
 func (r *OMTRegistry) GetInteractionClassByName(name string) (*InteractionClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -404,7 +405,7 @@ func (r *OMTRegistry) GetInteractionClassByName(name string) (*InteractionClass,
 	return r.interactionClasses[h], true
 }
 
-// ResolveAttribute busca um atributo na classe ou em qualquer um dos seus ancestrais (herança HLA)
+// ResolveAttribute searches for an attribute in the class or its ancestors (HLA inheritance)
 func (r *OMTRegistry) ResolveAttribute(classHandle common.ObjectClassHandle, attrHandle common.AttributeHandle) (*AttributeDef, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -424,7 +425,7 @@ func (r *OMTRegistry) ResolveAttribute(classHandle common.ObjectClassHandle, att
 	return nil, ErrAttributeNotFound
 }
 
-// ResolveAttributeByName busca o handle de um atributo pelo nome, subindo pela cadeia de herança
+// ResolveAttributeByName searches for an attribute handle by name, ascending the inheritance chain
 func (r *OMTRegistry) ResolveAttributeByName(classHandle common.ObjectClassHandle, name string) (*AttributeDef, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -441,10 +442,10 @@ func (r *OMTRegistry) ResolveAttributeByName(classHandle common.ObjectClassHandl
 		currHandle = class.ParentHandle
 	}
 
-	return nil, fmt.Errorf("%w: '%s' na hierarquia da classe %d", ErrAttributeNotFound, name, classHandle)
+	return nil, fmt.Errorf("%w: '%s' in class %d hierarchy", ErrAttributeNotFound, name, classHandle)
 }
 
-// GetClassAncestors retorna a lista ordenada de ancestrais de uma classe até HLAobjectRoot
+// GetClassAncestors returns the ordered list of class ancestors up to HLAobjectRoot
 func (r *OMTRegistry) GetClassAncestors(classHandle common.ObjectClassHandle) []common.ObjectClassHandle {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -458,7 +459,7 @@ func (r *OMTRegistry) GetClassAncestors(classHandle common.ObjectClassHandle) []
 	return res
 }
 
-// GetInteractionAncestors retorna a lista ordenada de ancestrais de uma interação até HLAinteractionRoot
+// GetInteractionAncestors returns the ordered list of interaction ancestors up to HLAinteractionRoot
 func (r *OMTRegistry) GetInteractionAncestors(interactionHandle common.InteractionClassHandle) []common.InteractionClassHandle {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

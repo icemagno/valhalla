@@ -11,39 +11,39 @@ var (
 	ErrNotPublished = errors.New("hla router: attribute or interaction not published by federate")
 )
 
-// ClassAttrKey chave combinada para indexação direta de atributo em classe
+// ClassAttrKey combined key for direct object class attribute indexing
 type ClassAttrKey struct {
 	ClassHandle common.ObjectClassHandle
 	AttrHandle  common.AttributeHandle
 }
 
-// InterestMatcher é o roteador de pub/sub de ultra-alta velocidade do Valhalla.
-// Combina a árvore OMT (Euler Tour Interval Encoding) com Bitsets vetorizados.
-// Garante resolução polimórfica de assinantes em menos de 50 nanosegundos.
+// InterestMatcher is Valhalla's ultra-high-speed pub/sub router.
+// Combines OMT Euler Tour Interval Encoding with vectorized Bitsets,
+// resolving polymorphic subscriber matches in under 275 nanoseconds.
 type InterestMatcher struct {
 	mu  sync.RWMutex
 	omt *OMTRegistry
 
-	// 1. Assinaturas de Atributos de Objeto: (ClassHandle, AttrHandle) -> Bitset de Federados
+	// 1. Object Attribute Subscriptions: (ClassHandle, AttrHandle) -> Federate Bitset
 	objSubscribers map[ClassAttrKey]*Bitset
 
-	// 2. Publicações de Atributos de Objeto: (ClassHandle, AttrHandle) -> Bitset de Federados
+	// 2. Object Attribute Publications: (ClassHandle, AttrHandle) -> Federate Bitset
 	objPublishers map[ClassAttrKey]*Bitset
 
-	// 3. Assinaturas de Interação: InteractionHandle -> Bitset de Federados
+	// 3. Interaction Subscriptions: InteractionHandle -> Federate Bitset
 	interactionSubscribers map[common.InteractionClassHandle]*Bitset
 
-	// 4. Publicações de Interação: InteractionHandle -> Bitset de Federados
+	// 4. Interaction Publications: InteractionHandle -> Federate Bitset
 	interactionPublishers map[common.InteractionClassHandle]*Bitset
 
-	// 5. Rastreamento reverso para limpeza instantânea no Resign do Federado
+	// 5. Reverse index for instant cleanup on Federate Resign
 	fedObjPubs         map[common.FederateHandle][]ClassAttrKey
 	fedObjSubs         map[common.FederateHandle][]ClassAttrKey
 	fedInteractionPubs map[common.FederateHandle][]common.InteractionClassHandle
 	fedInteractionSubs map[common.FederateHandle][]common.InteractionClassHandle
 }
 
-// NewInterestMatcher cria uma nova instância do roteador associada ao registro OMT
+// NewInterestMatcher creates a new router instance associated with an OMT registry
 func NewInterestMatcher(omt *OMTRegistry) *InterestMatcher {
 	return &InterestMatcher{
 		omt:                    omt,
@@ -58,17 +58,17 @@ func NewInterestMatcher(omt *OMTRegistry) *InterestMatcher {
 	}
 }
 
-// PublishObjectClass registra a intenção do federado de publicar atributos de uma classe
+// PublishObjectClass registers a federate's intent to publish object class attributes
 func (m *InterestMatcher) PublishObjectClass(fedID common.FederateHandle, class common.ObjectClassHandle, attrs []common.AttributeHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Validar que a classe existe
+	// Validate class existence
 	if _, exists := m.omt.GetObjectClass(class); !exists {
 		return ErrClassNotFound
 	}
 
-	// Validar que todos os atributos existem na hierarquia
+	// Validate that all attributes exist in class hierarchy
 	for _, attr := range attrs {
 		if _, err := m.omt.ResolveAttribute(class, attr); err != nil {
 			return err
@@ -89,7 +89,7 @@ func (m *InterestMatcher) PublishObjectClass(fedID common.FederateHandle, class 
 	return nil
 }
 
-// UnpublishObjectClass cancela a publicação de atributos da classe pelo federado
+// UnpublishObjectClass unregisters a federate's object class attribute publications
 func (m *InterestMatcher) UnpublishObjectClass(fedID common.FederateHandle, class common.ObjectClassHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -109,7 +109,7 @@ func (m *InterestMatcher) UnpublishObjectClass(fedID common.FederateHandle, clas
 	return nil
 }
 
-// SubscribeObjectClass registra a assinatura de atributos de uma classe (com herança polimórfica)
+// SubscribeObjectClass registers a federate's subscription to object class attributes (with polymorphic inheritance)
 func (m *InterestMatcher) SubscribeObjectClass(fedID common.FederateHandle, class common.ObjectClassHandle, attrs []common.AttributeHandle, active bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -142,7 +142,7 @@ func (m *InterestMatcher) SubscribeObjectClass(fedID common.FederateHandle, clas
 	return nil
 }
 
-// UnsubscribeObjectClass cancela as assinaturas do federado para a classe
+// UnsubscribeObjectClass cancels a federate's subscriptions for an object class
 func (m *InterestMatcher) UnsubscribeObjectClass(fedID common.FederateHandle, class common.ObjectClassHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -162,7 +162,7 @@ func (m *InterestMatcher) UnsubscribeObjectClass(fedID common.FederateHandle, cl
 	return nil
 }
 
-// PublishInteractionClass registra a publicação de uma classe de interação
+// PublishInteractionClass registers publication of an interaction class
 func (m *InterestMatcher) PublishInteractionClass(fedID common.FederateHandle, interaction common.InteractionClassHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -182,7 +182,7 @@ func (m *InterestMatcher) PublishInteractionClass(fedID common.FederateHandle, i
 	return nil
 }
 
-// UnpublishInteractionClass cancela a publicação de uma classe de interação
+// UnpublishInteractionClass cancels publication of an interaction class
 func (m *InterestMatcher) UnpublishInteractionClass(fedID common.FederateHandle, interaction common.InteractionClassHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -202,7 +202,7 @@ func (m *InterestMatcher) UnpublishInteractionClass(fedID common.FederateHandle,
 	return nil
 }
 
-// SubscribeInteractionClass registra o interesse em receber uma classe de interação
+// SubscribeInteractionClass registers interest in receiving an interaction class (polymorphic)
 func (m *InterestMatcher) SubscribeInteractionClass(fedID common.FederateHandle, interaction common.InteractionClassHandle, active bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -226,7 +226,7 @@ func (m *InterestMatcher) SubscribeInteractionClass(fedID common.FederateHandle,
 	return nil
 }
 
-// UnsubscribeInteractionClass remove o interesse na classe de interação
+// UnsubscribeInteractionClass cancels interest in receiving an interaction class
 func (m *InterestMatcher) UnsubscribeInteractionClass(fedID common.FederateHandle, interaction common.InteractionClassHandle) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -246,21 +246,21 @@ func (m *InterestMatcher) UnsubscribeInteractionClass(fedID common.FederateHandl
 	return nil
 }
 
-// GetAttributeSubscribers calcula o conjunto de federados inscritos no atributo de uma instância,
-// considerando herança polimórfica (assinaturas na classe concreta ou em qualquer ancestral).
+// GetAttributeSubscribers resolves the set of federates subscribed to an object attribute,
+// taking into account polymorphic inheritance (subscriptions on the concrete class or any ancestor).
 func (m *InterestMatcher) GetAttributeSubscribers(class common.ObjectClassHandle, attr common.AttributeHandle) []common.FederateHandle {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var resultBitset *Bitset
 
-	// 1. Assinatura direta na classe concreta
+	// 1. Direct subscription on the concrete class
 	key := ClassAttrKey{ClassHandle: class, AttrHandle: attr}
 	if bs, exists := m.objSubscribers[key]; exists && !bs.IsEmpty() {
 		resultBitset = bs.Clone()
 	}
 
-	// 2. Assinaturas polimórficas nos ancestrais da classe
+	// 2. Polymorphic subscriptions on ancestor classes
 	ancestors := m.omt.GetClassAncestors(class)
 	for _, ancHandle := range ancestors {
 		ancKey := ClassAttrKey{ClassHandle: ancHandle, AttrHandle: attr}
@@ -280,20 +280,20 @@ func (m *InterestMatcher) GetAttributeSubscribers(class common.ObjectClassHandle
 	return resultBitset.ToFederateHandles()
 }
 
-// GetInteractionSubscribers calcula o conjunto de federados destinatários de uma interação,
-// considerando herança polimórfica (assinantes desta interação ou de classes ancestrais, como HLAinteractionRoot).
+// GetInteractionSubscribers resolves the set of federates recipient to an interaction,
+// taking into account polymorphic inheritance (subscribers to this interaction or any ancestor, like HLAinteractionRoot).
 func (m *InterestMatcher) GetInteractionSubscribers(interaction common.InteractionClassHandle) []common.FederateHandle {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var resultBitset *Bitset
 
-	// 1. Assinatura direta
+	// 1. Direct subscription
 	if bs, exists := m.interactionSubscribers[interaction]; exists && !bs.IsEmpty() {
 		resultBitset = bs.Clone()
 	}
 
-	// 2. Assinaturas nos ancestrais (ex: assinante de HLAinteractionRoot recebe todas as interações)
+	// 2. Ancestor subscriptions (e.g. subscriber to HLAinteractionRoot receives all interactions)
 	ancestors := m.omt.GetInteractionAncestors(interaction)
 	for _, ancHandle := range ancestors {
 		if bs, exists := m.interactionSubscribers[ancHandle]; exists && !bs.IsEmpty() {
@@ -312,14 +312,14 @@ func (m *InterestMatcher) GetInteractionSubscribers(interaction common.Interacti
 	return resultBitset.ToFederateHandles()
 }
 
-// RemoveFederate desvincula completamente todas as publicações e assinaturas do federado
+// RemoveFederate cleanly removes all publications and subscriptions for a federate
 func (m *InterestMatcher) RemoveFederate(fedID common.FederateHandle) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	id := uint32(fedID)
 
-	// Limpar publicações de objetos
+	// Clean object publications
 	for _, key := range m.fedObjPubs[fedID] {
 		if bs, exists := m.objPublishers[key]; exists {
 			bs.Clear(id)
@@ -327,7 +327,7 @@ func (m *InterestMatcher) RemoveFederate(fedID common.FederateHandle) {
 	}
 	delete(m.fedObjPubs, fedID)
 
-	// Limpar assinaturas de objetos
+	// Clean object subscriptions
 	for _, key := range m.fedObjSubs[fedID] {
 		if bs, exists := m.objSubscribers[key]; exists {
 			bs.Clear(id)
@@ -335,7 +335,7 @@ func (m *InterestMatcher) RemoveFederate(fedID common.FederateHandle) {
 	}
 	delete(m.fedObjSubs, fedID)
 
-	// Limpar publicações de interações
+	// Clean interaction publications
 	for _, interaction := range m.fedInteractionPubs[fedID] {
 		if bs, exists := m.interactionPublishers[interaction]; exists {
 			bs.Clear(id)
@@ -343,7 +343,7 @@ func (m *InterestMatcher) RemoveFederate(fedID common.FederateHandle) {
 	}
 	delete(m.fedInteractionPubs, fedID)
 
-	// Limpar assinaturas de interações
+	// Clean interaction subscriptions
 	for _, interaction := range m.fedInteractionSubs[fedID] {
 		if bs, exists := m.interactionSubscribers[interaction]; exists {
 			bs.Clear(id)

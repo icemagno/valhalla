@@ -2,8 +2,8 @@ package lrc
 
 import "time"
 
-// FederateAmbassador define a interface canônica de callbacks que o federado implementa
-// para receber notificações assíncronas do RTI (IEEE 1516 / HLA-4).
+// FederateAmbassador defines the canonical callback interface that federates implement
+// to receive asynchronous notifications from the RTI (IEEE 1516 / HLA-4).
 type FederateAmbassador interface {
 	SynchronizationPointRegistrationSucceeded(label string)
 	SynchronizationPointRegistrationFailed(label string, reason string)
@@ -16,8 +16,8 @@ type FederateAmbassador interface {
 	TimeAdvanceGrant(time float64)
 }
 
-// NullFederateAmbassador fornece uma implementação vazia padrão para FederateAmbassador,
-// permitindo que federados implementem apenas os callbacks de seu interesse.
+// NullFederateAmbassador provides a default no-op implementation of FederateAmbassador,
+// allowing federates to implement only the callbacks they care about.
 type NullFederateAmbassador struct{}
 
 func (n *NullFederateAmbassador) SynchronizationPointRegistrationSucceeded(label string)                  {}
@@ -30,8 +30,8 @@ func (n *NullFederateAmbassador) ReflectAttributeValues(theObject int32, theAttr
 func (n *NullFederateAmbassador) ReceiveInteraction(interactionClass int32, theParameters map[int32][]byte, tag []byte) {}
 func (n *NullFederateAmbassador) TimeAdvanceGrant(time float64)                                          {}
 
-// RTIambassador define a interface pública através da qual o federado solicita serviços
-// ao Local RTI Component (LRC) de acordo com o padrão IEEE 1516-2025 (HLA-4).
+// RTIambassador defines the public client interface through which federates request services
+// from the Local RTI Component (LRC) in accordance with IEEE 1516-2025 (HLA-4).
 type RTIambassador interface {
 	// Federation Management
 	Connect(fedAmb FederateAmbassador, address string) error

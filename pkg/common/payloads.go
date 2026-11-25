@@ -6,18 +6,18 @@ import (
 	"math"
 )
 
-// Erros de decodificação binária de payloads
+// Binary payload decoding errors
 var (
-	ErrPayloadTooShort       = errors.New("valhalla payload: buffer menor que o tamanho minimo esperado")
-	ErrPayloadStringOverflow = errors.New("valhalla payload: comprimento de string excede o buffer")
-	ErrPayloadDataOverflow   = errors.New("valhalla payload: comprimento de dados excede o buffer")
+	ErrPayloadTooShort       = errors.New("valhalla payload: buffer smaller than minimum expected length")
+	ErrPayloadStringOverflow = errors.New("valhalla payload: string length exceeds buffer")
+	ErrPayloadDataOverflow   = errors.New("valhalla payload: data length exceeds buffer")
 )
 
 // ============================================================================
 // 1. FEDERATION MANAGEMENT PAYLOADS
 // ============================================================================
 
-// FederationExecutionPayload transporta o nome da federação para criação ou destruição
+// FederationExecutionPayload carries the federation name for creation or destruction
 type FederationExecutionPayload struct {
 	FederationName string
 }

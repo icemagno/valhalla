@@ -2,7 +2,7 @@ package common
 
 import "errors"
 
-// Erros normativos canônicos da IEEE 1516-2025 (HLA-4)
+// Canonical normative IEEE 1516-2025 (HLA-4) errors
 var (
 	// Federation Management
 	ErrFederationExecutionAlreadyExists = errors.New("hla: federation execution already exists")

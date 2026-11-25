@@ -486,4 +486,22 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2 e 3), Payloads VAL4 Tipados, Roteador Pub/Sub Vetorial, Descoberta Retrospectiva, Exclusão Segura, Estado Merkleizado Auditável e Auditoria Integral de Código com Prontidão para Open-Source.*
+### 26. Internacionalização da Documentação Técnica (Inglês) e Especificação da Arquitetura Espacial DDM (3D Morton)
+
+1. **Expansão da Tríade para a Tétrade Arquitetural:**
+   - Adicionada a 4ª tecnologia fundamental ao Core do Valhalla: **3D Morton Space-Filling Curves (Z-Order Hashing)** para Data Distribution Management (DDM) com inteiros de 64 bits em coordenadas métricas ECEF.
+   - Resolução de ~6 metros por voxel no planeta em um único registrador `uint64`, eliminando a necessidade de matemática trigonométrica no roteador e operando via deslocamento e máscaras binárias na CPU.
+   - Arquitetura 100% opt-in: assinaturas de classe padrão operam com custo zero de processamento e preservam fidelidade cinemática integral para objetos de alta velocidade (satélites LEO a 7,8 km/s e ICBMs a Mach 20+) via Dead Reckoning.
+
+2. **Publicação dos Whitepapers Oficiais em Inglês:**
+   - Publicado [`docs/valhalla-core-technologies.md`](docs/valhalla-core-technologies.md): Whitepaper completo em inglês descrevendo a Tétrade Arquitetural, comparativos com RTIs legadas e benchmarks empíricos.
+   - Publicado [`docs/core-development-plan.md`](docs/core-development-plan.md): Plano diretor do Core em inglês, estabelecendo o roteiro em 5 fases (com DDM Espacial como Fase 5).
+   - Traduzidos [`docs/benchmark.md`](docs/benchmark.md) e [`BENCHMARK.md`](BENCHMARK.md) para inglês formal e científico.
+
+3. **Padronização dos Comentários do Código-Fonte em Inglês:**
+   - Traduzidos e padronizados para inglês idiomático todos os comentários e documentações das APIs públicas em `pkg/common/` (`protocol.go`, `handles.go`, `errors.go`, `payloads.go`), `pkg/crc/core/` (`bitset.go`, `omt_registry.go`, `interest_matcher.go`, `merkle_tree.go`) e `pkg/lrc/` (`interfaces.go`).
+   - Validação estática: `go vet ./...` e `go test -count=1 ./...` executados com **100% PASS**.
+
+---
+
+*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2 e 3), Payloads VAL4 Tipados, Roteador Pub/Sub Vetorial, Descoberta Retrospectiva, Exclusão Segura, Estado Merkleizado Auditável, Auditoria de Código, Arquitetura DDM 3D Morton e Internacionalização Completa para Inglês.*

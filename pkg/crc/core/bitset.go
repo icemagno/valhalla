@@ -6,16 +6,16 @@ import (
 	"github.com/icemagno/valhalla/pkg/common"
 )
 
-// Bitset implementa um conjunto esparso e dinâmico de bits de alto desempenho,
-// otimizado para associação e filtragem de interesses de federados em simulações massivas.
-// Baseado em blocos uint64 contíguos com expansão sob demanda e busca vetorizada via bits.TrailingZeros64.
+// Bitset implements a dynamic, high-performance sparse bitset
+// optimized for federate interest matching and routing in massive simulations.
+// Backed by contiguous uint64 blocks with on-demand expansion and vectorized lookups via bits.TrailingZeros64.
 type Bitset struct {
 	words []uint64
 }
 
-// NewBitset inicializa um bitset vazio com capacidade inicial
+// NewBitset initializes an empty bitset with an optional initial word capacity
 func NewBitset(initialWords ...int) *Bitset {
-	capWords := 2 // 128 bits padrão (cobre até 128 federados em 16 bytes)
+	capWords := 2 // 128 bits default (covers up to 128 federates in 16 bytes)
 	if len(initialWords) > 0 && initialWords[0] > 0 {
 		capWords = initialWords[0]
 	}
@@ -24,7 +24,7 @@ func NewBitset(initialWords ...int) *Bitset {
 	}
 }
 
-// ensureCapacity garante que o slice de words comporta o índice solicitado
+// ensureCapacity ensures the words slice can hold the requested word index
 func (b *Bitset) ensureCapacity(wordIdx int) {
 	if wordIdx >= len(b.words) {
 		newLen := wordIdx + 1
@@ -38,7 +38,7 @@ func (b *Bitset) ensureCapacity(wordIdx int) {
 	}
 }
 
-// Set marca o bit correspondente ao ID (1-based ou 0-based)
+// Set sets the bit corresponding to the specified ID (0-based or 1-based)
 func (b *Bitset) Set(id uint32) {
 	wordIdx := int(id >> 6) // id / 64
 	bitIdx := id & 63       // id % 64
@@ -46,7 +46,7 @@ func (b *Bitset) Set(id uint32) {
 	b.words[wordIdx] |= (1 << bitIdx)
 }
 
-// Clear desmarca o bit correspondente ao ID
+// Clear clears the bit corresponding to the specified ID
 func (b *Bitset) Clear(id uint32) {
 	wordIdx := int(id >> 6)
 	if wordIdx < len(b.words) {
@@ -55,7 +55,7 @@ func (b *Bitset) Clear(id uint32) {
 	}
 }
 
-// Contains verifica se o bit correspondente ao ID está marcado
+// Contains checks if the bit corresponding to the specified ID is set
 func (b *Bitset) Contains(id uint32) bool {
 	wordIdx := int(id >> 6)
 	if wordIdx >= len(b.words) {
@@ -65,7 +65,7 @@ func (b *Bitset) Contains(id uint32) bool {
 	return (b.words[wordIdx] & (1 << bitIdx)) != 0
 }
 
-// IsEmpty retorna true se nenhum bit estiver marcado
+// IsEmpty returns true if no bits are set
 func (b *Bitset) IsEmpty() bool {
 	for _, w := range b.words {
 		if w != 0 {
@@ -75,7 +75,7 @@ func (b *Bitset) IsEmpty() bool {
 	return true
 }
 
-// Count retorna o número total de bits ativos (popcount)
+// Count returns the total number of active bits (popcount)
 func (b *Bitset) Count() int {
 	total := 0
 	for _, w := range b.words {
@@ -84,7 +84,7 @@ func (b *Bitset) Count() int {
 	return total
 }
 
-// Union realiza a união in-place b = b OR other
+// Union performs an in-place union: b = b OR other
 func (b *Bitset) Union(other *Bitset) {
 	if other == nil || len(other.words) == 0 {
 		return
@@ -97,7 +97,7 @@ func (b *Bitset) Union(other *Bitset) {
 	}
 }
 
-// Intersect realiza a interseção in-place b = b AND other
+// Intersect performs an in-place intersection: b = b AND other
 func (b *Bitset) Intersect(other *Bitset) {
 	if other == nil {
 		b.Reset()
@@ -110,13 +110,13 @@ func (b *Bitset) Intersect(other *Bitset) {
 	for i := 0; i < minLen; i++ {
 		b.words[i] &= other.words[i]
 	}
-	// Bits além do tamanho de other tornam-se 0
+	// Zero out any remaining words beyond other's length
 	for i := minLen; i < len(b.words); i++ {
 		b.words[i] = 0
 	}
 }
 
-// Clone cria uma cópia profunda do Bitset
+// Clone creates a deep copy of the Bitset
 func (b *Bitset) Clone() *Bitset {
 	clone := &Bitset{
 		words: make([]uint64, len(b.words)),
@@ -125,16 +125,16 @@ func (b *Bitset) Clone() *Bitset {
 	return clone
 }
 
-// Reset limpa todos os bits sem desalocar o slice subjacente
+// Reset clears all bits without reallocating the underlying slice
 func (b *Bitset) Reset() {
 	for i := range b.words {
 		b.words[i] = 0
 	}
 }
 
-// ToFederateHandles extrai todos os IDs ativos como um slice de FederateHandle.
-// Utiliza bits.TrailingZeros64 para saltar diretamente para os bits 1 em O(k),
-// onde k é o número de bits ativos, sem iterar por bits zero.
+// ToFederateHandles extracts all active IDs as a slice of FederateHandle.
+// Uses bits.TrailingZeros64 to skip directly to set bits in O(k) time,
+// where k is the number of active bits, without iterating over zero words.
 func (b *Bitset) ToFederateHandles() []common.FederateHandle {
 	count := b.Count()
 	if count == 0 {
@@ -147,7 +147,7 @@ func (b *Bitset) ToFederateHandles() []common.FederateHandle {
 			tz := bits.TrailingZeros64(w)
 			id := uint32(wordIdx<<6) + uint32(tz)
 			handles = append(handles, common.FederateHandle(id))
-			w &^= (1 << tz) // Limpa o bit processado mais baixo
+			w &^= (1 << tz) // Clear the processed lowest bit
 		}
 	}
 	return handles
