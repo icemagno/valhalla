@@ -51,32 +51,5 @@ else
 fi
 
 rm -rf "$TEMP_REPO"
-
-echo "=========================================================="
-echo "   HOW TO USE IN ANY EXTERNAL MAVEN PROJECT (pom.xml)     "
-echo "=========================================================="
-cat <<EOF
-
-Add this to your external project's pom.xml:
-
-<repositories>
-    <repository>
-        <id>valhalla-mvn-repo</id>
-        <url>https://raw.githubusercontent.com/icemagno/valhalla/$BRANCH/</url>
-        <snapshots>
-            <enabled>true</enabled>
-            <updatePolicy>always</updatePolicy>
-        </snapshots>
-    </repository>
-</repositories>
-
-<dependencies>
-    <dependency>
-        <groupId>io.valhalla</groupId>
-        <artifactId>valhalla-lrc</artifactId>
-        <version>$VERSION</version>
-    </dependency>
-</dependencies>
-
-Zero authentication or personal access token required!
-EOF
+echo
+echo "[DONE] Concluido."

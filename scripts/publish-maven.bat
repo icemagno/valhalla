@@ -68,31 +68,5 @@ if %ERRORLEVEL% equ 0 (
 
 cd /d "%PROJECT_ROOT%"
 rmdir /s /q "%TEMP_DIR%" 2>nul
-
 echo.
-echo ==========================================================
-echo    HOW TO USE IN ANY EXTERNAL MAVEN PROJECT (pom.xml)
-echo ==========================================================
-echo.
-echo Add this to your project's pom.xml:
-echo.
-echo ^<repositories^>
-echo     ^<repository^>
-echo         ^<id^>valhalla-mvn-repo^</id^>
-echo         ^<url^>https://raw.githubusercontent.com/icemagno/valhalla/%BRANCH%/^</url^>
-echo         ^<snapshots^>
-echo             ^<enabled^>true^</enabled^>
-echo             ^<updatePolicy^>always^</updatePolicy^>
-echo         ^</snapshots^>
-echo     ^</repository^>
-echo ^</repositories^>
-echo.
-echo ^<dependencies^>
-echo     ^<dependency^>
-echo         ^<groupId^>io.valhalla^</groupId^>
-echo         ^<artifactId^>valhalla-lrc^</artifactId^>
-echo         ^<version^>%VERSION%^</version^>
-echo     ^</dependency^>
-echo ^</dependencies^>
-echo.
-echo Zero authentication or personal access token required!
+echo [DONE] Concluido.
