@@ -68,34 +68,53 @@ func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes m
 		if count == 0 {
 			return
 		}
-		handles := make([]C.int32_t, count)
-		values := make([]*C.uint8_t, count)
-		lens := make([]C.int32_t, count)
+
+		cHandles := C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(C.int32_t(0))))
+		defer C.free(cHandles)
+		cValues := C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(uintptr(0))))
+		defer C.free(cValues)
+		cLens := C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(C.int32_t(0))))
+		defer C.free(cLens)
+
+		handlesPtr := unsafe.Slice((*C.int32_t)(cHandles), count)
+		lensPtr := unsafe.Slice((*C.int32_t)(cLens), count)
+		valuesPtr := unsafe.Slice((**C.uint8_t)(cValues), count)
+
+		var toFree []unsafe.Pointer
+		defer func() {
+			for _, p := range toFree {
+				C.free(p)
+			}
+		}()
 
 		idx := 0
 		for h, val := range theAttributes {
-			handles[idx] = C.int32_t(h)
-			lens[idx] = C.int32_t(len(val))
+			handlesPtr[idx] = C.int32_t(h)
+			lensPtr[idx] = C.int32_t(len(val))
 			if len(val) > 0 {
-				values[idx] = (*C.uint8_t)(unsafe.Pointer(&val[0]))
+				cP := C.CBytes(val)
+				valuesPtr[idx] = (*C.uint8_t)(cP)
+				toFree = append(toFree, cP)
 			} else {
-				values[idx] = nil
+				valuesPtr[idx] = nil
 			}
 			idx++
 		}
 
 		var cTag *C.uint8_t
 		if len(tag) > 0 {
-			cTag = (*C.uint8_t)(unsafe.Pointer(&tag[0]))
+			cP := C.CBytes(tag)
+			defer C.free(cP)
+			cTag = (*C.uint8_t)(cP)
 		}
 
 		C.call_reflect_attrs(
 			f.ctx.cb.onReflectAttributes,
 			C.int32_t(theObject),
 			C.int32_t(count),
-			&handles[0],
-			&values[0],
-			&lens[0],
+			(*C.int32_t)(cHandles),
+			(**C.uint8_t)(cValues),
+			(*C.int32_t)(cLens),
 			cTag,
 			C.int32_t(len(tag)),
 		)

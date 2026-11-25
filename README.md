@@ -66,6 +66,86 @@ Extensive comparative benchmarking against premier industry RTIs demonstrates Va
 
 ---
 
+## 📁 Project Directory Structure & Distribution Layout
+
+Project Valhalla separates source packages, language SDKs, test suites, and distribution artifacts into a modular layout:
+
+```
+hla-rti/
+├── dist/                               # Ready-to-go distributions and pre-compiled libraries
+│   ├── bin/                            # Standalone server executables (valhalla-crc, valhalla-observer)
+│   ├── c/                              # C/C++ Native SDK distribution
+│   │   ├── include/                    # C-ABI headers (valhalla_lrc.h)
+│   │   └── lib/                        # Dynamic link libraries (.dll / .so)
+│   └── java/                           # Java Client SDK distribution (valhalla-lrc.jar fat JAR)
+├── cmd/                                # Application entry points
+│   ├── valhalla-crc/                   # Central RTI Component (CRC server)
+│   └── valhalla-observer/              # Real-time Web/CLI inspection tool
+├── pkg/                                # Core Go implementation packages
+│   ├── cabi/                           # C-ABI / CGo export layer for native LRC dynamic library
+│   ├── common/                         # SSZ encoding, protocol messages, Merkle trees, PQC
+│   ├── crc/                            # CRC server engine, state management, DDM, session multiplexing
+│   ├── euler/                          # Euler Tour class hierarchy indexing
+│   ├── fom/                            # RPR-FOM XML parser and schema definitions
+│   ├── lrc/                            # Native Go Local RTI Component (LRC client)
+│   ├── morton/                         # 3D Morton space-filling curves for DDM
+│   ├── observer/                       # WebSockets and terminal telemetry observer
+│   └── vector/                         # 64-bit vectorized bitset operations
+├── sdk/                                # Language-specific client SDKs
+│   └── java/                           # Native Java Client SDK (IEEE 1516e interfaces + embedded JNA)
+├── test/                               # Verification suites & test federates
+│   ├── c_test/                         # Native C verification federate
+│   ├── integration/                    # Cross-dialect integration test scenarios
+│   └── java_test/                      # Java IEEE 1516e verification federate
+└── docs/                               # Architectural deliberations & whitepapers
+```
+
+### What is Produced When Compiling LRC?
+When you compile the Local RTI Component (LRC), the build produces:
+1. **Native C-ABI Shared Library (`dist/c/lib/valhalla_lrc.dll` / `.so`):** A zero-dependency shared dynamic library exporting standard C functions for connection, federation execution, publication/subscription, object registration, attribute reflection, 3D Morton DDM routing, and attribute ownership handover.
+2. **C Header Files (`dist/c/include/valhalla_lrc.h`):** Complete C/C++ interface definition allowing direct integration into C, C++, Rust, Python, or legacy simulation engines.
+3. **Java SDK Fat JAR (`dist/java/valhalla-lrc.jar`):** A standalone, fully self-contained Java archive implementing the canonical **IEEE 1516e (`hla.rti1516e.*`)** interfaces. It internally embeds the native shared library and shaded JNA loader. End users simply drop `valhalla-lrc.jar` onto their Java classpath without installing external prerequisites or configuring system library paths.
+
+---
+
+## 🔨 Building and Compiling (CRC & LRC)
+
+### Prerequisites
+* **Go:** 1.25+
+* **C Compiler:** GCC (MinGW-W64 on Windows or standard GCC on Linux)
+* **Java Development Kit:** JDK 17+ (JDK 22 supported)
+* **Build Tool:** Apache Maven 3.9+
+
+### 1. Compiling Central RTI Component (CRC)
+```powershell
+go build -o dist/bin/valhalla-crc.exe ./cmd/valhalla-crc
+```
+
+### 2. Compiling Observer Visualizer
+```powershell
+go build -o dist/bin/valhalla-observer.exe ./cmd/valhalla-observer
+```
+
+### 3. Compiling Native C-ABI LRC Shared Library
+```powershell
+# Windows (DLL)
+go build -buildmode=c-shared -o dist/c/lib/valhalla_lrc.dll ./pkg/cabi
+Copy-Item dist/c/lib/valhalla_lrc.h dist/c/include/valhalla_lrc.h
+
+# Linux (SO)
+go build -buildmode=c-shared -o dist/c/lib/libvalhalla_lrc.so ./pkg/cabi
+cp dist/c/lib/valhalla_lrc.h dist/c/include/valhalla_lrc.h
+```
+
+### 4. Compiling Java Client SDK (Standalone Fat JAR)
+```powershell
+cd sdk/java
+mvn clean package
+# Produces dist/java/valhalla-lrc.jar
+```
+
+---
+
 ## 📚 Technical Documentation
 
 * 📜 [Technical Memory & Engineering Log](TECHNICAL-MEMORY.md): Continuous chronological engineering log, architectural decisions, empirical benchmarks, and implementation milestones (Milestones 1 to 48).
