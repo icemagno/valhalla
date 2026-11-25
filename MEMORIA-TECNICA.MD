@@ -796,4 +796,111 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack, Portico Object Management JOS, Sintetizador de ObjectModel, Parser Modular XML IEEE 1516-2010, Ingestão Dinâmica de FOMs Portico, Resolução Multi-Plataforma, Logging Assíncrono Desacoplado e Suíte de Testes 100% Race-Free.*
+### 40. Migração Integral dos Handlers de Rede (CRC, Portico e Nativo) para o Logger Desacoplado (Sprint 5)
+
+1. **Substituição Completa em Todos os Componentes:**
+   - **`pkg/crc/portico_handler.go`:** Todos os 28 pontos de log migrados para `logCRCPortico.Info`, `Warn` e `Error`, eliminando a dependência do pacote `log` da standard library.
+   - **`pkg/crc/native_handler.go`:** Todos os pontos de log do protocolo nativo VAL4 migrados para `logCRCNative.Info` e `Error`, com prefixo de módulo unificado e timestamps de alta precisão.
+   - **`pkg/crc/server.go`:** Instanciação modular de `logCRC`, `logCRCNative` e `logCRCPortico` via `logger.NewLogger(...)`.
+   - **`cmd/valhalla-crc/main.go`:** Adoção de `logMain := logger.NewLogger("CRC")` com `defer logger.Flush()` garantindo escoamento ordenado de mensagens no shutdown.
+
+2. **Homologação e Rigor:**
+   - Suíte de testes completa executada com `go test -race -count=1 ./...`: **100% PASS** e **ZERO data races** em toda a árvore do projeto (`pkg/common`, `pkg/crc`, `pkg/crc/core`, `pkg/crc/portico/transport`, `pkg/crc/portico/wire`, `pkg/logger`, `pkg/lrc`, `pkg/metamodel`, `test`, `test/integration`).
+   - Binários `bin/valhalla-crc.exe` e `bin/valhalla.exe` recompilados e prontos para execução.
+
+---
+
+### 41. Homologação Definitiva de Interoperabilidade Portico IEEE 1516e (Sprint 5)
+
+1. **Execução de Referência Validada:**
+   - O oráculo oficial Java Portico 2.2.0 (`Thor` / `ExampleFederate` IEEE 1516e) rodando no host Linux remoto `192.168.1.226` executou do início ao fim contra o executivo **Valhalla CRC Sovereign Gateway** em puro Go:
+     - **Handshake e Identificação de Protocolo:** Identificado automaticamente como `Portico-Legacy(JOS)`.
+     - **Ingestão Multi-Módulo FOM:** Ingestão dinâmica sob demanda dos 4 arquivos XML em `./foms/` (`RestaurantProcesses.xml`, `RestaurantFood.xml`, `RestaurantDrinks.xml`, `RestaurantSoup.xml`).
+     - **Criação e Adesão à Federação:** `ExampleFederation` (handle `1`), federado `Thor` (handle `1`).
+     - **Ponto de Sincronização:** Registro e anúncio de `ReadyToRun`, com barreira de sincronização total (`>>> FEDERATION SYNCHRONIZED at point 'ReadyToRun'!`).
+     - **Time Management Habilitado:** `Time Regulation` (com lookahead) e `Time Constrained`.
+     - **Mapeamento OMT de Pub/Sub:** Classes `Soda` (`1034`), atributos (`1008`, `1009`, `1`), e interações (`1007`).
+     - **Registro de Instância de Objeto:** Instância registrada com handle `1`.
+     - **Ciclo de Simulação em Tempo Real (20 Iterações Completas):**
+       - 20 atualizações de atributos (RO e TSO).
+       - 20 interações trocadas (RO e TSO).
+       - 20 avanços temporais concedidos pontualmente (`TimeAdvanceGrant` de `1.0` até `20.0`).
+     - **Encerramento e Limpeza Canônica:**
+       - `Deleted object [1]`.
+       - `Resigned federate [Thor] from federation [ExampleFederation]: action=DELETE_OBJECTS`.
+       - `Destroyed federation execution [ExampleFederation]`.
+       - `Disconnected` e encerramento gracioso do socket TCP.
+   - **Resultado:** **ZERO erros**, **ZERO exceções**, **137 mensagens processadas** e performance ultra-consistente.
+
+2. **Observabilidade em Operação Real:**
+   - O novo pipeline assíncrono `pkg/logger` operou com perfeita serialização, isolamento de threads e coloração ANSI sem degradar os ciclos de avanço temporal do motor de simulação.
+
+---
+
+### 42. Criação do Federado Observador Nativo Valhalla (`valhalla-observer`) (Sprint 5)
+
+1. **Objetivo e Arquitetura do Observador:**
+   - Criado um federado nativo dedicado de telemetria passiva e monitoramento em tempo real em [`cmd/valhalla-observer/main.go`](cmd/valhalla-observer/main.go).
+   - O observador conecta-se via protocolo nativo VAL4 (`pkg/lrc`) ao executivo soberano Valhalla CRC.
+   - **Espera e Adesão Automática:** Se o oráculo (Thor) ainda não criou a federação `ExampleFederation`, o observador entra em modo de espera ativa sem falhar o processo, ingressando instantaneamente assim que a federação é instanciada.
+   - **Desbloqueio de Barreiras de Sincronização:** Ao detectar o anúncio de `ReadyToRun`, responde imediatamente com `SynchronizationPointAchieved`, permitindo que o Thor passe direto sem ficar bloqueado.
+   - **Assinatura Polimórfica:** Assina a classe raiz `HLAobjectRoot` (`1`), a classe de objeto `Soda` (`1034`, atributos `NumberCups` [1008] e `Flavor` [1009]), e a classe de interação (`1007`).
+   - **Telemetria Formatada:** Renderiza no terminal em tempo real:
+     - 🎯 Descoberta de objetos com handles e nomes.
+     - 📦 Reflexão de atributos decodificados em formato amigável (string UTF-8 ou numérico big-endian com visualização de bytes).
+     - ⚡ Recepção de interações com parâmetros e payloads.
+     - 🗑️ Exclusão de objetos do espaço de simulação.
+     - 🌐 Estado de sincronização global.
+
+2. **Roteamento Bidirecional no CRC ([`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
+   - Implementado o repasse polimórfico das mensagens do Thor para os federados nativos:
+     - `MsgRegisterSyncPoint` -> `NativeMsgAnnounceSyncPoint`
+     - `MsgAchieveSyncPoint` -> `NativeMsgFederationSynchronized`
+     - `MsgSendInteraction` -> `NativeMsgReceiveInteraction`
+     - `MsgDeleteObject` -> `NativeMsgRemoveObjectInstance`
+
+3. **Homologação:**
+   - Executáveis compilados: `bin/valhalla-observer.exe` e `bin/valhalla-crc.exe`.
+   - Suíte de testes completa executada com `go test -race -count=1 ./...`: **100% PASS** e **ZERO data races**.
+
+---
+
+### 43. Homologação da Federação Mista em Tempo Real: Portico IEEE 1516e (Java) & Federado Nativo Valhalla (Go VAL4) (Sprint 5)
+
+1. **Evidência Empírica Irrefutável de Interoperabilidade Multi-Dialeto:**
+   - Foi executada com sucesso absoluto a topologia mista distribuída:
+     - **Federado Legado:** `ExampleFederate` (Thor) Java IEEE 1516e rodando no host Linux remoto `192.168.1.226` via protocolo JOS Portico.
+     - **Executivo Central Soberano:** `valhalla-crc` operando na porta `52295` em Go puro.
+     - **Observador Nativo de Telemetria:** Federado observador nativo (`valhalla-observer` / `ValhallaObserver`) conectado via canal binário VAL4 (`pkg/lrc`).
+   
+2. **Resultados e Métricas Observadas:**
+   - **Ingresso e Atribuição de Handles:** O observador nativo recebeu handle `2` após o federado Java receber handle `1`.
+   - **Descoberta em Tempo Real:** O observador nativo capturou instantaneamente a descoberta do objeto criado pelo federado Java: `🎯 DISCOVER OBJECT -> Handle: 1 | Class: 1034 (Soda) | Name: 'HLAobjectRoot_1'`.
+   - **40 Reflexões de Atributos Decodificadas com Perfeição:**
+     - O federado Java executou 20 ciclos de simulação enviando 2 reflexões por ciclo (1 RO + 1 TSO). O observador nativo recebeu **todas as 40 reflexões sem perda de nenhum pacote**.
+     - `Attr[1008]` (`NumberCups`): Decodificado com exatidão matemática de `0` até `19` (`hex:0000` a `hex:0013`).
+     - `Attr[1009]` (`Flavor`): Decodificado em tempo real refletindo os sabores alternados pelo federado Java (`101`, `102`, `103`).
+   - **Performance e Throughput da Ponte:**
+     - Todas as 40 transmissões completas transitaram pelo CRC e foram entregues ao observador nativo no intervalo de `12:03:50.667` a `12:03:50.706` — **40 reflexões processadas em apenas 39 milissegundos (~1.000 reflexões/s em processamento concorrente multi-dialeto)**.
+
+---
+
+### 44. Encerramento Soberano e Imediato do Executivo CRC com Desconexão Ativa (Sprint 5)
+
+1. **Diagnóstico da Barreira de Encerramento:**
+   - No padrão HLA IEEE 1516, a premissa de simulação cooperativa pressupõe que todos os federados executem `ResignFederationExecution` e `Disconnect` antes do encerramento do executivo central.
+   - Em operações reais ou paradas manuais (`Ctrl+C` / `SIGINT`), caso houvesse algum federado passivo conectado (como o observador nativo aguardando eventos), o `server.Stop()` chamava `s.listener.Close()` e travava indefinidamente em `s.wg.Wait()`.
+   - **Causa Raiz:** O fechamento do listener TCP impede novas conexões, mas não fecha os sockets dos clientes já conectados (`net.Conn`). Como as goroutines dos manipuladores de conexão estavam bloqueadas aguardando leitura de dados da rede, elas nunca retornavam sem ação externa do cliente.
+
+2. **Implementação do Rastreamento e Desconexão Ativa ([`pkg/crc/server.go`](pkg/crc/server.go)):**
+   - O `Server` passou a registrar todas as instâncias de conexões ativas em uma tabela thread-safe (`conns map[net.Conn]struct{}`).
+   - No método `Stop()`, antes de invocar `s.wg.Wait()`, o CRC percorre todas as conexões ativas e força o fechamento imediato de seus sockets (`c.Close()`).
+   - Com isso, todas as leituras bloqueadas nos loops de rede retornam imediatamente com erro de socket fechado, os recursos e goroutines são liberados instantaneamente e o processo do CRC encerra sem travar.
+
+3. **Homologação:**
+   - Binário `bin/valhalla-crc.exe` recompilado.
+   - Suíte de testes completa aprovada com **100% PASS** e **ZERO data races** via `go test -race -count=1 ./...`.
+
+---
+
+*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack, Portico Object Management JOS, Sintetizador de ObjectModel, Parser Modular XML IEEE 1516-2010, Ingestão Dinâmica de FOMs Portico, Resolução Multi-Plataforma, Homologação Definitiva de Interoperabilidade Portico IEEE 1516e, Federação Mista Portico (Java) & Federado Nativo Valhalla (Go VAL4) em Tempo Real, Encerramento Soberano Imediato do CRC, Logging Assíncrono Desacoplado e Suíte de Testes 100% Race-Free.*

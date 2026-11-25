@@ -3,16 +3,18 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	"github.com/icemagno/valhalla/pkg/crc"
+	"github.com/icemagno/valhalla/pkg/logger"
 )
 
 func main() {
+	defer logger.Flush()
+
 	port := flag.String("port", ":52295", "Listening TCP port (e.g. 52295 or :52295)")
 	flag.Parse()
 
@@ -26,9 +28,13 @@ func main() {
 	fmt.Println("       IEEE 1516-2025 (HLA-4) | High-Performance Simulation Executive")
 	fmt.Println("====================================================================")
 
+	logMain := logger.NewLogger("CRC")
+
 	server := crc.NewServer(addr)
 	if err := server.Start(); err != nil {
-		log.Fatalf("[-] Fatal error starting Valhalla CRC: %v", err)
+		logMain.Critical("Fatal error starting Valhalla CRC: %v", err)
+		logger.Flush()
+		os.Exit(1)
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -37,7 +43,8 @@ func main() {
 	<-sigChan
 	fmt.Println("\n[!] Interrupt signal received. Shutting down Valhalla CRC...")
 	if err := server.Stop(); err != nil {
-		log.Printf("[-] Error during shutdown: %v", err)
+		logMain.Error("Error during shutdown: %v", err)
 	}
+	logger.Flush()
 	fmt.Println("[+] Valhalla CRC shut down successfully.")
 }

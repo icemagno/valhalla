@@ -33,3 +33,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Third-party runtime, distribution & jar binaries
+portico-3.0/
+*.jar
+

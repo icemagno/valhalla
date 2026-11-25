@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -102,7 +101,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			var fedName string
 			obj, err := wire.DeserializePorticoControlMessage(payload)
 			if err != nil {
-				log.Printf("[CRC-Portico] Error deserializing CreateFederation: %v", err)
+				logCRCPortico.Error("Error deserializing CreateFederation: %v", err)
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "CouldNotOpenFDD: malformed CreateFederation request")
 				continue
 			}
@@ -116,7 +115,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			fedExec, err := fedManager.CreateFederation(fedName)
 			if err != nil {
-				log.Printf("[CRC-Portico] CreateFederation failed for [%s]: %v", fedName, err)
+				logCRCPortico.Error("CreateFederation failed for [%s]: %v", fedName, err)
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
 				continue
 			}
@@ -132,19 +131,19 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				for _, mod := range []string{"RestaurantProcesses.xml", "RestaurantFood.xml", "RestaurantDrinks.xml", "RestaurantSoup.xml"} {
 					if resolved := resolveFOMPath(mod); resolved != "" {
 						if err := fomparser.ParseFOMFile(currentFed.OMT(), resolved); err == nil {
-							log.Printf("[CRC-Portico] Ingested canonical FOM module '%s' (from '%s') for [%s]", mod, resolved, fedName)
+							logCRCPortico.Info("Ingested canonical FOM module '%s' (from '%s') for [%s]", mod, resolved, fedName)
 						} else {
-							log.Printf("[CRC-Portico] Warning: failed to parse canonical module '%s': %v", resolved, err)
+							logCRCPortico.Warn("Warning: failed to parse canonical module '%s': %v", resolved, err)
 						}
 					} else {
-						log.Printf("[CRC-Portico] Warning: could not resolve canonical module '%s' on disk", mod)
+						logCRCPortico.Warn("Warning: could not resolve canonical module '%s' on disk", mod)
 					}
 				}
 			}
 
 			respPayload := wire.BuildCreateFederationResponsePayload(currentFed.Handle, fedName)
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
-			log.Printf("[CRC-Portico] Federation [%s] created with handle [%d]", fedName, currentFed.Handle)
+			logCRCPortico.Info("Federation [%s] created with handle [%d]", fedName, currentFed.Handle)
 
 		case wire.MsgJoinFederation:
 			var fedName, nodeName, nodeType string
@@ -152,7 +151,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			obj, err := wire.DeserializePorticoControlMessage(payload)
 			if err != nil {
-				log.Printf("[CRC-Portico] Error deserializing JoinFederation request: %v", err)
+				logCRCPortico.Error("Error deserializing JoinFederation request: %v", err)
 			}
 			if obj != nil {
 				if n, ok := obj.Get("federationName").(string); ok && n != "" {
@@ -177,7 +176,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			fedExec, exists := fedManager.GetFederation(fedName)
 			if !exists {
-				log.Printf("[CRC-Portico] Join error: federation [%s] does not exist", fedName)
+				logCRCPortico.Error("Join error: federation [%s] does not exist", fedName)
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederationExecutionDoesNotExist: "+fedName)
 				continue
 			}
@@ -185,7 +184,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			currentFed = fedExec
 			fed, err := currentFed.Join(nodeName, nodeType, ProtocolPortico, session)
 			if err != nil {
-				log.Printf("[CRC-Portico] Join error for %s: %v", nodeName, err)
+				logCRCPortico.Error("Join error for %s: %v", nodeName, err)
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
 				continue
 			}
@@ -200,7 +199,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 					for _, mod := range []string{"RestaurantProcesses.xml", "RestaurantFood.xml", "RestaurantDrinks.xml", "RestaurantSoup.xml"} {
 						if resolved := resolveFOMPath(mod); resolved != "" {
 							if err := fomparser.ParseFOMFile(currentFed.OMT(), resolved); err == nil {
-								log.Printf("[CRC-Portico] Ingested canonical FOM module '%s' (from '%s') for [%s]", mod, resolved, fedName)
+								logCRCPortico.Info("Ingested canonical FOM module '%s' (from '%s') for [%s]", mod, resolved, fedName)
 							}
 						}
 					}
@@ -209,13 +208,13 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			wpPayload, err := wire.BuildWelcomePackPayloadWithFOM(currentFed.Handle, federateID, currentFed.OMT(), fedName, nodeName, nodeType)
 			if err != nil {
-				log.Printf("[CRC-Portico] Error generating WelcomePack: %v", err)
+				logCRCPortico.Error("Error generating WelcomePack: %v", err)
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: failed to build WelcomePack")
 				continue
 			}
 
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wpPayload)
-			log.Printf("[CRC-Portico] Federate [%s] joined with handle [%d] to federation [%s]", nodeName, federateID, fedName)
+			logCRCPortico.Info("Federate [%s] joined with handle [%d] to federation [%s]", nodeName, federateID, fedName)
 
 		case wire.MsgRegisterSyncPoint:
 			if currentFed == nil || federateID <= 0 {
@@ -240,11 +239,15 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			}
 
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Synchronization point '%s' registered by federate [%d]", label, federateID)
+			logCRCPortico.Info("Synchronization point '%s' registered by federate [%d]", label, federateID)
 
-			if annPayload, err := wire.BuildAnnounceSyncPointPayload(label); err == nil {
-				for _, f := range currentFed.GetAllFederates() {
-					if f.Session != nil {
+			annPayload, _ := wire.BuildAnnounceSyncPointPayload(label)
+			nativeAnnounce, _ := common.RegisterSyncPointPayload{Label: label}.MarshalBinary()
+			for _, f := range currentFed.GetAllFederates() {
+				if f.Session != nil {
+					if f.Protocol == ProtocolNative {
+						_ = f.Session.SendNotification(common.NativeMsgAnnounceSyncPoint, nativeAnnounce)
+					} else if annPayload != nil {
 						_ = f.Session.SendNotification(uint8(wire.MsgAnnounceSyncPoint), annPayload)
 					}
 				}
@@ -268,19 +271,23 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			isSynced, err := currentFed.AchieveSyncPoint(label, federateID)
 			if err != nil {
-				log.Printf("[CRC-Portico] AchieveSyncPoint error: %v", err)
+				logCRCPortico.Error("AchieveSyncPoint error: %v", err)
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
 				continue
 			}
 
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Federate [%d] achieved synchronization point '%s'", federateID, label)
+			logCRCPortico.Info("Federate [%d] achieved synchronization point '%s'", federateID, label)
 
 			if isSynced {
-				log.Printf("[CRC-Portico] >>> FEDERATION SYNCHRONIZED at point '%s'!", label)
-				if syncPayload, err := wire.BuildFederationSynchronizedPayload(label); err == nil {
-					for _, f := range currentFed.GetAllFederates() {
-						if f.Session != nil {
+				logCRCPortico.Info(">>> FEDERATION SYNCHRONIZED at point '%s'!", label)
+				syncPayload, _ := wire.BuildFederationSynchronizedPayload(label)
+				nativeSync, _ := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+				for _, f := range currentFed.GetAllFederates() {
+					if f.Session != nil {
+						if f.Protocol == ProtocolNative {
+							_ = f.Session.SendNotification(common.NativeMsgFederationSynchronized, nativeSync)
+						} else if syncPayload != nil {
 							_ = f.Session.SendNotification(uint8(wire.MsgFederationSynchronized), syncPayload)
 						}
 					}
@@ -369,7 +376,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			// Respond with the assigned ObjectInstanceHandle and keys expected by RegisterObjectHandler
 			respPayload := wire.BuildRegisterObjectResponsePayload(objInst.Handle, classHandle, objInst.Name)
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
-			log.Printf("[CRC-Portico] Object registered by federate [%d]: handle [%d], name '%s'", federateID, objInst.Handle, objInst.Name)
+			logCRCPortico.Info("Object registered by federate [%d]: handle [%d], name '%s'", federateID, objInst.Handle, objInst.Name)
 
 			// Notify other federates (both Native and Portico)
 			nativeDiscPayload, _ := common.DiscoverObjectInstancePayload{
@@ -442,9 +449,37 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				continue
 			}
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+
+			var interactionId int32
+			var paramsMap map[int32][]byte
+			var tag []byte
+			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+				if iid, ok := obj.Get("interactionId").(int32); ok {
+					interactionId = iid
+				}
+				paramsMap = extractAttributeMap(obj.Get("parameters"))
+				if t, ok := obj.Get("tag").([]byte); ok {
+					tag = t
+				}
+			}
+
+			nativeParams := make(map[common.ParameterHandle][]byte, len(paramsMap))
+			for k, v := range paramsMap {
+				nativeParams[common.ParameterHandle(k)] = v
+			}
+			nativeInterPayload, _ := common.SendInteractionPayload{
+				ClassHandle: common.InteractionClassHandle(interactionId),
+				Parameters:  nativeParams,
+				Tag:         tag,
+			}.MarshalBinary()
+
 			for _, f := range currentFed.GetAllFederates() {
 				if f.ID != federateID && f.Session != nil {
-					_ = f.Session.SendNotification(uint8(wire.MsgReceiveInteraction), payload)
+					if f.Protocol == ProtocolNative {
+						_ = f.Session.SendNotification(common.NativeMsgReceiveInteraction, nativeInterPayload)
+					} else {
+						_ = f.Session.SendNotification(uint8(wire.MsgReceiveInteraction), payload)
+					}
 				}
 			}
 
@@ -466,7 +501,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			respPayload := wire.BuildDoubleResponsePayload(fed.CurrentTime)
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
-			log.Printf("[CRC-Portico] Federate [%d] enabled time regulation at time %f", federateID, fed.CurrentTime)
+			logCRCPortico.Info("Federate [%d] enabled time regulation at time %f", federateID, fed.CurrentTime)
 
 		case wire.MsgEnableTimeConstrained:
 			if currentFed == nil || federateID <= 0 {
@@ -485,7 +520,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			fed.IsConstrained = true
 
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Federate [%d] enabled time constrained", federateID)
+			logCRCPortico.Info("Federate [%d] enabled time constrained", federateID)
 
 		case wire.MsgTimeAdvanceRequest:
 			if currentFed == nil || federateID <= 0 {
@@ -513,14 +548,14 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			if tagPayload, err := wire.BuildTimeAdvanceGrantPayload(federateID, requestedTime); err == nil {
 				_ = session.SendNotification(uint8(wire.MsgTimeAdvanceGrant), tagPayload)
 			}
-			log.Printf("[CRC-Portico] Federate [%d] granted time advance to %f", federateID, requestedTime)
+			logCRCPortico.Info("Federate [%d] granted time advance to %f", federateID, requestedTime)
 
 		case wire.MsgResignFederation:
 			if currentFed != nil && federateID > 0 {
 				_, _ = currentFed.Resign(federateID)
 			}
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Federate [%d] resigned gracefully", federateID)
+			logCRCPortico.Info("Federate [%d] resigned gracefully", federateID)
 			federateID = 0
 
 		case wire.MsgDeleteObject:
@@ -533,7 +568,19 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 				if objHandle > 0 {
 					_, _ = currentFed.DeleteObjectInstance(objHandle, federateID, nil)
-					log.Printf("[CRC-Portico] Object [%d] deleted by federate [%d]", objHandle, federateID)
+					logCRCPortico.Info("Object [%d] deleted by federate [%d]", objHandle, federateID)
+
+					removePayload, _ := common.RemoveObjectInstancePayload{
+						ObjectHandle: common.ObjectInstanceHandle(objHandle),
+					}.MarshalBinary()
+
+					for _, f := range currentFed.GetAllFederates() {
+						if f.ID != federateID && f.Session != nil {
+							if f.Protocol == ProtocolNative {
+								_ = f.Session.SendNotification(common.NativeMsgRemoveObjectInstance, removePayload)
+							}
+						}
+					}
 				}
 			}
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
@@ -550,14 +597,14 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			}
 			if fedName != "" {
 				_ = fedManager.DestroyFederation(fedName)
-				log.Printf("[CRC-Portico] Federation [%s] destroyed", fedName)
+				logCRCPortico.Info("Federation [%s] destroyed", fedName)
 				currentFed = nil
 			}
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
 
 		case wire.MsgDisconnect:
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
-			log.Printf("[CRC-Portico] Connection disconnected gracefully")
+			logCRCPortico.Info("Connection disconnected gracefully")
 			return nil
 
 		default:
@@ -639,28 +686,28 @@ func ingestPorticoFOMModules(omt *core.OMTRegistry, modulesAny any) {
 		case []byte:
 			if strings.Contains(string(v), "<objectModel") {
 				if err := fomparser.ParseFOMXML(omt, v); err != nil {
-					log.Printf("[CRC-Portico] Warning: failed to parse byte FOM module: %v", err)
+					logCRCPortico.Warn("Warning: failed to parse byte FOM module: %v", err)
 				} else {
-					log.Printf("[CRC-Portico] Ingested in-memory FOM XML module (%d bytes)", len(v))
+					logCRCPortico.Info("Ingested in-memory FOM XML module (%d bytes)", len(v))
 				}
 			}
 		case string:
 			if strings.Contains(v, "<objectModel") {
 				if err := fomparser.ParseFOMXML(omt, []byte(v)); err != nil {
-					log.Printf("[CRC-Portico] Warning: failed to parse string FOM module: %v", err)
+					logCRCPortico.Warn("Warning: failed to parse string FOM module: %v", err)
 				} else {
-					log.Printf("[CRC-Portico] Ingested string FOM XML module (%d bytes)", len(v))
+					logCRCPortico.Info("Ingested string FOM XML module (%d bytes)", len(v))
 				}
 			} else {
 				resolved := resolveFOMPath(v)
 				if resolved != "" {
 					if err := fomparser.ParseFOMFile(omt, resolved); err != nil {
-						log.Printf("[CRC-Portico] Warning: failed to parse FOM file '%s': %v", resolved, err)
+						logCRCPortico.Warn("Warning: failed to parse FOM file '%s': %v", resolved, err)
 					} else {
-						log.Printf("[CRC-Portico] Ingested FOM file '%s' (from '%s')", resolved, v)
+						logCRCPortico.Info("Ingested FOM file '%s' (from '%s')", resolved, v)
 					}
 				} else {
-					log.Printf("[CRC-Portico] Warning: could not resolve FOM path '%s'", v)
+					logCRCPortico.Warn("Warning: could not resolve FOM path '%s'", v)
 				}
 			}
 		case *metamodel.JavaObject:

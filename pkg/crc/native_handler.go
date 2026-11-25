@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 
 	"github.com/icemagno/valhalla/pkg/common"
@@ -134,7 +133,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				ReqID:   hdr.ReqID,
 			}
 			_ = session.SendMessage(respHdr, nil)
-			log.Printf("[CRC-Native] Federation [%s] created successfully", req.FederationName)
+			logCRCNative.Info("Federation [%s] created successfully", req.FederationName)
 
 		case NativeMsgDestroyFederation:
 			var req common.FederationExecutionPayload
@@ -155,7 +154,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				ReqID:   hdr.ReqID,
 			}
 			_ = session.SendMessage(respHdr, nil)
-			log.Printf("[CRC-Native] Federation [%s] destroyed successfully", req.FederationName)
+			logCRCNative.Info("Federation [%s] destroyed successfully", req.FederationName)
 
 		case NativeMsgJoin:
 			var joinReq common.JoinFederationPayload
@@ -172,7 +171,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 
 			fed, err := fedExec.Join(joinReq.FederateName, joinReq.FederateType, ProtocolNative, session)
 			if err != nil {
-				log.Printf("[CRC-Native] Join error for %s: %v", joinReq.FederateName, err)
+				logCRCNative.Error("Join error for %s: %v", joinReq.FederateName, err)
 				_ = sendNativeError(session, hdr.ReqID, 409, err)
 				continue
 			}
@@ -198,7 +197,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, respData)
-			log.Printf("[CRC-Native] Federate [%s] joined federation [%s] with handle [%d]", joinReq.FederateName, joinReq.FederationName, federateID)
+			logCRCNative.Info("Federate [%s] joined federation [%s] with handle [%d]", joinReq.FederateName, joinReq.FederationName, federateID)
 
 		case NativeMsgRegisterSyncPoint:
 			if currentFed == nil || federateID <= 0 {
@@ -225,7 +224,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, nil)
-			log.Printf("[CRC-Native] Federate [%d] registered synchronization point '%s'", federateID, syncReq.Label)
+			logCRCNative.Info("Federate [%d] registered synchronization point '%s'", federateID, syncReq.Label)
 
 			announcePayload, _ := common.RegisterSyncPointPayload{Label: syncReq.Label, Tag: syncReq.Tag}.MarshalBinary()
 			for _, f := range currentFed.GetAllFederates() {
@@ -259,10 +258,10 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, nil)
-			log.Printf("[CRC-Native] Federate [%d] achieved synchronization point '%s'", federateID, labelReq.Label)
+			logCRCNative.Info("Federate [%d] achieved synchronization point '%s'", federateID, labelReq.Label)
 
 			if isSynced {
-				log.Printf("[CRC-Native] >>> FEDERATION SYNCHRONIZED at point '%s'!", labelReq.Label)
+				logCRCNative.Info(">>> FEDERATION SYNCHRONIZED at point '%s'!", labelReq.Label)
 				syncNotif, _ := common.SyncPointLabelPayload{Label: labelReq.Label}.MarshalBinary()
 				for _, f := range currentFed.GetAllFederates() {
 					if f.Session != nil {
@@ -511,7 +510,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, respPayload[:])
-			log.Printf("[CRC-Native] Object registered: handle=%d, class=%d, name=%s", obj.Handle, regReq.ClassHandle, obj.Name)
+			logCRCNative.Info("Object registered: handle=%d, class=%d, name=%s", obj.Handle, regReq.ClassHandle, obj.Name)
 
 			discPayload, _ := common.DiscoverObjectInstancePayload{
 				ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
@@ -559,7 +558,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				MerkleRoot: globalRoot,
 			}
 			_ = session.SendMessage(respHdr, nil)
-			log.Printf("[CRC-Native] Object [%d] '%s' deleted by federate [%d]", obj.Handle, obj.Name, federateID)
+			logCRCNative.Info("Object [%d] '%s' deleted by federate [%d]", obj.Handle, obj.Name, federateID)
 
 			removePayload, _ := common.RemoveObjectInstancePayload{
 				ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
@@ -726,7 +725,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, respData)
-			log.Printf("[CRC-Native] Time regulation enabled for federate [%d], lookahead=%f", federateID, fed.Lookahead)
+			logCRCNative.Info("Time regulation enabled for federate [%d], lookahead=%f", federateID, fed.Lookahead)
 
 		case NativeMsgDisableTimeRegulation:
 			if currentFed == nil || federateID <= 0 {
@@ -786,7 +785,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, respData)
-			log.Printf("[CRC-Native] Time constrained enabled for federate [%d]", federateID)
+			logCRCNative.Info("Time constrained enabled for federate [%d]", federateID)
 
 		case NativeMsgDisableTimeConstrained:
 			if currentFed == nil || federateID <= 0 {
@@ -911,7 +910,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, nil)
-			log.Printf("[CRC-Native] Federate [%d] resigned gracefully", federateID)
+			logCRCNative.Info("Federate [%d] resigned gracefully", federateID)
 			currentFed = nil
 			federateID = -1
 		}

@@ -24,6 +24,9 @@ type Server struct {
 	fedManager  *FederationManager
 	peekTimeout time.Duration
 
+	conns   map[net.Conn]struct{}
+	connsMu sync.Mutex
+
 	stopChan chan struct{}
 	wg       sync.WaitGroup
 	mu       sync.Mutex
@@ -42,6 +45,7 @@ func NewServer(addr string) *Server {
 		addr:        addr,
 		fedManager:  NewFederationManager(),
 		peekTimeout: 50 * time.Millisecond,
+		conns:       make(map[net.Conn]struct{}),
 		stopChan:    make(chan struct{}),
 	}
 }
@@ -91,9 +95,19 @@ func (s *Server) acceptLoop() {
 			}
 		}
 
+		s.connsMu.Lock()
+		s.conns[conn] = struct{}{}
+		s.connsMu.Unlock()
+
 		s.wg.Add(1)
 		go func(c net.Conn) {
-			defer s.wg.Done()
+			defer func() {
+				s.connsMu.Lock()
+				delete(s.conns, c)
+				s.connsMu.Unlock()
+				_ = c.Close()
+				s.wg.Done()
+			}()
 			s.handleConnection(c)
 		}(conn)
 	}
@@ -132,6 +146,14 @@ func (s *Server) Stop() error {
 	s.running = false
 	close(s.stopChan)
 	err := s.listener.Close()
+
+	// Fechar proativamente todas as conexões ativas para desbloquear os loops de leitura
+	s.connsMu.Lock()
+	for c := range s.conns {
+		_ = c.Close()
+	}
+	s.connsMu.Unlock()
+
 	s.mu.Unlock()
 
 	s.wg.Wait()
