@@ -10,6 +10,7 @@ type FederateAmbassador interface {
 	AnnounceSynchronizationPoint(label string, tag []byte)
 	FederationSynchronized(label string)
 	DiscoverObjectInstance(theObject int32, theObjectClass int32, objectName string)
+	RemoveObjectInstance(theObject int32, tag []byte)
 	ReflectAttributeValues(theObject int32, theAttributes map[int32][]byte, tag []byte)
 	ReceiveInteraction(interactionClass int32, theParameters map[int32][]byte, tag []byte)
 	TimeAdvanceGrant(time float64)
@@ -24,6 +25,7 @@ func (n *NullFederateAmbassador) SynchronizationPointRegistrationFailed(label st
 func (n *NullFederateAmbassador) AnnounceSynchronizationPoint(label string, tag []byte)                  {}
 func (n *NullFederateAmbassador) FederationSynchronized(label string)                                    {}
 func (n *NullFederateAmbassador) DiscoverObjectInstance(theObject int32, theObjectClass int32, objectName string) {}
+func (n *NullFederateAmbassador) RemoveObjectInstance(theObject int32, tag []byte)                       {}
 func (n *NullFederateAmbassador) ReflectAttributeValues(theObject int32, theAttributes map[int32][]byte, tag []byte) {}
 func (n *NullFederateAmbassador) ReceiveInteraction(interactionClass int32, theParameters map[int32][]byte, tag []byte) {}
 func (n *NullFederateAmbassador) TimeAdvanceGrant(time float64)                                          {}
@@ -55,6 +57,7 @@ type RTIambassador interface {
 
 	// Object Management
 	RegisterObjectInstance(objectClass int32, objectName string) (int32, error)
+	DeleteObjectInstance(objectHandle int32, tag []byte) error
 	UpdateAttributeValues(objectHandle int32, attributes map[int32][]byte, tag []byte) error
 
 	// Interaction Management

@@ -20,6 +20,7 @@ var (
 	ErrObjectClassNotDefined     = errors.New("hla: object class not defined")
 	ErrObjectInstanceNotKnown    = errors.New("hla: object instance not known")
 	ErrObjectInstanceNameInUse   = errors.New("hla: object instance name in use")
+	ErrDeletePrivilegeNotHeld    = errors.New("hla: delete privilege not held")
 	ErrAttributeNotDefined       = errors.New("hla: attribute not defined")
 	ErrAttributeNotOwned         = errors.New("hla: attribute not owned")
 	ErrInteractionClassNotDefined = errors.New("hla: interaction class not defined")

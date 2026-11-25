@@ -154,6 +154,42 @@ func TestPayloads_RoundTrip(t *testing.T) {
 		}
 	})
 
+	t.Run("DeleteObjectInstancePayload", func(t *testing.T) {
+		orig := DeleteObjectInstancePayload{
+			ObjectHandle: 777,
+			Tag:          []byte("DeleteOrder_Confirmed"),
+		}
+		data, err := orig.MarshalBinary()
+		if err != nil {
+			t.Fatalf("MarshalBinary failed: %v", err)
+		}
+		var decoded DeleteObjectInstancePayload
+		if err := decoded.UnmarshalBinary(data); err != nil {
+			t.Fatalf("UnmarshalBinary failed: %v", err)
+		}
+		if !reflect.DeepEqual(orig, decoded) {
+			t.Errorf("Roundtrip mismatch: got %+v, want %+v", decoded, orig)
+		}
+	})
+
+	t.Run("RemoveObjectInstancePayload", func(t *testing.T) {
+		orig := RemoveObjectInstancePayload{
+			ObjectHandle: 777,
+			Tag:          []byte("Entity_Removed_Echo"),
+		}
+		data, err := orig.MarshalBinary()
+		if err != nil {
+			t.Fatalf("MarshalBinary failed: %v", err)
+		}
+		var decoded RemoveObjectInstancePayload
+		if err := decoded.UnmarshalBinary(data); err != nil {
+			t.Fatalf("UnmarshalBinary failed: %v", err)
+		}
+		if !reflect.DeepEqual(orig, decoded) {
+			t.Errorf("Roundtrip mismatch: got %+v, want %+v", decoded, orig)
+		}
+	})
+
 	t.Run("UpdateAttributesPayload_WithTime", func(t *testing.T) {
 		orig := UpdateAttributesPayload{
 			ObjectHandle: 888,

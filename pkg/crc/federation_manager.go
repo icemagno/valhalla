@@ -73,7 +73,7 @@ func (m *FederationManager) DestroyFederation(name string) error {
 	}
 
 	if len(fed.GetAllFederates()) > 0 {
-		return ErrFederateNameAlreadyInUse // Federação ainda possui participantes ativos
+		return ErrFederatesCurrentlyJoined // Federação ainda possui participantes ativos
 	}
 
 	delete(m.federations, name)

@@ -32,6 +32,8 @@ const (
 	NativeMsgUnsubscribeInteractionClass = common.NativeMsgUnsubscribeInteractionClass
 	NativeMsgRegisterObject         = common.NativeMsgRegisterObject
 	NativeMsgDiscoverObject         = common.NativeMsgDiscoverObject
+	NativeMsgDeleteObjectInstance   = common.NativeMsgDeleteObjectInstance
+	NativeMsgRemoveObjectInstance   = common.NativeMsgRemoveObjectInstance
 	NativeMsgUpdateAttributes       = common.NativeMsgUpdateAttributes
 	NativeMsgReflectAttributes      = common.NativeMsgReflectAttributes
 	NativeMsgSendInteraction        = common.NativeMsgSendInteraction
@@ -322,6 +324,20 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 
+			// Catch-up Discovery: notificar o assinante sobre todas as instâncias existentes que casam com a hierarquia
+			if subReq.Active {
+				for _, obj := range currentFed.GetAllObjects() {
+					if currentFed.OMT().IsSubclassOfObject(common.ObjectClassHandle(obj.ClassHandle), subReq.ClassHandle) {
+						discPayload, _ := common.DiscoverObjectInstancePayload{
+							ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
+							ClassHandle:  common.ObjectClassHandle(obj.ClassHandle),
+							ObjectName:   obj.Name,
+						}.MarshalBinary()
+						_ = session.SendNotification(NativeMsgDiscoverObject, discPayload)
+					}
+				}
+			}
+
 		case NativeMsgUnsubscribeObjectClass:
 			if currentFed == nil || federateID <= 0 {
 				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
@@ -488,6 +504,53 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				}
 			}
 
+		case NativeMsgDeleteObjectInstance:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var delReq common.DeleteObjectInstancePayload
+			if err := delReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid delete object instance payload"))
+				continue
+			}
+			obj, err := currentFed.DeleteObjectInstance(int32(delReq.ObjectHandle), federateID, delReq.Tag)
+			if err != nil {
+				if errors.Is(err, common.ErrObjectInstanceNotKnown) {
+					_ = sendNativeError(session, hdr.ReqID, 404, err)
+				} else if errors.Is(err, common.ErrDeletePrivilegeNotHeld) {
+					_ = sendNativeError(session, hdr.ReqID, 403, err)
+				} else {
+					_ = sendNativeError(session, hdr.ReqID, 500, err)
+				}
+				continue
+			}
+
+			globalRoot := currentFed.StateTree().GetGlobalRoot()
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      common.FlagNativeSSZ | common.FlagNativeMerkle,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+				MerkleRoot: globalRoot,
+			}
+			_ = session.SendMessage(respHdr, nil)
+			log.Printf("[CRC-Native] Object [%d] '%s' deleted by federate [%d]", obj.Handle, obj.Name, federateID)
+
+			removePayload, _ := common.RemoveObjectInstancePayload{
+				ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
+				Tag:          delReq.Tag,
+			}.MarshalBinary()
+
+			for _, f := range currentFed.GetAllFederates() {
+				if f.ID != federateID && f.Session != nil {
+					_ = f.Session.SendNotification(NativeMsgRemoveObjectInstance, removePayload)
+				}
+			}
+
 		case NativeMsgUpdateAttributes:
 			if currentFed == nil || federateID <= 0 {
 				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
@@ -510,14 +573,16 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = currentFed.UpdateObjectAttributes(int32(uavReq.ObjectHandle), attrsToStore, hdr.MerkleRoot)
 
+			globalRoot := currentFed.StateTree().GetGlobalRoot()
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
-				Flags:      0x01,
+				Flags:      common.FlagNativeSSZ | common.FlagNativeMerkle,
 				MsgType:    NativeMsgSuccessOK,
 				ReqID:      hdr.ReqID,
 				FedID:      uint32(currentFed.Handle),
 				FederateID: uint32(federateID),
+				MerkleRoot: globalRoot,
 			}
 			_ = session.SendMessage(respHdr, nil)
 

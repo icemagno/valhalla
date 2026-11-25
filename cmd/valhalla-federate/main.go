@@ -128,9 +128,9 @@ func main() {
 		}
 	}
 
-	// 4. Object Instance Registration
+	// 4. Object Instance Registration (Standard MIM: HLAobjectRoot = 1)
 	log.Printf("[4/5] Registering object instance in simulation...")
-	objHandle, err := amb.RegisterObjectInstance(561, fmt.Sprintf("%s_Obj", *name))
+	objHandle, err := amb.RegisterObjectInstance(1, fmt.Sprintf("%s_Obj", *name))
 	if err != nil {
 		log.Printf("[!] Error registering object: %v", err)
 	} else {
@@ -169,8 +169,8 @@ func main() {
 				log.Printf("[Simulation #%d] Object %d attributes updated (X=%.2f, Y=%.2f)", step, objHandle, x, y)
 			}
 
-			// Send periodic interaction
-			_ = amb.SendInteraction(525, map[int32][]byte{1: []byte(fmt.Sprintf("HeartbeatStep_%d", step))}, nil)
+			// Send periodic interaction (Standard MIM: HLAinteractionRoot = 1)
+			_ = amb.SendInteraction(1, map[int32][]byte{1: []byte(fmt.Sprintf("HeartbeatStep_%d", step))}, nil)
 
 			// Request logical time advance
 			logicalTime := float64(step) * 1.0

@@ -58,7 +58,7 @@ type FieldDesc struct {
 
 // JOSWriter define a interface de escrita para métodos customizados (writeObject / writeExternal)
 type JOSWriter interface {
-	WriteByte(b byte)
+	WriteByte(b byte) error
 	WriteInt16(v int16)
 	WriteInt32(v int32)
 	WriteUint16(v uint16)

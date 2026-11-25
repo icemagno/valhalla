@@ -148,11 +148,15 @@ BenchmarkBitset_ToFederateHandles-16              8.596.258 ops   140.90 ns/op
 BenchmarkOMTRegistry_IsSubclassOfObject-16       76.062.498 ops    15.40 ns/op
 BenchmarkOMTRegistry_ResolveAttribute-16         55.485.427 ops    23.24 ns/op
 BenchmarkInterestMatcher_GetAttributeSubscribers  4.349.264 ops   275.70 ns/op
+BenchmarkMerkleTree_ComputeObjectRoot-16          1.381.132 ops   870.50 ns/op
+BenchmarkMerkleTree_FederationGlobalRoot-16      47.220.669 ops    30.10 ns/op
 ```
 
 * **33,7 nanossegundos** para efetuar a união lógica completa de 1.000 federados em um único bitset.
 * **15,4 nanossegundos** para determinar polimorfismo de herança profunda na árvore OMT em $O(1)$.
 * **275 nanossegundos** para calcular todos os assinantes polimórficos de um atributo atualizado entre 150 federados concorrentes, incluindo a travessia de herança e construção do slice de destinatários.
+* **870 nanossegundos** para computar a raiz Merkle determinística de uma entidade (árvore binária completa via SHA-256).
+* **30 nanossegundos** para consultar a raiz global de estado da federação.
 
 ---
 

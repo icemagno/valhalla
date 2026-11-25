@@ -10,23 +10,12 @@ import (
 )
 
 // ProtocolType identifica o dialeto de transporte e serialização usado pelo federado
-type ProtocolType uint8
+type ProtocolType = common.ProtocolType
 
 const (
-	ProtocolNative  ProtocolType = 1 // Valhalla Nativo (SSZ / Merkle / PQC / VAL4)
-	ProtocolPortico ProtocolType = 2 // Portico Legado (JOS / Header 12b / 0xCAFE / 0xBEEF)
+	ProtocolNative  = common.ProtocolNative
+	ProtocolPortico = common.ProtocolPortico
 )
-
-func (p ProtocolType) String() string {
-	switch p {
-	case ProtocolNative:
-		return "Valhalla-Native(VAL4)"
-	case ProtocolPortico:
-		return "Portico-Legacy(JOS)"
-	default:
-		return "Unknown"
-	}
-}
 
 // Session define a interface de transporte para despacho assíncrono de mensagens a um federado
 type Session interface {
@@ -102,14 +91,16 @@ type FederationExecution struct {
 	nextFederateHandle int32
 	nextObjectHandle   int32
 
-	omt    *core.OMTRegistry
-	router *core.InterestMatcher
+	omt       *core.OMTRegistry
+	router    *core.InterestMatcher
+	stateTree *core.FederationStateTree
 }
 
 // NewFederationExecution cria uma nova federação com contadores e mapas inicializados
 func NewFederationExecution(handle int32, name string) *FederationExecution {
 	omt := core.NewOMTRegistry()
 	router := core.NewInterestMatcher(omt)
+	stateTree := core.NewFederationStateTree()
 
 	return &FederationExecution{
 		Handle:             handle,
@@ -123,6 +114,7 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		nextObjectHandle:   1,
 		omt:                omt,
 		router:             router,
+		stateTree:          stateTree,
 	}
 }
 
@@ -134,6 +126,11 @@ func (f *FederationExecution) OMT() *core.OMTRegistry {
 // Router retorna o roteador de pub/sub (InterestMatcher) da federação
 func (f *FederationExecution) Router() *core.InterestMatcher {
 	return f.router
+}
+
+// StateTree retorna a árvore de estado criptográfico Merkle da federação
+func (f *FederationExecution) StateTree() *core.FederationStateTree {
+	return f.stateTree
 }
 
 // Join registra um federado na federação e atribui seu handle sequencial exclusivo
@@ -272,25 +269,81 @@ func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name str
 
 	f.objects[handle] = obj
 	f.nameToObjID[name] = handle
+	if f.stateTree != nil {
+		f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(handle), obj.MerkleRoot)
+	}
 	return obj, nil
 }
 
-// UpdateObjectAttributes atualiza os atributos de uma instância com Merkle Root
+// UpdateObjectAttributes atualiza os atributos de uma instância e recalcula a raiz Merkle
 func (f *FederationExecution) UpdateObjectAttributes(objHandle int32, attrs map[int32][]byte, merkleRoot [32]byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	obj, exists := f.objects[objHandle]
 	if !exists {
-		return ErrObjectInstanceNotFound
+		return common.ErrObjectInstanceNotKnown
 	}
 
 	for k, v := range attrs {
 		obj.Attributes[k] = v
 	}
+
+	// Se a raiz Merkle não foi fornecida previamente, computar deterministicamente via SSZ
+	if merkleRoot == [32]byte{} {
+		attrMap := make(map[common.AttributeHandle][]byte, len(obj.Attributes))
+		for k, v := range obj.Attributes {
+			attrMap[common.AttributeHandle(k)] = v
+		}
+		merkleRoot = core.ComputeObjectMerkleRoot(attrMap)
+	}
+
 	obj.MerkleRoot = merkleRoot
 	obj.UpdatedAt = time.Now()
+
+	if f.stateTree != nil {
+		f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(objHandle), merkleRoot)
+	}
+
 	return nil
+}
+
+// DeleteObjectInstance remove a entidade da simulação validando posse ou privilégio de exclusão
+func (f *FederationExecution) DeleteObjectInstance(objHandle int32, federateID int32, tag []byte) (*ObjectInstance, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	obj, exists := f.objects[objHandle]
+	if !exists {
+		return nil, common.ErrObjectInstanceNotKnown
+	}
+
+	// Validação estrita da norma IEEE 1516-2025:
+	// Apenas o proprietário que registrou a entidade OU quem detém privilégio de exclusão pode deletar
+	if obj.OwnerID != federateID {
+		return nil, common.ErrDeletePrivilegeNotHeld
+	}
+
+	delete(f.objects, objHandle)
+	delete(f.nameToObjID, obj.Name)
+
+	if f.stateTree != nil {
+		f.stateTree.RemoveObjectState(common.ObjectInstanceHandle(objHandle))
+	}
+
+	return obj, nil
+}
+
+// GetAllObjects retorna um snapshot thread-safe de todas as instâncias de objetos ativas
+func (f *FederationExecution) GetAllObjects() []*ObjectInstance {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	list := make([]*ObjectInstance, 0, len(f.objects))
+	for _, obj := range f.objects {
+		list = append(list, obj)
+	}
+	return list
 }
 
 // GetObjectInstance busca uma instância de objeto pelo handle

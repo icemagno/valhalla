@@ -16,9 +16,18 @@ type mockAmbassador struct {
 	synchronized        bool
 	syncedLabel         string
 	discoveredObj       int32
+	removedObj          int32
+	removedTag          []byte
 	timeGranted         float64
 	reflectedAttrs      map[int32][]byte
 	receivedInteraction int32
+}
+
+func (m *mockAmbassador) RemoveObjectInstance(theObject int32, tag []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.removedObj = theObject
+	m.removedTag = tag
 }
 
 func (m *mockAmbassador) ReflectAttributeValues(theObject int32, theAttributes map[int32][]byte, tag []byte) {
@@ -501,5 +510,139 @@ func TestRTIambassador_DeclarationAndPubSubRouting(t *testing.T) {
 	fedAmbSub.mu.Unlock()
 	if receivedClass != int32(common.HLAinteractionRootHandle) {
 		t.Fatalf("Subscriber não recebeu a classe de interação esperada: %d", receivedClass)
+	}
+}
+
+func TestRTIambassador_ObjectLifecycle_DeleteAndRemove(t *testing.T) {
+	server := crc.NewServer("127.0.0.1:0")
+	if err := server.Start(); err != nil {
+		t.Fatalf("falha ao iniciar servidor CRC: %v", err)
+	}
+	defer server.Stop()
+
+	addr := server.Addr().String()
+
+	// 1. Criar federação
+	ambAdmin := lrc.NewRTIambassador()
+	_ = ambAdmin.Connect(nil, addr)
+	_ = ambAdmin.CreateFederationExecution("LifecycleFed")
+	_ = ambAdmin.Disconnect()
+
+	// 2. Conectar Proprietário (Owner)
+	ambOwner := lrc.NewRTIambassador()
+	_ = ambOwner.Connect(nil, addr)
+	defer ambOwner.Disconnect()
+	_, _ = ambOwner.JoinFederationExecution("OwnerFed", "LifecycleFed")
+
+	// 3. Conectar Observador (Watcher)
+	watcherAmb := &mockAmbassador{}
+	ambWatcher := lrc.NewRTIambassador()
+	_ = ambWatcher.Connect(watcherAmb, addr)
+	defer ambWatcher.Disconnect()
+	_, _ = ambWatcher.JoinFederationExecution("WatcherFed", "LifecycleFed")
+
+	// Watcher assina HLAobjectRoot
+	_ = ambWatcher.SubscribeObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)})
+
+	// 4. Owner registra objeto
+	objHandle, err := ambOwner.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "TargetMissile")
+	if err != nil {
+		t.Fatalf("falha ao registrar objeto: %v", err)
+	}
+
+	// Aguardar e evocar callback de descoberta no Watcher
+	time.Sleep(40 * time.Millisecond)
+	_, _ = ambWatcher.EvokeCallback(100 * time.Millisecond)
+	watcherAmb.mu.Lock()
+	discObj := watcherAmb.discoveredObj
+	watcherAmb.mu.Unlock()
+	if discObj != objHandle {
+		t.Fatalf("Watcher não descobriu o objeto: esperado %d, obteve %d", objHandle, discObj)
+	}
+
+	// 5. Watcher (NÃO proprietário) tenta deletar objeto -> Deve falhar com ErrDeletePrivilegeNotHeld
+	err = ambWatcher.DeleteObjectInstance(objHandle, []byte("IllegalDelete"))
+	if err == nil {
+		t.Fatal("esperava erro ao tentar deletar objeto sem privilégio/posse, obteve nil")
+	}
+
+	// 6. Owner (proprietário legítimo) deleta objeto -> Sucesso
+	err = ambOwner.DeleteObjectInstance(objHandle, []byte("Terminated"))
+	if err != nil {
+		t.Fatalf("Owner falhou ao deletar seu próprio objeto: %v", err)
+	}
+
+	// 7. Watcher recebe callback RemoveObjectInstance
+	time.Sleep(40 * time.Millisecond)
+	evoked, err := ambWatcher.EvokeCallback(100 * time.Millisecond)
+	if err != nil || !evoked {
+		t.Fatalf("Watcher falhou ao evocar callback de remoção: %v", err)
+	}
+
+	watcherAmb.mu.Lock()
+	remObj := watcherAmb.removedObj
+	remTag := string(watcherAmb.removedTag)
+	watcherAmb.mu.Unlock()
+	if remObj != objHandle || remTag != "Terminated" {
+		t.Fatalf("Watcher recebeu remoção inconsistente: obj=%d tag=%s", remObj, remTag)
+	}
+
+	// 8. Tentar deletar o objeto já removido -> Deve falhar com ErrObjectInstanceNotKnown
+	err = ambOwner.DeleteObjectInstance(objHandle, []byte("DeleteAgain"))
+	if err == nil {
+		t.Fatal("esperava erro ao tentar deletar objeto inexistente/já removido, obteve nil")
+	}
+}
+
+func TestRTIambassador_CatchUpDiscovery(t *testing.T) {
+	server := crc.NewServer("127.0.0.1:0")
+	if err := server.Start(); err != nil {
+		t.Fatalf("falha ao iniciar servidor CRC: %v", err)
+	}
+	defer server.Stop()
+
+	addr := server.Addr().String()
+
+	// 1. Criar federação
+	ambAdmin := lrc.NewRTIambassador()
+	_ = ambAdmin.Connect(nil, addr)
+	_ = ambAdmin.CreateFederationExecution("CatchUpFed")
+	_ = ambAdmin.Disconnect()
+
+	// 2. Early Fed cria entidade ANTES do segundo federado subscrever
+	ambEarly := lrc.NewRTIambassador()
+	_ = ambEarly.Connect(nil, addr)
+	defer ambEarly.Disconnect()
+	_, _ = ambEarly.JoinFederationExecution("EarlyNode", "CatchUpFed")
+
+	earlyObj, err := ambEarly.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "PreExistingCarrier")
+	if err != nil {
+		t.Fatalf("falha ao registrar entidade inicial: %v", err)
+	}
+
+	// 3. Late Fed ingressa e assina a classe POSTERIORMENTE
+	lateAmb := &mockAmbassador{}
+	ambLate := lrc.NewRTIambassador()
+	_ = ambLate.Connect(lateAmb, addr)
+	defer ambLate.Disconnect()
+	_, _ = ambLate.JoinFederationExecution("LateNode", "CatchUpFed")
+
+	err = ambLate.SubscribeObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)})
+	if err != nil {
+		t.Fatalf("falha ao subscrever classe: %v", err)
+	}
+
+	// 4. Late Fed evoca callback -> Deve receber a descoberta retrospectiva (Catch-Up) da entidade pré-existente
+	time.Sleep(50 * time.Millisecond)
+	evoked, err := ambLate.EvokeCallback(200 * time.Millisecond)
+	if err != nil || !evoked {
+		t.Fatalf("Late Fed falhou ao receber catch-up discovery: %v", err)
+	}
+
+	lateAmb.mu.Lock()
+	caughtObj := lateAmb.discoveredObj
+	lateAmb.mu.Unlock()
+	if caughtObj != earlyObj {
+		t.Fatalf("Catch-Up Discovery entregou objeto incorreto: esperado %d, obteve %d", earlyObj, caughtObj)
 	}
 }

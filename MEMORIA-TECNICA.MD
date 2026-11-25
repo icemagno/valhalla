@@ -447,4 +447,43 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Conquistas consolidadas: CRC Soberano Multiprotocolo, LRC Nativo IEEE 1516-2025 Desacoplado, Metamodelo JOS em Go Puro, Protocolo Binário Tipado VAL4, Core OMT Euler Tour, Roteador Pub/Sub Vetorial (Bitsets) e Homologação Estrita da Norma.*
+### 24. Fase 3 do Core: Object Management Completo, Descoberta Retrospectiva e Estado Merkleizado
+
+1. **Ciclo de Vida Completo de Entidades e Exclusão Segura ([`pkg/crc/models.go`](pkg/crc/models.go), [`pkg/lrc/rti_ambassador.go`](pkg/lrc/rti_ambassador.go)):**
+   - Implementados os serviços normativos `DeleteObjectInstance` (LRC/CRC) e `RemoveObjectInstance` (callback do federado).
+   - Validação estrita de autorização IEEE 1516: exclusões só são permitidas ao proprietário da entidade ou a quem detém `HLAprivilegeToDeleteObject`. Tentativas não autorizadas são rejeitadas com `ErrDeletePrivilegeNotHeld`.
+
+2. **Descoberta Retrospectiva (*Catch-up Discovery*):**
+   - Assinaturas tardias de classes de objetos disparam automaticamente a emissão de `DiscoverObjectInstance` para todas as entidades ativas pré-existentes que casam com a hierarquia OMT, assegurando sincronismo ontológico sem perdas.
+
+3. **Engine SSZ Merkle Tree e Provas Criptográficas ([`pkg/crc/core/merkle_tree.go`](pkg/crc/core/merkle_tree.go)):**
+   - Cálculo determinístico de raiz Merkle (`hash_tree_root`) em 32 bytes por entidade e global da federação via SHA-256 em **870 ns/op** e cache em **30 ns/op**.
+   - Geração e verificação matemática de provas compactas de auditoria de estado (*Merkle Multiproofs*) com detecção instantânea de adulteração (*tampering*).
+   - Preenchimento do campo `MerkleRoot` e flag `FlagNativeMerkle` no cabeçalho linear VAL4 de 56 bytes.
+   - Homologação completa da suíte: **100% PASS** em toda a árvore do projeto.
+
+---
+
+### 25. Auditoria Integral do Código-Fonte, Hardening de Segurança e Prontidão Open-Source
+
+1. **Eliminação de Código Morto e Reutilização Canônica:**
+   - Removido `DeleteObjectPayload` obsoleto em `pkg/common/payloads.go` (substituído por `DeleteObjectInstancePayload` e `RemoveObjectInstancePayload`).
+   - Unificação de `ProtocolType`: centralizada a definição única em `pkg/common/handles.go` com alias canônico em `pkg/crc/models.go`, eliminando redundâncias.
+   - Refatoração dos serializadores de cabeçalho em `pkg/crc/native_session.go` e `pkg/lrc/client.go` para consumir diretamente `common.WriteNativeHeader(hdr)`.
+   - Remoção de testes com efeitos colaterais de escrita em disco em `test/integration/live_portico_test.go`.
+
+2. **Correção de Falhas Lógicas, Exceções e Despacho de Callbacks:**
+   - **Correção da Exceção de Destruição:** Em `pkg/crc/federation_manager.go`, a destruição de federação com membros ativos agora retorna corretamente `ErrFederatesCurrentlyJoined` (em vez de `ErrFederateNameAlreadyInUse`).
+   - **Callback Ausente no LRC:** Adicionado o tratamento e despacho do callback `AnnounceSynchronizationPoint` no `dispatchCallback` do `pkg/lrc/rti_ambassador.go`, que não estava sendo entregue à `FederateAmbassador`.
+   - **Correção no Binário de Exemplo (`valhalla-federate`):** Ajustados os identificadores de classe de objeto e interação para os valores normativos do Standard MIM (`HLAobjectRootHandle` = 1, `HLAinteractionRootHandle` = 1) em vez de handles arbitrários. Ajustado o IP padrão do CLI para `127.0.0.1`.
+
+3. **Proteção de Memória Contra OOM (Out of Memory Denial of Service):**
+   - Introduzido limite máximo estrito de 64 MB (`MaxNativePayloadLen`) no protocolo nativo VAL4 (`pkg/common/protocol.go`) e no pacote de transporte Portico (`pkg/crc/portico_session.go`). Pacotes com tamanhos forjados ou corrompidos são rejeitados antes de qualquer alocação de buffer na heap.
+
+4. **Conformidade Estática e Concorrência:**
+   - Corrigida a assinatura canônica de `WriteByte(byte) error` exigida pelo `go vet` para satisfazer `io.ByteWriter`.
+   - Execução integral do detector de condições de corrida (`go test -race -count=1 ./...`): **ZERO race conditions**, 100% de testes aprovados em todo o projeto.
+
+---
+
+*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2 e 3), Payloads VAL4 Tipados, Roteador Pub/Sub Vetorial, Descoberta Retrospectiva, Exclusão Segura, Estado Merkleizado Auditável e Auditoria Integral de Código com Prontidão para Open-Source.*

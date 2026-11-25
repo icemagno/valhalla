@@ -1,7 +1,6 @@
 package lrc
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -127,18 +126,8 @@ func (c *Client) writePacket(hdr common.NativeHeader, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	var buf [common.NativeHeaderLength]byte
-	binary.BigEndian.PutUint16(buf[0:2], hdr.Magic)
-	buf[2] = hdr.Version
-	buf[3] = hdr.Flags
-	binary.BigEndian.PutUint32(buf[4:8], uint32(len(payload)))
-	buf[8] = hdr.MsgType
-	buf[9] = hdr.Reserved
-	binary.BigEndian.PutUint16(buf[10:12], hdr.ReqID)
-	binary.BigEndian.PutUint32(buf[12:16], hdr.FedID)
-	binary.BigEndian.PutUint32(buf[16:20], hdr.FederateID)
-	binary.BigEndian.PutUint32(buf[20:24], 0)
-	copy(buf[24:56], hdr.MerkleRoot[:])
+	hdr.PayloadLen = uint32(len(payload))
+	buf := common.WriteNativeHeader(hdr)
 
 	if _, err := c.conn.Write(buf[:]); err != nil {
 		return err

@@ -411,6 +411,62 @@ func (p *DiscoverObjectInstancePayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// DeleteObjectInstancePayload solicitação de exclusão de instância de objeto
+type DeleteObjectInstancePayload struct {
+	ObjectHandle ObjectInstanceHandle
+	Tag          []byte
+}
+
+func (p DeleteObjectInstancePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4+2+len(p.Tag))
+	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Tag)))
+	copy(buf[6:], p.Tag)
+	return buf, nil
+}
+
+func (p *DeleteObjectInstancePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 6 {
+		return ErrPayloadTooShort
+	}
+	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[0:4]))
+	tagLen := int(binary.BigEndian.Uint16(data[4:6]))
+	if 6+tagLen > len(data) {
+		return ErrPayloadDataOverflow
+	}
+	p.Tag = make([]byte, tagLen)
+	copy(p.Tag, data[6:6+tagLen])
+	return nil
+}
+
+// RemoveObjectInstancePayload notificação de remoção de instância de objeto para federados
+type RemoveObjectInstancePayload struct {
+	ObjectHandle ObjectInstanceHandle
+	Tag          []byte
+}
+
+func (p RemoveObjectInstancePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4+2+len(p.Tag))
+	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Tag)))
+	copy(buf[6:], p.Tag)
+	return buf, nil
+}
+
+func (p *RemoveObjectInstancePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 6 {
+		return ErrPayloadTooShort
+	}
+	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[0:4]))
+	tagLen := int(binary.BigEndian.Uint16(data[4:6]))
+	if 6+tagLen > len(data) {
+		return ErrPayloadDataOverflow
+	}
+	p.Tag = make([]byte, tagLen)
+	copy(p.Tag, data[6:6+tagLen])
+	return nil
+}
+
 // UpdateAttributesPayload atualização de atributos (UAV) ou reflexão (RAV)
 type UpdateAttributesPayload struct {
 	ObjectHandle ObjectInstanceHandle
@@ -634,76 +690,6 @@ func (p *SendInteractionPayload) UnmarshalBinary(data []byte) error {
 		offset += valLen
 		p.Parameters[param] = val
 	}
-
-	return nil
-}
-
-// DeleteObjectPayload exclusão ou remoção de instância de objeto
-type DeleteObjectPayload struct {
-	ObjectHandle ObjectInstanceHandle
-	Tag          []byte
-	HasTime      bool
-	Time         float64
-}
-
-func (p DeleteObjectPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 4 + 1 + 2 + len(p.Tag)
-	if p.HasTime {
-		totalLen += 8
-	}
-	buf := make([]byte, totalLen)
-	offset := 0
-
-	binary.BigEndian.PutUint32(buf[offset:], uint32(p.ObjectHandle))
-	offset += 4
-
-	if p.HasTime {
-		buf[offset] = 1
-		offset++
-		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(p.Time))
-		offset += 8
-	} else {
-		buf[offset] = 0
-		offset++
-	}
-
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.Tag)))
-	offset += 2
-	copy(buf[offset:], p.Tag)
-
-	return buf, nil
-}
-
-func (p *DeleteObjectPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 7 {
-		return ErrPayloadTooShort
-	}
-	offset := 0
-
-	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[offset:]))
-	offset += 4
-
-	p.HasTime = data[offset] == 1
-	offset++
-
-	if p.HasTime {
-		if offset+8 > len(data) {
-			return ErrPayloadTooShort
-		}
-		p.Time = math.Float64frombits(binary.BigEndian.Uint64(data[offset:]))
-		offset += 8
-	}
-
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
-	}
-	tagLen := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+tagLen > len(data) {
-		return ErrPayloadDataOverflow
-	}
-	p.Tag = make([]byte, tagLen)
-	copy(p.Tag, data[offset:offset+tagLen])
 
 	return nil
 }

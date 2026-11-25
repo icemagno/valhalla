@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	NativeHeaderMagic  uint16 = 0x5641 // "VA" (Valhalla)
-	NativeProtocolVer  uint8  = 4      // HLA-4 (IEEE 1516-2025)
-	NativeHeaderLength        = 56     // 24 bytes cabeçalho alinhado + 32 bytes Merkle Root
+	NativeHeaderMagic   uint16 = 0x5641 // "VA" (Valhalla)
+	NativeProtocolVer   uint8  = 4      // HLA-4 (IEEE 1516-2025)
+	NativeHeaderLength         = 56     // 24 bytes cabeçalho alinhado + 32 bytes Merkle Root
+	MaxNativePayloadLen uint32 = 64 * 1024 * 1024 // Limite de 64 MB contra esgotamento de memória (OOM)
 )
 
 // Tipos de Mensagem do Protocolo Nativo Valhalla (HLA-4 / IEEE 1516-2025)
@@ -109,6 +110,11 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 		return NativeHeader{}, fmt.Errorf("unsupported native protocol version: %d", version)
 	}
 
+	payloadLen := binary.BigEndian.Uint32(buf[4:8])
+	if payloadLen > MaxNativePayloadLen {
+		return NativeHeader{}, fmt.Errorf("%w: %d bytes (limite: %d)", ErrNativePayloadTooLarge, payloadLen, MaxNativePayloadLen)
+	}
+
 	var merkle [32]byte
 	copy(merkle[:], buf[24:56])
 
@@ -116,7 +122,7 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 		Magic:      magic,
 		Version:    version,
 		Flags:      buf[3],
-		PayloadLen: binary.BigEndian.Uint32(buf[4:8]),
+		PayloadLen: payloadLen,
 		MsgType:    buf[8],
 		Reserved:   buf[9],
 		ReqID:      binary.BigEndian.Uint16(buf[10:12]),
@@ -146,6 +152,7 @@ func WriteNativeHeader(hdr NativeHeader) [NativeHeaderLength]byte {
 
 // Erros comuns de protocolo
 var (
-	ErrNativeInvalidMagic   = errors.New("native protocol: magic invalido")
-	ErrNativeInvalidVersion = errors.New("native protocol: versao nao suportada")
+	ErrNativeInvalidMagic    = errors.New("native protocol: magic invalido")
+	ErrNativeInvalidVersion  = errors.New("native protocol: versao nao suportada")
+	ErrNativePayloadTooLarge = errors.New("native protocol: payload excede o limite maximo de seguranca")
 )

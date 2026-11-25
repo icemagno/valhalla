@@ -35,8 +35,8 @@ func (e *JOSEncoder) WriteStreamHeader() {
 }
 
 // WriteByte grava um byte no stream
-func (e *JOSEncoder) WriteByte(b byte) {
-	e.w.WriteByte(b)
+func (e *JOSEncoder) WriteByte(b byte) error {
+	return e.w.WriteByte(b)
 }
 
 // WriteInt16 grava um inteiro de 16 bits Big-Endian no stream

@@ -1,0 +1,258 @@
+package core
+
+import (
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
+	"sort"
+	"sync"
+
+	"github.com/icemagno/valhalla/pkg/common"
+)
+
+var (
+	ErrObjectNotFoundInMerkleTree = errors.New("hla merkle: object instance not found in state tree")
+	ErrInvalidMerkleProof         = errors.New("hla merkle: proof verification failed against root")
+)
+
+// HashPair computa o hash SHA-256 de dois nós contíguos de 32 bytes sem alocação na heap
+func HashPair(left, right [32]byte) [32]byte {
+	var buf [64]byte
+	copy(buf[:32], left[:])
+	copy(buf[32:], right[:])
+	return sha256.Sum256(buf[:])
+}
+
+// ComputeAttributeLeaf computa o hash da folha de um atributo: SHA-256(AttrHandle || Value)
+func ComputeAttributeLeaf(handle common.AttributeHandle, value []byte) [32]byte {
+	h := sha256.New()
+	var handleBuf [4]byte
+	binary.BigEndian.PutUint32(handleBuf[:], uint32(handle))
+	h.Write(handleBuf[:])
+	h.Write(value)
+	var res [32]byte
+	copy(res[:], h.Sum(nil))
+	return res
+}
+
+// ComputeObjectMerkleRoot calcula a raiz de Merkle (hash_tree_root) dos atributos de uma entidade
+func ComputeObjectMerkleRoot(attributes map[common.AttributeHandle][]byte) [32]byte {
+	if len(attributes) == 0 {
+		return [32]byte{}
+	}
+
+	// 1. Extrair e ordenar deterministicamente as chaves de atributos
+	keys := make([]int, 0, len(attributes))
+	for k := range attributes {
+		keys = append(keys, int(k))
+	}
+	sort.Ints(keys)
+
+	// 2. Computar folhas
+	leaves := make([][32]byte, len(keys))
+	for i, k := range keys {
+		h := common.AttributeHandle(k)
+		leaves[i] = ComputeAttributeLeaf(h, attributes[h])
+	}
+
+	// 3. Reduzir em árvore binária Merkle
+	return reduceMerkleTree(leaves)
+}
+
+// nextPowerOfTwo calcula a próxima potência de 2 maior ou igual a n
+func nextPowerOfTwo(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	p := 1
+	for p < n {
+		p <<= 1
+	}
+	return p
+}
+
+// reduceMerkleTree executa a redução binária de baixo para cima das folhas até a raiz
+func reduceMerkleTree(leaves [][32]byte) [32]byte {
+	n := len(leaves)
+	if n == 0 {
+		return [32]byte{}
+	}
+	if n == 1 {
+		return leaves[0]
+	}
+
+	power := nextPowerOfTwo(n)
+	tree := make([][32]byte, power)
+	copy(tree, leaves)
+
+	for size := power; size > 1; size /= 2 {
+		for i := 0; i < size/2; i++ {
+			tree[i] = HashPair(tree[2*i], tree[2*i+1])
+		}
+	}
+
+	return tree[0]
+}
+
+// FederationStateTree mantém a árvore de estado criptográfico de todas as entidades ativas da simulação
+type FederationStateTree struct {
+	mu          sync.RWMutex
+	entityRoots map[common.ObjectInstanceHandle][32]byte
+	cachedRoot  [32]byte
+	isDirty     bool
+}
+
+// NewFederationStateTree inicializa a árvore de estado de uma federação
+func NewFederationStateTree() *FederationStateTree {
+	return &FederationStateTree{
+		entityRoots: make(map[common.ObjectInstanceHandle][32]byte),
+		cachedRoot:  [32]byte{},
+		isDirty:     false,
+	}
+}
+
+// UpdateObjectState atualiza a raiz Merkle de uma entidade viva na simulação
+func (t *FederationStateTree) UpdateObjectState(handle common.ObjectInstanceHandle, root [32]byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.entityRoots[handle] = root
+	t.isDirty = true
+}
+
+// RemoveObjectState remove a entidade da árvore de estado (após exclusão)
+func (t *FederationStateTree) RemoveObjectState(handle common.ObjectInstanceHandle) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.entityRoots, handle)
+	t.isDirty = true
+}
+
+// GetGlobalRoot retorna a raiz Merkle determinística de 32 bytes do estado atual da federação
+func (t *FederationStateTree) GetGlobalRoot() [32]byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if !t.isDirty {
+		return t.cachedRoot
+	}
+
+	if len(t.entityRoots) == 0 {
+		t.cachedRoot = [32]byte{}
+		t.isDirty = false
+		return t.cachedRoot
+	}
+
+	// Ordenar entidades por handle
+	handles := make([]int, 0, len(t.entityRoots))
+	for h := range t.entityRoots {
+		handles = append(handles, int(h))
+	}
+	sort.Ints(handles)
+
+	leaves := make([][32]byte, len(handles))
+	for i, h := range handles {
+		leafHash := t.entityRoots[common.ObjectInstanceHandle(h)]
+		// Combinar handle e raiz do objeto como folha da federação
+		var handleBuf [4]byte
+		binary.BigEndian.PutUint32(handleBuf[:], uint32(h))
+		var combined [64]byte
+		copy(combined[:4], handleBuf[:])
+		copy(combined[4:36], leafHash[:])
+		leaves[i] = sha256.Sum256(combined[:])
+	}
+
+	t.cachedRoot = reduceMerkleTree(leaves)
+	t.isDirty = false
+	return t.cachedRoot
+}
+
+// MerkleProof representa o caminho de auditoria criptográfica de uma entidade
+type MerkleProof struct {
+	LeafHash   [32]byte
+	AuditPath  [][32]byte
+	LeafIndex  uint64
+	GlobalRoot [32]byte
+}
+
+// GenerateProof constrói o caminho de auditoria criptográfica de um objeto contra a raiz global
+func (t *FederationStateTree) GenerateProof(handle common.ObjectInstanceHandle) (*MerkleProof, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if _, exists := t.entityRoots[handle]; !exists {
+		return nil, ErrObjectNotFoundInMerkleTree
+	}
+
+	handles := make([]int, 0, len(t.entityRoots))
+	for h := range t.entityRoots {
+		handles = append(handles, int(h))
+	}
+	sort.Ints(handles)
+
+	leafIdx := -1
+	leaves := make([][32]byte, len(handles))
+	for i, h := range handles {
+		objH := common.ObjectInstanceHandle(h)
+		leafHash := t.entityRoots[objH]
+		var handleBuf [4]byte
+		binary.BigEndian.PutUint32(handleBuf[:], uint32(h))
+		var combined [64]byte
+		copy(combined[:4], handleBuf[:])
+		copy(combined[4:36], leafHash[:])
+		leaves[i] = sha256.Sum256(combined[:])
+		if objH == handle {
+			leafIdx = i
+		}
+	}
+
+	power := nextPowerOfTwo(len(leaves))
+	currentLevel := make([][32]byte, power)
+	copy(currentLevel, leaves)
+
+	targetIdx := leafIdx
+	auditPath := make([][32]byte, 0)
+
+	for size := power; size > 1; size /= 2 {
+		siblingIdx := targetIdx ^ 1 // índice do irmão no par (0->1, 1->0)
+		auditPath = append(auditPath, currentLevel[siblingIdx])
+
+		nextLevel := make([][32]byte, size/2)
+		for i := 0; i < size/2; i++ {
+			nextLevel[i] = HashPair(currentLevel[2*i], currentLevel[2*i+1])
+		}
+		currentLevel = nextLevel
+		targetIdx /= 2
+	}
+
+	globalRoot := currentLevel[0]
+	t.cachedRoot = globalRoot
+	t.isDirty = false
+
+	return &MerkleProof{
+		LeafHash:   leaves[leafIdx],
+		AuditPath:  auditPath,
+		LeafIndex:  uint64(leafIdx),
+		GlobalRoot: globalRoot,
+	}, nil
+}
+
+// VerifyMerkleProof valida matematicamente uma prova de Merkle contra a raiz global
+func VerifyMerkleProof(proof *MerkleProof) bool {
+	if proof == nil {
+		return false
+	}
+
+	currentHash := proof.LeafHash
+	idx := proof.LeafIndex
+
+	for _, sibling := range proof.AuditPath {
+		if idx%2 == 0 {
+			currentHash = HashPair(currentHash, sibling)
+		} else {
+			currentHash = HashPair(sibling, currentHash)
+		}
+		idx /= 2
+	}
+
+	return currentHash == proof.GlobalRoot
+}

@@ -167,6 +167,10 @@ func (s *PorticoSession) ReadPacket(reader io.Reader) (wire.Header, []byte, erro
 		if bundleLen < wire.HeaderLength {
 			return hdr, nil, fmt.Errorf("bundle menor que header de 12 bytes: %d", bundleLen)
 		}
+		const maxPorticoBundleLen = 64 * 1024 * 1024
+		if bundleLen > maxPorticoBundleLen {
+			return hdr, nil, fmt.Errorf("bundleLen excede limite maximo de seguranca: %d", bundleLen)
+		}
 
 		// 3. Ler o header de 12 bytes
 		var hdrBuf [wire.HeaderLength]byte

@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	host := flag.String("host", "192.168.1.226", "Endereco IP do executivo Portico CRTI")
+	host := flag.String("host", "127.0.0.1", "Endereco IP do executivo Portico CRTI")
 	port := flag.Int("port", 52295, "Porta TCP do executivo Portico CRTI")
 	fedName := flag.String("fed", "ExampleFederation", "Nome da federacao alvo")
 	fedType := flag.String("type", "ieee1516e", "Tipo do federado (ex: ieee1516e)")

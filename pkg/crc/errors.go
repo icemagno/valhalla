@@ -5,6 +5,7 @@ import "errors"
 var (
 	ErrFederationExecutionAlreadyExists = errors.New("hla crc: federation execution already exists")
 	ErrFederationExecutionDoesNotExist  = errors.New("hla crc: federation execution does not exist")
+	ErrFederatesCurrentlyJoined         = errors.New("hla crc: federates currently joined")
 	ErrFederateNameAlreadyInUse         = errors.New("hla crc: federate name already in use")
 	ErrFederateNotFound                 = errors.New("hla crc: federate not found in federation")
 	ErrSyncPointLabelNotUnique          = errors.New("hla crc: synchronization point label not unique")

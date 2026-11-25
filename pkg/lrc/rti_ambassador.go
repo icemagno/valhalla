@@ -552,6 +552,35 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 	return objHandle, nil
 }
 
+// DeleteObjectInstance solicita a exclusão de uma entidade da federação
+func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	delReq := common.DeleteObjectInstancePayload{
+		ObjectHandle: common.ObjectInstanceHandle(objectHandle),
+		Tag:          tag,
+	}
+	payload, err := delReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgDeleteObjectInstance, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
 // UpdateAttributeValues despacha valores de atributos atualizados para a federação
 func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes map[int32][]byte, tag []byte) error {
 	a.mu.RLock()
@@ -771,6 +800,12 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 	}
 
 	switch cb.MsgType {
+	case common.NativeMsgAnnounceSyncPoint:
+		var annPayload common.RegisterSyncPointPayload
+		if err := annPayload.UnmarshalBinary(cb.Payload); err == nil {
+			fedAmb.AnnounceSynchronizationPoint(annPayload.Label, annPayload.Tag)
+		}
+
 	case common.NativeMsgFederationSynchronized:
 		var syncPayload common.SyncPointLabelPayload
 		if err := syncPayload.UnmarshalBinary(cb.Payload); err == nil {
@@ -783,6 +818,12 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 		var discPayload common.DiscoverObjectInstancePayload
 		if err := discPayload.UnmarshalBinary(cb.Payload); err == nil {
 			fedAmb.DiscoverObjectInstance(int32(discPayload.ObjectHandle), int32(discPayload.ClassHandle), discPayload.ObjectName)
+		}
+
+	case common.NativeMsgRemoveObjectInstance:
+		var remPayload common.RemoveObjectInstancePayload
+		if err := remPayload.UnmarshalBinary(cb.Payload); err == nil {
+			fedAmb.RemoveObjectInstance(int32(remPayload.ObjectHandle), remPayload.Tag)
 		}
 
 	case common.NativeMsgReflectAttributes:
