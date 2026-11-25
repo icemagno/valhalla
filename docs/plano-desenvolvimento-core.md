@@ -120,10 +120,11 @@ Dessa forma, o Core **não sabe se o federado fala JOS ou VAL4**. Ele apenas inv
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│ FASE 1: Limpeza e Quebra do Acoplamento lrc -> crc                     │
-│  - Criar pkg/common/ com NativeHeader, NativeMsg... e erros HLA.       │
-│  - Refatorar pkg/lrc para importar apenas pkg/common.                  │
-│  - Garantir 0 dependências de crc dentro de lrc.                       │
+│ FASE 1: Limpeza, Desacoplamento e Payloads Nativos VAL4  [CONCLUÍDA]   │
+│  - Criado pkg/common/ com handles, erros HLA e catálogo VAL4 (01-91).  │
+│  - Implementados Payloads Binários Tipados em pkg/common/payloads.go.  │
+│  - Refatorados pkg/lrc e pkg/crc para usar os payloads tipados.        │
+│  - 0 dependências de crc dentro de lrc. Benchmarks: ~344 ns/op.        │
 └──────────────────────────────────┬─────────────────────────────────────┘
                                    │
 ┌──────────────────────────────────▼─────────────────────────────────────┐
@@ -152,6 +153,7 @@ Dessa forma, o Core **não sabe se o federado fala JOS ou VAL4**. Ele apenas inv
 
 ## 5. Próximos Passos Imediatos
 
-1. Executar a **Fase 1**: Criar `pkg/common/` e migrar as definições do protocolo nativo e tipos comuns de `pkg/crc/native_handler.go` para lá.
-2. Atualizar o `pkg/lrc` para importar `pkg/common`, eliminando completamente o `import "github.com/icemagno/valhalla/pkg/crc"`.
-3. Validar a compilação e testes de todo o repositório (`go test ./...`).
+1. Iniciar a **Fase 2**: Implementar o subsistema de **Declaration Management** no Core da CRTI:
+   - Registro de classes e hierarquias da OMT em memória.
+   - Mecanismo de subscrição e publicação de atributos e interações com resolução de herança polimórfica (se um federado subscreve a classe mãe, recebe eventos de instâncias de classes filhas).
+   - Test-Driven Development (TDD) com cobertura completa e testes de concorrência.

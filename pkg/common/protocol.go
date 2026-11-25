@@ -13,24 +13,61 @@ const (
 	NativeHeaderLength        = 56     // 24 bytes cabeçalho alinhado + 32 bytes Merkle Root
 )
 
-// Tipos de Mensagem do Protocolo Nativo Valhalla (HLA-4)
+// Tipos de Mensagem do Protocolo Nativo Valhalla (HLA-4 / IEEE 1516-2025)
 const (
-	NativeMsgJoin                   uint8 = 1
-	NativeMsgJoinSuccess            uint8 = 2
-	NativeMsgRegisterSyncPoint      uint8 = 3
-	NativeMsgAchieveSyncPoint       uint8 = 4
-	NativeMsgSyncPointAchieved      uint8 = 5
-	NativeMsgFederationSynchronized uint8 = 6
-	NativeMsgRegisterObject         uint8 = 7
-	NativeMsgDiscoverObject         uint8 = 8
-	NativeMsgUpdateAttributes       uint8 = 9
-	NativeMsgReflectAttributes      uint8 = 10
-	NativeMsgSendInteraction        uint8 = 11
-	NativeMsgReceiveInteraction     uint8 = 12
-	NativeMsgTimeAdvanceRequest     uint8 = 13
-	NativeMsgTimeAdvanceGrant       uint8 = 14
-	NativeMsgResign                 uint8 = 15
-	NativeMsgSuccessOK              uint8 = 16
+	// 01-19: Federation Management & Lifecycle
+	NativeMsgConnect                uint8 = 1
+	NativeMsgDisconnect             uint8 = 2
+	NativeMsgCreateFederation       uint8 = 3
+	NativeMsgDestroyFederation      uint8 = 4
+	NativeMsgJoin                   uint8 = 5
+	NativeMsgJoinSuccess            uint8 = 6
+	NativeMsgResign                 uint8 = 7
+	NativeMsgRegisterSyncPoint      uint8 = 8
+	NativeMsgAnnounceSyncPoint      uint8 = 9
+	NativeMsgAchieveSyncPoint       uint8 = 10
+	NativeMsgSyncPointAchieved      uint8 = 11
+	NativeMsgFederationSynchronized uint8 = 12
+
+	// 20-39: Declaration Management (Pub/Sub)
+	NativeMsgPublishObjectClass           uint8 = 20
+	NativeMsgUnpublishObjectClass         uint8 = 21
+	NativeMsgPublishInteractionClass      uint8 = 22
+	NativeMsgUnpublishInteractionClass    uint8 = 23
+	NativeMsgSubscribeObjectClassAttrs    uint8 = 24
+	NativeMsgUnsubscribeObjectClass       uint8 = 25
+	NativeMsgSubscribeInteractionClass    uint8 = 26
+	NativeMsgUnsubscribeInteractionClass  uint8 = 27
+
+	// 40-59: Object & Interaction Management
+	NativeMsgRegisterObject       uint8 = 40
+	NativeMsgDiscoverObject       uint8 = 41
+	NativeMsgUpdateAttributes     uint8 = 42
+	NativeMsgReflectAttributes    uint8 = 43
+	NativeMsgSendInteraction      uint8 = 44
+	NativeMsgReceiveInteraction   uint8 = 45
+	NativeMsgDeleteObjectInstance uint8 = 46
+	NativeMsgRemoveObjectInstance uint8 = 47
+
+	// 60-79: Time Management
+	NativeMsgEnableTimeRegulation    uint8 = 60
+	NativeMsgTimeRegulationEnabled   uint8 = 61
+	NativeMsgDisableTimeRegulation   uint8 = 62
+	NativeMsgEnableTimeConstrained   uint8 = 63
+	NativeMsgTimeConstrainedEnabled  uint8 = 64
+	NativeMsgDisableTimeConstrained  uint8 = 65
+	NativeMsgTimeAdvanceRequest      uint8 = 66
+	NativeMsgTimeAdvanceGrant        uint8 = 67
+	NativeMsgNextMessageRequest      uint8 = 68
+	NativeMsgFlushQueueRequest       uint8 = 69
+
+	// 80-89: Ownership Management
+	NativeMsgQueryAttributeOwnership uint8 = 80
+	NativeMsgAttributeIsOwned        uint8 = 81
+
+	// 90-99: Respostas Genéricas de Controle
+	NativeMsgSuccessOK uint8 = 90
+	NativeMsgError     uint8 = 91
 )
 
 // Flags de cabeçalho nativo

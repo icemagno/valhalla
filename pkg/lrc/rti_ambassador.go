@@ -2,7 +2,7 @@ package lrc
 
 import (
 	"encoding/binary"
-	"math"
+	"fmt"
 	"sync"
 	"time"
 
@@ -105,23 +105,36 @@ func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName
 		return 0, ErrFederateAlreadyExecutionMember
 	}
 
-	payload := []byte(federateName)
+	joinReq := common.JoinFederationPayload{
+		FederateName:   federateName,
+		FederateType:   "native-hla4",
+		FederationName: federationName,
+	}
+	payload, err := joinReq.MarshalBinary()
+	if err != nil {
+		return 0, err
+	}
+
 	resp, err := a.client.SendRequest(common.NativeMsgJoin, 0, 0, payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
 
-	if resp.Header.MsgType != common.NativeMsgJoinSuccess || len(resp.Payload) < 4 {
+	if resp.Header.MsgType != common.NativeMsgJoinSuccess {
 		return 0, ErrInvalidResponse
 	}
 
-	fedID := int32(binary.BigEndian.Uint32(resp.Payload[0:4]))
-	a.federateID = fedID
-	a.federationID = int32(resp.Header.FedID)
+	var joinResp common.JoinFederationResponsePayload
+	if err := joinResp.UnmarshalBinary(resp.Payload); err != nil {
+		return 0, fmt.Errorf("failed to decode join response: %w", err)
+	}
+
+	a.federateID = int32(joinResp.FederateHandle)
+	a.federationID = joinResp.FederationHandle
 	a.federateName = federateName
 	a.federationName = federationName
 
-	return fedID, nil
+	return a.federateID, nil
 }
 
 // ResignFederationExecution desingressa o federado da federação
@@ -136,7 +149,10 @@ func (a *RTIambassadorImpl) ResignFederationExecution() error {
 		return ErrFederateNotExecutionMember
 	}
 
-	_, err := a.client.SendRequest(common.NativeMsgResign, uint32(a.federationID), uint32(a.federateID), nil, 5*time.Second)
+	resignReq := common.ResignFederationPayload{ResignAction: 1}
+	payload, _ := resignReq.MarshalBinary()
+
+	_, err := a.client.SendRequest(common.NativeMsgResign, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -157,7 +173,16 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 		return ErrFederateNotExecutionMember
 	}
 
-	_, err := a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), []byte(label), 5*time.Second)
+	syncReq := common.RegisterSyncPointPayload{
+		Label: label,
+		Tag:   tag,
+	}
+	payload, err := syncReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	_, err = a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	return err
 }
 
@@ -173,7 +198,13 @@ func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
 		return ErrFederateNotExecutionMember
 	}
 
-	_, err := a.client.SendRequest(common.NativeMsgAchieveSyncPoint, uint32(a.federationID), uint32(a.federateID), []byte(label), 5*time.Second)
+	achieveReq := common.SyncPointLabelPayload{Label: label}
+	payload, err := achieveReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	_, err = a.client.SendRequest(common.NativeMsgAchieveSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	return err
 }
 
@@ -189,10 +220,14 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 		return 0, ErrFederateNotExecutionMember
 	}
 
-	payload := make([]byte, 6+len(objectName))
-	binary.BigEndian.PutUint32(payload[0:4], uint32(objectClass))
-	binary.BigEndian.PutUint16(payload[4:6], uint16(len(objectName)))
-	copy(payload[6:], []byte(objectName))
+	regReq := common.RegisterObjectInstancePayload{
+		ClassHandle: common.ObjectClassHandle(objectClass),
+		ObjectName:  objectName,
+	}
+	payload, err := regReq.MarshalBinary()
+	if err != nil {
+		return 0, err
+	}
 
 	resp, err := a.client.SendRequest(common.NativeMsgRegisterObject, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	if err != nil {
@@ -219,25 +254,23 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 		return ErrFederateNotExecutionMember
 	}
 
-	// Payload: objHandle (4B) + attrCount (2B) + [attrHandle (4B) + len (4B) + value]...
-	totalSize := 6
-	for _, val := range attributes {
-		totalSize += 8 + len(val)
+	attrMap := make(map[common.AttributeHandle][]byte, len(attributes))
+	for k, v := range attributes {
+		attrMap[common.AttributeHandle(k)] = v
 	}
 
-	buf := make([]byte, totalSize)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(objectHandle))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(attributes)))
-
-	offset := 6
-	for handle, val := range attributes {
-		binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(handle))
-		binary.BigEndian.PutUint32(buf[offset+4:offset+8], uint32(len(val)))
-		copy(buf[offset+8:offset+8+len(val)], val)
-		offset += 8 + len(val)
+	uavReq := common.UpdateAttributesPayload{
+		ObjectHandle: common.ObjectInstanceHandle(objectHandle),
+		Attributes:   attrMap,
+		Tag:          tag,
+		HasTime:      false,
+	}
+	payload, err := uavReq.MarshalBinary()
+	if err != nil {
+		return err
 	}
 
-	_, err := a.client.SendRequest(common.NativeMsgUpdateAttributes, uint32(a.federationID), uint32(a.federateID), buf, 5*time.Second)
+	_, err = a.client.SendRequest(common.NativeMsgUpdateAttributes, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	return err
 }
 
@@ -253,24 +286,23 @@ func (a *RTIambassadorImpl) SendInteraction(interactionClass int32, parameters m
 		return ErrFederateNotExecutionMember
 	}
 
-	totalSize := 6
-	for _, val := range parameters {
-		totalSize += 8 + len(val)
+	paramMap := make(map[common.ParameterHandle][]byte, len(parameters))
+	for k, v := range parameters {
+		paramMap[common.ParameterHandle(k)] = v
 	}
 
-	buf := make([]byte, totalSize)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(interactionClass))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(parameters)))
-
-	offset := 6
-	for handle, val := range parameters {
-		binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(handle))
-		binary.BigEndian.PutUint32(buf[offset+4:offset+8], uint32(len(val)))
-		copy(buf[offset+8:offset+8+len(val)], val)
-		offset += 8 + len(val)
+	interReq := common.SendInteractionPayload{
+		ClassHandle: common.InteractionClassHandle(interactionClass),
+		Parameters:  paramMap,
+		Tag:         tag,
+		HasTime:     false,
+	}
+	payload, err := interReq.MarshalBinary()
+	if err != nil {
+		return err
 	}
 
-	_, err := a.client.SendRequest(common.NativeMsgSendInteraction, uint32(a.federationID), uint32(a.federateID), buf, 5*time.Second)
+	_, err = a.client.SendRequest(common.NativeMsgSendInteraction, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	return err
 }
 
@@ -300,10 +332,13 @@ func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 		return ErrFederateNotExecutionMember
 	}
 
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], math.Float64bits(targetTime))
+	tarReq := common.TimeFloat64Payload{Time: targetTime}
+	payload, err := tarReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
 
-	_, err := a.client.SendRequest(common.NativeMsgTimeAdvanceRequest, uint32(a.federationID), uint32(a.federateID), buf[:], 5*time.Second)
+	_, err = a.client.SendRequest(common.NativeMsgTimeAdvanceRequest, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	return err
 }
 
@@ -356,63 +391,43 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 
 	switch cb.MsgType {
 	case common.NativeMsgFederationSynchronized:
-		fedAmb.FederationSynchronized(string(cb.Payload))
+		var syncPayload common.SyncPointLabelPayload
+		if err := syncPayload.UnmarshalBinary(cb.Payload); err == nil {
+			fedAmb.FederationSynchronized(syncPayload.Label)
+		} else {
+			fedAmb.FederationSynchronized(string(cb.Payload))
+		}
 
 	case common.NativeMsgDiscoverObject:
-		if len(cb.Payload) >= 10 {
-			objHandle := int32(binary.BigEndian.Uint32(cb.Payload[0:4]))
-			classHandle := int32(binary.BigEndian.Uint32(cb.Payload[4:8]))
-			nameLen := int(binary.BigEndian.Uint16(cb.Payload[8:10]))
-			var name string
-			if len(cb.Payload) >= 10+nameLen {
-				name = string(cb.Payload[10 : 10+nameLen])
-			}
-			fedAmb.DiscoverObjectInstance(objHandle, classHandle, name)
+		var discPayload common.DiscoverObjectInstancePayload
+		if err := discPayload.UnmarshalBinary(cb.Payload); err == nil {
+			fedAmb.DiscoverObjectInstance(int32(discPayload.ObjectHandle), int32(discPayload.ClassHandle), discPayload.ObjectName)
 		}
 
 	case common.NativeMsgReflectAttributes:
-		if len(cb.Payload) >= 6 {
-			objHandle := int32(binary.BigEndian.Uint32(cb.Payload[0:4]))
-			count := int(binary.BigEndian.Uint16(cb.Payload[4:6]))
-			attrs := make(map[int32][]byte, count)
-
-			offset := 6
-			for i := 0; i < count && offset+8 <= len(cb.Payload); i++ {
-				attrHandle := int32(binary.BigEndian.Uint32(cb.Payload[offset : offset+4]))
-				valLen := int(binary.BigEndian.Uint32(cb.Payload[offset+4 : offset+8]))
-				offset += 8
-				if offset+valLen <= len(cb.Payload) {
-					attrs[attrHandle] = append([]byte(nil), cb.Payload[offset:offset+valLen]...)
-					offset += valLen
-				}
+		var uavPayload common.UpdateAttributesPayload
+		if err := uavPayload.UnmarshalBinary(cb.Payload); err == nil {
+			attrs := make(map[int32][]byte, len(uavPayload.Attributes))
+			for k, v := range uavPayload.Attributes {
+				attrs[int32(k)] = v
 			}
-			fedAmb.ReflectAttributeValues(objHandle, attrs, nil)
+			fedAmb.ReflectAttributeValues(int32(uavPayload.ObjectHandle), attrs, uavPayload.Tag)
 		}
 
 	case common.NativeMsgReceiveInteraction:
-		if len(cb.Payload) >= 6 {
-			classHandle := int32(binary.BigEndian.Uint32(cb.Payload[0:4]))
-			count := int(binary.BigEndian.Uint16(cb.Payload[4:6]))
-			params := make(map[int32][]byte, count)
-
-			offset := 6
-			for i := 0; i < count && offset+8 <= len(cb.Payload); i++ {
-				paramHandle := int32(binary.BigEndian.Uint32(cb.Payload[offset : offset+4]))
-				valLen := int(binary.BigEndian.Uint32(cb.Payload[offset+4 : offset+8]))
-				offset += 8
-				if offset+valLen <= len(cb.Payload) {
-					params[paramHandle] = append([]byte(nil), cb.Payload[offset:offset+valLen]...)
-					offset += valLen
-				}
+		var interPayload common.SendInteractionPayload
+		if err := interPayload.UnmarshalBinary(cb.Payload); err == nil {
+			params := make(map[int32][]byte, len(interPayload.Parameters))
+			for k, v := range interPayload.Parameters {
+				params[int32(k)] = v
 			}
-			fedAmb.ReceiveInteraction(classHandle, params, nil)
+			fedAmb.ReceiveInteraction(int32(interPayload.ClassHandle), params, interPayload.Tag)
 		}
 
 	case common.NativeMsgTimeAdvanceGrant:
-		if len(cb.Payload) >= 8 {
-			bits := binary.BigEndian.Uint64(cb.Payload[0:8])
-			t := math.Float64frombits(bits)
-			fedAmb.TimeAdvanceGrant(t)
+		var timePayload common.TimeFloat64Payload
+		if err := timePayload.UnmarshalBinary(cb.Payload); err == nil {
+			fedAmb.TimeAdvanceGrant(timePayload.Time)
 		}
 	}
 }
