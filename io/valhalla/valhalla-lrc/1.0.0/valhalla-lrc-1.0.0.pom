@@ -56,7 +56,6 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
-                            <outputDirectory>${project.basedir}/../../dist/java</outputDirectory>
                             <finalName>valhalla-lrc</finalName>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <filters>
@@ -69,6 +68,26 @@
                                     </excludes>
                                 </filter>
                             </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <copy file="${project.build.directory}/valhalla-lrc.jar"
+                                      tofile="${project.basedir}/../../dist/java/valhalla-lrc.jar"
+                                      overwrite="true" />
+                            </target>
                         </configuration>
                     </execution>
                 </executions>
