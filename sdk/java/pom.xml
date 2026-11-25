@@ -12,7 +12,15 @@
     <name>Valhalla Native Java LRC SDK</name>
     <description>IEEE 1516-2025 / IEEE 1516e Java Client SDK for Valhalla RTI with embedded native C-ABI LRC</description>
 
+    <distributionManagement>
+        <repository>
+            <id>valhalla-mvn-repo</id>
+            <url>${mvn.repo.url}</url>
+        </repository>
+    </distributionManagement>
+
     <properties>
+        <mvn.repo.url>file://${project.basedir}/../../dist/mvn-repo</mvn.repo.url>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

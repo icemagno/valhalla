@@ -144,6 +144,17 @@ mvn clean package
 # Produces dist/java/valhalla-lrc.jar
 ```
 
+### 5. Publishing Java SDK to GitHub Maven Repository (`mvn-repo`)
+To release a versioned Java SDK JAR to the official GitHub repository so it can be consumed in any external `pom.xml`:
+```powershell
+# Windows (PowerShell)
+.\scripts\publish-maven.ps1 -Version 1.0.0
+
+# Linux / macOS (Bash)
+./scripts/publish-maven.sh 1.0.0
+```
+*This deploys the shaded JAR, POM, and SHA1/MD5 checksums into the `mvn-repo` branch of this repository, instantly available for Maven without authentication.*
+
 ---
 
 ## 🚀 Running & Quick Start Guide
@@ -170,6 +181,30 @@ To inspect active federations, registered objects, and message throughput in rea
 ### 3. Developing and Running a Java Federate (IEEE 1516e)
 
 The Java Client SDK (`dist/java/valhalla-lrc.jar`) is 100% self-contained. It contains the standard IEEE 1516e interfaces, shaded JNA, and embedded native libraries.
+
+#### Using as a Maven Dependency (External Projects)
+Add the Valhalla GitHub Maven repository and dependency to your project's `pom.xml` (no authentication or GitHub token needed):
+
+```xml
+<repositories>
+    <repository>
+        <id>valhalla-mvn-repo</id>
+        <url>https://raw.githubusercontent.com/icemagno/valhalla/mvn-repo/</url>
+        <snapshots>
+            <enabled>true</enabled>
+            <updatePolicy>always</updatePolicy>
+        </snapshots>
+    </repository>
+</repositories>
+
+<dependencies>
+    <dependency>
+        <groupId>io.valhalla</groupId>
+        <artifactId>valhalla-lrc</artifactId>
+        <version>1.0.0</version>
+    </dependency>
+</dependencies>
+```
 
 #### Example Java Code (`SimpleFederate.java`)
 ```java
