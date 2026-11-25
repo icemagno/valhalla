@@ -5,7 +5,8 @@
 > **Criador e Desenvolvedor Principal:** Carlos Magno Oliveira de Abreu ([@icemagno](https://github.com/icemagno) | `magno.mabreu@gmail.com`)  
 > **Licença:** Apache License, Version 2.0  
 > **Repositório:** `github.com/icemagno/valhalla`  
-> **Escopo Central:** Evolução do PorticoRTI para a especificação **IEEE 1516-2025 (HLA-4)**, incorporando **Serialização SSZ**, **Árvores de Merkle**, **Criptografia Pós-Quântica (ML-KEM/Kyber)** e **Compatibilidade Nativa de Rede (*Wire-Compatible*) com o PorticoRTI**, utilizando o **RPR-FOM v2.0** como base normativa estrita de testes.
+> **Escopo Central:** Evolução do PorticoRTI para a especificação **IEEE 1516-2025 (HLA-4)**, incorporando **Serialização SSZ**, **Árvores de Merkle**, **Criptografia Pós-Quântica (ML-KEM/Kyber)** e **Compatibilidade Nativa de Rede (*Wire-Compatible*) com o PorticoRTI**, utilizando o **RPR-FOM v2.0** como base normativa estrita de testes.  
+> **Nota de Idioma / Canonical Document:** A versão canônica oficial deste documento em inglês encontra-se disponível em [`TECHNICAL-MEMORY.md`](TECHNICAL-MEMORY.md).
 
 ---
 

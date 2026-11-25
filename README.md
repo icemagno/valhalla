@@ -68,6 +68,7 @@ Extensive comparative benchmarking against premier industry RTIs demonstrates Va
 
 ## 📚 Technical Documentation
 
+* 📜 [Technical Memory & Engineering Log](TECHNICAL-MEMORY.md): Continuous chronological engineering log, architectural decisions, empirical benchmarks, and implementation milestones (Milestones 1 to 48).
 * 🏛️ [Architectural Deliberations](docs/architectural-deliberations.md): Exhaustive analysis of official HLA standards, market landscapes (Pitch, MAK, Portico), licensing frameworks, and cryptographic design principles.
 * 🗺️ [Project Master Plan](docs/project-master-plan.md): Comprehensive 10-sprint TDD roadmap detailing tasks, test cases, and definitions of done.
 * 📐 [Core Technologies Whitepaper](docs/valhalla-core-technologies.md): Deep-dive into Euler Tour numbering, vectorized bitset matching, SSZ Merkle trees, and 3D Morton space-filling curves for DDM.
