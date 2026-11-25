@@ -7,10 +7,11 @@ var ClassDescJoinFederation = &ClassDesc{
 	SerialVersionUID: 98121116105109,
 	Flags:            SC_SERIALIZABLE,
 	Fields: []FieldDesc{
-		{Name: "federationName", Type: TypeObject, ClassName: "Ljava/lang/String;"},
 		{Name: "federateName", Type: TypeObject, ClassName: "Ljava/lang/String;"},
 		{Name: "federateType", Type: TypeObject, ClassName: "Ljava/lang/String;"},
-		{Name: "modules", Type: TypeObject, ClassName: "Ljava/util/List;"},
+		{Name: "federationName", Type: TypeObject, ClassName: "Ljava/lang/String;"},
+		{Name: "parsedJoinObjectModels", Type: TypeObject, ClassName: "Ljava/util/List;"},
+		{Name: "rawJoinObjectModels", Type: TypeObject, ClassName: "Ljava/util/List;"},
 	},
 	Super: ClassDescPorticoMessage,
 }
@@ -19,16 +20,19 @@ func init() {
 	RegisterClassDesc(ClassDescJoinFederation)
 }
 
-// NewJoinFederation constrói uma instância de JoinFederation
+// NewJoinFederation constrói uma instância canônica de JoinFederation
 func NewJoinFederation(federationName, federateName, federateType string) *JavaObject {
 	obj := NewJavaObject(ClassDescJoinFederation)
+	obj.Set("immediate", true)
 	obj.Set("isFromRti", false)
 	obj.Set("sourceFederate", int32(-1))
-	obj.Set("targetFederate", int32(-1))
+	obj.Set("targetFederate", int32(0))
 	obj.Set("targetFederation", int32(-1))
-	obj.Set("federationName", federationName)
+	obj.Set("timestamp", float64(-1.0))
 	obj.Set("federateName", federateName)
 	obj.Set("federateType", federateType)
-	obj.Set("modules", NewJavaArrayList(nil))
+	obj.Set("federationName", federationName)
+	obj.Set("parsedJoinObjectModels", NewArrayList())
+	obj.Set("rawJoinObjectModels", NewArrayList())
 	return obj
 }

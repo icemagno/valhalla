@@ -46,7 +46,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 		switch hdr.MessageType {
 		case wire.MsgCreateFederation:
 			fedName := "ExampleFederation"
-			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil {
+			if obj, err := wire.DeserializePorticoControlMessage(payload); err != nil {
+				log.Printf("[CRC-Portico] Warning deserializing CreateFederation: %v", err)
+			} else {
 				if n, ok := obj.Get("federationName").(string); ok && n != "" {
 					fedName = n
 				}
@@ -61,7 +63,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			nodeName := fmt.Sprintf("PorticoNode_%d", time.Now().UnixNano()%100000)
 			nodeType := "ieee1516e"
 
-			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil {
+			if obj, err := wire.DeserializePorticoControlMessage(payload); err != nil {
+				log.Printf("[CRC-Portico] Warning deserializing JoinFederation payload (%d bytes): %v", len(payload), err)
+			} else {
 				if n, ok := obj.Get("federationName").(string); ok && n != "" {
 					fedName = n
 				}
@@ -86,7 +90,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			session.SetFederateID(federateID)
 			session.SetFederationHandle(currentFed.Handle)
 
-			wpPayload, err := wire.BuildWelcomePackPayload(currentFed.Handle, federateID)
+			wpPayload, err := wire.BuildWelcomePackPayload(currentFed.Handle, federateID, fedName, nodeName, nodeType)
 			if err != nil {
 				log.Printf("[CRC-Portico] Error generating WelcomePack: %v", err)
 				wpPayload = wire.BuildSuccessResponsePayload()

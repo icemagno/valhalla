@@ -272,6 +272,7 @@ func (d *JOSDecoder) readClassDesc() (*ClassDesc, error) {
 		if known, ok := LookupKnownClassDesc(name); ok {
 			cls.CustomReader = known.CustomReader
 			cls.CustomWriter = known.CustomWriter
+			cls.CustomOnly = known.CustomOnly
 		}
 
 		// Registrar o ClassDesc na tabela de handles imediatamente antes de ler os tipos dos campos
