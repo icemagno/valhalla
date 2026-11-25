@@ -93,6 +93,7 @@ hla-rti/
 │   └── vector/                         # 64-bit vectorized bitset operations
 ├── sdk/                                # Language-specific client SDKs
 │   └── java/                           # Native Java Client SDK (IEEE 1516e interfaces + embedded JNA)
+├── scripts/                            # Build automation and release scripts (build-sdk, publish-maven)
 ├── test/                               # Verification suites & test federates
 │   ├── c_test/                         # Native C verification federate
 │   ├── integration/                    # Cross-dialect integration test scenarios
@@ -137,18 +138,21 @@ go build -buildmode=c-shared -o dist/c/lib/libvalhalla_lrc.so ./pkg/cabi
 cp dist/c/lib/valhalla_lrc.h dist/c/include/valhalla_lrc.h
 ```
 
-### 4. Compiling Java Client SDK (Standalone Fat JAR)
-```powershell
-cd sdk/java
-mvn clean package
-# Produces dist/java/valhalla-lrc.jar
+### 4. Compiling and Packaging the Java SDK (Automated Scripts)
+To compile the C-ABI shared library, distribute it to `dist/bin/`, copy it to Java resources, and package `valhalla-lrc.jar` in a single command (without publishing to GitHub):
+```cmd
+# Windows (CMD / Batch)
+scripts\build-sdk.bat
+
+# Linux (Bash)
+./scripts/build-sdk.sh
 ```
 
 ### 5. Publishing Java SDK to GitHub Maven Repository (`mvn-repo`)
-To release a versioned Java SDK JAR to the official GitHub repository so it can be consumed in any external `pom.xml`:
-```powershell
-# Windows (PowerShell)
-.\scripts\publish-maven.ps1 -Version 1.0.0
+When you are ready to publish a new version of the Java SDK to the official GitHub Maven repository (`mvn-repo` branch) for external `pom.xml` consumption:
+```cmd
+# Windows (CMD / Batch)
+scripts\publish-maven.bat 1.0.0
 
 # Linux / macOS (Bash)
 ./scripts/publish-maven.sh 1.0.0
