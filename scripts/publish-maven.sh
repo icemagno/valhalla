@@ -26,13 +26,14 @@ echo "[2/4] Setting up staging repository in $TEMP_REPO..."
 
 if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
     echo " -> Cloning existing $BRANCH branch..."
-    git clone --branch "$BRANCH" --single-branch "$REMOTE_URL" "$TEMP_REPO"
+    git clone -c core.autocrlf=false --branch "$BRANCH" --single-branch "$REMOTE_URL" "$TEMP_REPO"
 else
     echo " -> Initializing new orphan $BRANCH branch..."
-    git -C "$TEMP_REPO" init
+    git -C "$TEMP_REPO" -c core.autocrlf=false init
     git -C "$TEMP_REPO" checkout -b "$BRANCH"
     git -C "$TEMP_REPO" remote add origin "$REMOTE_URL"
 fi
+cp -f "$PROJECT_ROOT/.gitattributes" "$TEMP_REPO/.gitattributes" 2>/dev/null || true
 
 echo "[3/4] Deploying Maven artifacts..."
 DEPLOY_URL="file://$TEMP_REPO"

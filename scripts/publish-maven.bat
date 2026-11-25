@@ -26,17 +26,20 @@ echo [1/3] Setting up staging repository in %TEMP_DIR%...
 
 git ls-remote --heads origin %BRANCH% | findstr /i "%BRANCH%" >nul
 if %ERRORLEVEL% equ 0 (
-    echo  -^> Cloning existing %BRANCH% branch...
-    git clone --branch %BRANCH% --single-branch "%REMOTE_URL%" "%TEMP_DIR%"
+    echo  -^> Cloning existing %BRANCH% branch with autocrlf=false...
+    git clone -c core.autocrlf=false --branch %BRANCH% --single-branch "%REMOTE_URL%" "%TEMP_DIR%"
 ) else (
     echo  -^> Initializing new orphan %BRANCH% branch...
     mkdir "%TEMP_DIR%"
     cd /d "%TEMP_DIR%"
-    git init
+    git -c core.autocrlf=false init
+    git config core.autocrlf false
     git checkout -b %BRANCH%
     git remote add origin "%REMOTE_URL%"
     cd /d "%PROJECT_ROOT%"
 )
+
+copy /Y "%PROJECT_ROOT%\.gitattributes" "%TEMP_DIR%\.gitattributes" >nul
 
 echo.
 echo [2/3] Deploying Maven artifacts...
