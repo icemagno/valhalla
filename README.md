@@ -73,11 +73,11 @@ Project Valhalla separates source packages, language SDKs, test suites, and dist
 ```
 hla-rti/
 ├── dist/                               # Ready-to-go compiled binaries
-│   ├── bin/                            # Native binaries (valhalla-crc, valhalla-observer, valhalla_lrc.dll, libvalhalla_lrc.so)
+│   ├── bin/                            # Native binaries (valhalla-crc, valhalla_lrc.dll, libvalhalla_lrc.so)
 │   └── java/                           # Java Client SDK distribution (valhalla-lrc.jar fat JAR with embedded DLL + SO)
 ├── cmd/                                # Application entry points
 │   ├── valhalla-crc/                   # Central RTI Component (CRC server)
-│   └── valhalla-observer/              # Real-time Web/CLI inspection tool
+│   └── valhalla-federate/              # Native Go HLA-4 test federate (LRC)
 ├── pkg/                                # Core Go implementation packages
 │   ├── cabi/                           # C-ABI / CGo export layer for native LRC dynamic library
 │   ├── common/                         # SSZ encoding, protocol messages, Merkle trees, PQC
@@ -86,7 +86,6 @@ hla-rti/
 │   ├── fom/                            # RPR-FOM XML parser and schema definitions
 │   ├── lrc/                            # Native Go Local RTI Component (LRC client)
 │   ├── morton/                         # 3D Morton space-filling curves for DDM
-│   ├── observer/                       # WebSockets and terminal telemetry observer
 │   └── vector/                         # 64-bit vectorized bitset operations
 ├── sdk/                                # Language-specific client SDKs
 │   ├── c/                              # Native C/C++ Client SDK (headers, wrapper, CMake integration)
@@ -120,20 +119,18 @@ When you compile the Local RTI Component (LRC), the build produces:
 go build -o dist/bin/valhalla-crc.exe ./cmd/valhalla-crc
 ```
 
-### 2. Compiling Observer Visualizer
+### 2. Compiling Native Go HLA-4 Federate
 ```powershell
-go build -o dist/bin/valhalla-observer.exe ./cmd/valhalla-observer
+go build -o dist/bin/valhalla-federate.exe ./cmd/valhalla-federate
 ```
 
 ### 3. Compiling Native C-ABI LRC Shared Library
 ```powershell
 # Windows (DLL)
-go build -buildmode=c-shared -o dist/c/lib/valhalla_lrc.dll ./pkg/cabi
-Copy-Item dist/c/lib/valhalla_lrc.h dist/c/include/valhalla_lrc.h
+go build -buildmode=c-shared -o dist/bin/valhalla_lrc.dll ./pkg/cabi
 
 # Linux (SO)
-go build -buildmode=c-shared -o dist/c/lib/libvalhalla_lrc.so ./pkg/cabi
-cp dist/c/lib/valhalla_lrc.h dist/c/include/valhalla_lrc.h
+go build -buildmode=c-shared -o dist/bin/libvalhalla_lrc.so ./pkg/cabi
 ```
 
 ### 4. Compiling and Packaging the Java SDK (Automated Scripts)
@@ -155,7 +152,6 @@ scripts\publish-maven.bat 1.0.0
 # Linux / macOS (Bash)
 ./scripts/publish-maven.sh 1.0.0
 ```
-*This deploys the shaded JAR, POM, and SHA1/MD5 checksums into the `mvn-repo` branch of this repository, instantly available for Maven without authentication.*
 
 ---
 
@@ -172,10 +168,14 @@ Launch the sovereign CRC execution server:
 ```
 *The CRC starts listening for dual-dialect multiplexed connections (native VAL4 and legacy Portico JOS) on a unified TCP port.*
 
-### 2. Launching the Real-Time Telemetry Observer
-To inspect active federations, registered objects, and message throughput in real time:
+### 2. Running the Native Go HLA-4 Federate
+Launch the native Go simulation federate:
 ```powershell
-.\dist\bin\valhalla-observer.exe
+# Windows
+.\dist\bin\valhalla-federate.exe -address 127.0.0.1:52295 -federation DefenseSimulation -name Radar1
+
+# Linux
+./dist/bin/valhalla-federate -address 127.0.0.1:52295 -federation DefenseSimulation -name Radar1
 ```
 
 ---
