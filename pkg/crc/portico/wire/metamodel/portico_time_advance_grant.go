@@ -12,8 +12,21 @@ var ClassDescTimeAdvanceGrant = &ClassDesc{
 	Super: ClassDescPorticoMessage,
 }
 
+// ClassDescTimeAdvanceRequest representa a requisição TimeAdvanceRequest do Portico
+var ClassDescTimeAdvanceRequest = &ClassDesc{
+	Name:             "org.portico2.common.services.time.msg.TimeAdvanceRequest",
+	SerialVersionUID: 98121116105109,
+	Flags:            SC_SERIALIZABLE,
+	Fields: []FieldDesc{
+		{Name: "time", Type: TypeDouble},
+		{Name: "tara", Type: TypeBoolean},
+	},
+	Super: ClassDescPorticoMessage,
+}
+
 func init() {
 	RegisterClassDesc(ClassDescTimeAdvanceGrant)
+	RegisterClassDesc(ClassDescTimeAdvanceRequest)
 }
 
 // NewTimeAdvanceGrant constrói uma instância de TimeAdvanceGrant para o federado alvo

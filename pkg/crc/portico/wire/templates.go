@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
 
@@ -42,6 +43,11 @@ func BuildCreateFederationResponsePayload(fedHandle int32, optFedName ...string)
 
 // BuildWelcomePackPayload constrói dinamicamente em Go o WelcomePack oficial com handles atribuídos
 func BuildWelcomePackPayload(fedHandle, federateHandle int32, optNames ...string) ([]byte, error) {
+	return BuildWelcomePackPayloadWithFOM(fedHandle, federateHandle, nil, optNames...)
+}
+
+// BuildWelcomePackPayloadWithFOM constrói dinamicamente em Go o WelcomePack oficial com handles atribuídos e ObjectModel sintetizado
+func BuildWelcomePackPayloadWithFOM(fedHandle, federateHandle int32, omt *core.OMTRegistry, optNames ...string) ([]byte, error) {
 	fedName := "ExampleFederation"
 	federateName := "Thor"
 	federateType := "ieee1516e"
@@ -56,6 +62,10 @@ func BuildWelcomePackPayload(fedHandle, federateHandle int32, optNames ...string
 	}
 
 	wp := metamodel.NewWelcomePack(fedHandle, federateHandle, fedName, federateName, federateType)
+	if omt != nil {
+		fomObj := SynthesizePorticoObjectModel(omt)
+		wp.Set("fom", fomObj)
+	}
 	resp := metamodel.NewExtendedSuccessResponse(wp)
 	return SerializePorticoControlMessage(resp)
 }
@@ -94,10 +104,76 @@ func BuildDoubleResponsePayload(val float64) []byte {
 	return data
 }
 
+// BuildIntegerResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
+// empacotando um java.lang.Integer como resultado (ex: RegisterObjectInstance retornando o ObjectHandle)
+func BuildIntegerResponsePayload(val int32) []byte {
+	intObj := metamodel.NewJavaInteger(val)
+	resp := metamodel.NewExtendedSuccessResponse(intObj)
+	data, err := SerializePorticoControlMessage(resp)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// BuildRegisterObjectResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
+// com as chaves exigidas pelo RegisterObjectHandler do Portico ("object-handle", "object-name", "object-class", "result")
+func BuildRegisterObjectResponsePayload(objHandle, classHandle int32, objName string) []byte {
+	intObj := metamodel.NewJavaInteger(objHandle)
+	resp := metamodel.NewExtendedSuccessResponse(intObj)
+
+	if hm, ok := resp.Get("results").(*metamodel.JavaObject); ok {
+		if entries, ok := hm.Get("entries").(map[string]any); ok {
+			entries["object-handle"] = intObj
+			entries["object-name"] = objName
+			entries["object-class"] = metamodel.NewJavaInteger(classHandle)
+			entries["result"] = intObj
+		}
+	}
+
+	data, err := SerializePorticoControlMessage(resp)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
 // BuildTimeAdvanceGrantPayload constrói o payload de notificação TimeAdvanceGrant
 func BuildTimeAdvanceGrantPayload(targetFederate int32, time float64) ([]byte, error) {
 	tag := metamodel.NewTimeAdvanceGrant(targetFederate, time)
 	return SerializePorticoControlMessage(tag)
+}
+
+// BuildDiscoverObjectPayload constrói o payload de notificação DiscoverObject para federados Portico
+func BuildDiscoverObjectPayload(objectHandle, classHandle int32, objectName string) ([]byte, error) {
+	obj := metamodel.NewDiscoverObject(objectHandle, classHandle, objectName)
+	return SerializePorticoControlMessage(obj)
+}
+
+// BuildReflectAttributesPayload constrói o payload de notificação ReflectAttributes para federados Portico
+func BuildReflectAttributesPayload(objectId int32, attrs map[int32][]byte, tag []byte) ([]byte, error) {
+	entries := make(map[any]any, len(attrs))
+	for k, v := range attrs {
+		entries[metamodel.NewJavaInteger(k)] = v
+	}
+	obj := metamodel.NewReflectAttributes(objectId, entries, tag)
+	return SerializePorticoControlMessage(obj)
+}
+
+// NewRegisterObjectMsg constrói o payload de requisição RegisterObject do Portico
+func NewRegisterObjectMsg(classHandle int32, objectName string) ([]byte, error) {
+	obj := metamodel.NewRegisterObject(classHandle, objectName)
+	return SerializePorticoControlMessage(obj)
+}
+
+// NewUpdateAttributesMsg constrói o payload de requisição UpdateAttributes do Portico
+func NewUpdateAttributesMsg(objectId int32, attrs map[int32][]byte, tag []byte) ([]byte, error) {
+	entries := make(map[any]any, len(attrs))
+	for k, v := range attrs {
+		entries[metamodel.NewJavaInteger(k)] = v
+	}
+	obj := metamodel.NewUpdateAttributes(objectId, entries, tag)
+	return SerializePorticoControlMessage(obj)
 }
 
 // ExtractFederateNameFromJoinPayload extrai o federateName do payload cru de JoinFederation

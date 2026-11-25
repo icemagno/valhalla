@@ -113,10 +113,10 @@ func NewOMTRegistry() *OMTRegistry {
 		objectNameToClass:          make(map[string]common.ObjectClassHandle),
 		interactionClasses:         make(map[common.InteractionClassHandle]*InteractionClass),
 		interactionNameToClass:     make(map[string]common.InteractionClassHandle),
-		nextObjectClassHandle:      2,
-		nextAttributeHandle:        2,
-		nextInteractionClassHandle: 2,
-		nextParameterHandle:        1,
+		nextObjectClassHandle:      1001,
+		nextAttributeHandle:        1001,
+		nextInteractionClassHandle: 1001,
+		nextParameterHandle:        1001,
 	}
 
 	// 1. Install HLAobjectRoot with HLAprivilegeToDeleteObject
@@ -457,6 +457,24 @@ func (r *OMTRegistry) GetClassAncestors(classHandle common.ObjectClassHandle) []
 	res := make([]common.ObjectClassHandle, len(class.Ancestors))
 	copy(res, class.Ancestors)
 	return res
+}
+
+// ForEachObjectClass iterates over all registered object classes under read lock
+func (r *OMTRegistry) ForEachObjectClass(fn func(cls *ObjectClass)) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, cls := range r.objectClasses {
+		fn(cls)
+	}
+}
+
+// ForEachInteractionClass iterates over all registered interaction classes under read lock
+func (r *OMTRegistry) ForEachInteractionClass(fn func(inter *InteractionClass)) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, inter := range r.interactionClasses {
+		fn(inter)
+	}
 }
 
 // GetInteractionAncestors returns the ordered list of interaction ancestors up to HLAinteractionRoot

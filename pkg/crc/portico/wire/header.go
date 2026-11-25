@@ -67,20 +67,31 @@ const (
 	MsgFederationSynchronized  MessageType = 44
 	MsgSyncPointFederation     MessageType = 44
 
-	// Gerenciamento de Objetos (050-079)
-	MsgPublishObjectClass   MessageType = 50
-	MsgSubscribeObjectClass MessageType = 51
-	MsgRegisterObject       MessageType = 52
-	MsgDiscoverObject       MessageType = 53
-	MsgUpdateAttributes     MessageType = 54
-	MsgReflectAttributes    MessageType = 55
-	MsgDeleteObject         MessageType = 56
+	// Publicacao e Subscricao (050-059)
+	MsgPublishObjectClass          MessageType = 50
+	MsgPublishInteractionClass     MessageType = 51
+	MsgUnpublishObjectClass        MessageType = 52
+	MsgUnpublishInteractionClass   MessageType = 53
+	MsgSubscribeObjectClass        MessageType = 54
+	MsgSubscribeInteractionClass   MessageType = 55
+	MsgUnsubscribeObjectClass      MessageType = 56
+	MsgUnsubscribeInteractionClass MessageType = 57
 
-	// Interacoes (080-099)
-	MsgPublishInteractionClass   MessageType = 80
-	MsgSubscribeInteractionClass MessageType = 81
-	MsgSendInteraction           MessageType = 82
-	MsgReceiveInteraction        MessageType = 83
+	// Gerenciamento de Objetos (060-079)
+	MsgRegisterObject          MessageType = 60
+	MsgDiscoverObject          MessageType = 61
+	MsgDeleteObject            MessageType = 64
+	MsgLocalDeleteObject       MessageType = 65
+	MsgReserveObjectName       MessageType = 66
+	MsgReserveObjectNameResult MessageType = 67
+	MsgRequestObjectUpdate     MessageType = 68
+	MsgRequestClassUpdate      MessageType = 69
+
+	// Prioritárias / Simulação em tempo real (254, 255)
+	MsgUpdateAttributes  MessageType = 254
+	MsgReflectAttributes MessageType = 254
+	MsgSendInteraction   MessageType = 255
+	MsgReceiveInteraction MessageType = 255
 
 	// Time Management (120-139)
 	MsgEnableTimeConstrained  MessageType = 120
@@ -118,14 +129,16 @@ func (m MessageType) String() string {
 		return "SuccessResponse(14)"
 	case MsgErrorResponse:
 		return "ErrorResponse(15)"
+	case MsgRegisterObject:
+		return "RegisterObject(60)"
+	case MsgDiscoverObject:
+		return "DiscoverObject(61)"
+	case MsgDeleteObject:
+		return "DeleteObject(64)"
 	case MsgUpdateAttributes:
-		return "UpdateAttributes(54)"
-	case MsgReflectAttributes:
-		return "ReflectAttributes(55)"
+		return "UpdateAttributes(254)"
 	case MsgSendInteraction:
-		return "SendInteraction(82)"
-	case MsgReceiveInteraction:
-		return "ReceiveInteraction(83)"
+		return "SendInteraction(255)"
 	default:
 		return fmt.Sprintf("MessageType(%d)", m)
 	}

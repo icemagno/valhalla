@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
 
 // JOSDecoder é o motor genérico agnóstico de deserialização Java em Go (equivalente ao ObjectInputStream)
@@ -185,6 +187,9 @@ func (d *JOSDecoder) ReadObject() (any, error) {
 
 	case TC_ENUM:
 		return d.readEnum()
+
+	case TC_ARRAY:
+		return d.readArray()
 
 	case TC_OBJECT:
 		return d.readObjectInstance()
@@ -365,6 +370,40 @@ func (d *JOSDecoder) readEnum() (*JavaEnum, error) {
 	return en, nil
 }
 
+// readArray lê um array de primitivos ou objetos Java (TC_ARRAY)
+func (d *JOSDecoder) readArray() (any, error) {
+	cls, err := d.readClassDesc()
+	if err != nil {
+		return nil, fmt.Errorf("jos decoder: falha ao ler descritor de classe do array: %w", err)
+	}
+
+	var size int32
+	if err := binary.Read(d.r, binary.BigEndian, &size); err != nil {
+		return nil, fmt.Errorf("jos decoder: falha ao ler tamanho do array: %w", err)
+	}
+
+	if cls != nil && cls.Name == "[B" {
+		buf := make([]byte, size)
+		if _, err := io.ReadFull(d.r, buf); err != nil {
+			return nil, fmt.Errorf("jos decoder: falha ao ler bytes do byte array: %w", err)
+		}
+		d.assignHandle(buf)
+		return buf, nil
+	}
+
+	// Array genérico de objetos
+	arr := make([]any, size)
+	d.assignHandle(arr)
+	for i := int32(0); i < size; i++ {
+		el, err := d.ReadObject()
+		if err != nil {
+			return nil, fmt.Errorf("jos decoder: falha ao ler elemento %d do array: %w", i, err)
+		}
+		arr[i] = el
+	}
+	return arr, nil
+}
+
 // readObjectInstance lê uma instância de objeto Java (TC_OBJECT)
 func (d *JOSDecoder) readObjectInstance() (*JavaObject, error) {
 	cls, err := d.readClassDesc()
@@ -537,14 +576,15 @@ func ExtractErrorMessage(payload []byte) string {
 }
 
 // DeserializePorticoControlMessage deserializa um payload de controle do Portico
-// descartando o byte de bloco do cabeçalho manualMarshal = false se presente
+// tratando tanto mensagens padrão Java Serialization (com manualMarshal = false)
+// quanto mensagens manuais rápidas do Portico (manualMarshal = true, ex: UpdateAttributes e SendInteraction)
 func DeserializePorticoControlMessage(data []byte) (*JavaObject, error) {
 	dec := NewJOSDecoder(data)
 	if err := dec.ReadStreamHeader(); err != nil {
 		return nil, err
 	}
 
-	// Verificar se inicia com TC_BLOCKDATA (0x77 0x01 0x00 para manualMarshal=false)
+	// Verificar se inicia com TC_BLOCKDATA
 	peek, err := dec.ReadByte()
 	if err != nil {
 		return nil, err
@@ -555,10 +595,94 @@ func DeserializePorticoControlMessage(data []byte) (*JavaObject, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Descartar bytes do bloco
 		buf := make([]byte, bLen)
 		if _, err := io.ReadFull(dec.r, buf); err != nil {
 			return nil, err
+		}
+
+		// Se manualMarshal == true (buf[0] == 1), decodificar mensagem manual do Portico
+		if len(buf) >= 3 && buf[0] == 1 {
+			msgType := binary.BigEndian.Uint16(buf[1:3])
+			switch msgType {
+			case 254: // UpdateAttributes
+				if len(buf) >= 25 {
+					obj := metamodel.NewJavaObject(metamodel.ClassDescUpdateAttributes)
+					objectId := int32(binary.BigEndian.Uint32(buf[3:7]))
+					obj.Set("objectId", objectId)
+					obj.Set("sourceFederate", int32(binary.BigEndian.Uint32(buf[7:11])))
+					obj.Set("targetFederation", int32(binary.BigEndian.Uint32(buf[11:15])))
+					obj.Set("timestamp", math.Float64frombits(binary.BigEndian.Uint64(buf[15:23])))
+					tagLen := int(binary.BigEndian.Uint16(buf[23:25]))
+					idx := 25
+					if idx+tagLen <= len(buf) {
+						obj.Set("tag", buf[idx:idx+tagLen])
+						idx += tagLen
+					}
+					if idx+4 <= len(buf) {
+						attrCount := int(binary.BigEndian.Uint32(buf[idx : idx+4]))
+						idx += 4
+						attrs := make(map[any]any, attrCount)
+						for i := 0; i < attrCount; i++ {
+							if idx+8 > len(buf) {
+								break
+							}
+							handle := int32(binary.BigEndian.Uint32(buf[idx : idx+4]))
+							vLen := int(binary.BigEndian.Uint32(buf[idx+4 : idx+8]))
+							idx += 8
+							if idx+vLen > len(buf) {
+								break
+							}
+							val := make([]byte, vLen)
+							copy(val, buf[idx:idx+vLen])
+							attrs[metamodel.NewJavaInteger(handle)] = val
+							idx += vLen
+						}
+						obj.Set("attributes", metamodel.NewJavaHashMap(attrs))
+					}
+					return obj, nil
+				}
+			case 255: // SendInteraction
+				if len(buf) >= 29 {
+					obj := metamodel.NewJavaObject(metamodel.ClassDescObject)
+					interactionId := int32(binary.BigEndian.Uint32(buf[3:7]))
+					obj.Set("interactionId", interactionId)
+					obj.Set("sourceFederate", int32(binary.BigEndian.Uint32(buf[7:11])))
+					obj.Set("targetFederation", int32(binary.BigEndian.Uint32(buf[11:15])))
+					obj.Set("timestamp", math.Float64frombits(binary.BigEndian.Uint64(buf[15:23])))
+					tagLen := int(binary.BigEndian.Uint16(buf[23:25]))
+					idx := 25
+					if idx+tagLen <= len(buf) {
+						obj.Set("tag", buf[idx:idx+tagLen])
+						idx += tagLen
+					}
+					if idx+4 <= len(buf) {
+						obj.Set("regionToken", int32(binary.BigEndian.Uint32(buf[idx:idx+4])))
+						idx += 4
+					}
+					if idx+4 <= len(buf) {
+						paramCount := int(binary.BigEndian.Uint32(buf[idx : idx+4]))
+						idx += 4
+						params := make(map[any]any, paramCount)
+						for i := 0; i < paramCount; i++ {
+							if idx+8 > len(buf) {
+								break
+							}
+							handle := int32(binary.BigEndian.Uint32(buf[idx : idx+4]))
+							vLen := int(binary.BigEndian.Uint32(buf[idx+4 : idx+8]))
+							idx += 8
+							if idx+vLen > len(buf) {
+								break
+							}
+							val := make([]byte, vLen)
+							copy(val, buf[idx:idx+vLen])
+							params[metamodel.NewJavaInteger(handle)] = val
+							idx += vLen
+						}
+						obj.Set("parameters", metamodel.NewJavaHashMap(params))
+					}
+					return obj, nil
+				}
+			}
 		}
 	} else {
 		// Reposicionar 1 byte se não era TC_BLOCKDATA

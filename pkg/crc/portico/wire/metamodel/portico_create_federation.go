@@ -13,8 +13,21 @@ var ClassDescCreateFederation = &ClassDesc{
 	Super: ClassDescPorticoMessage,
 }
 
+// ClassDescDestroyFederation representa a requisição oficial de destruição de federação
+// SUID oficial: 98121116105109L
+var ClassDescDestroyFederation = &ClassDesc{
+	Name:             "org.portico2.common.services.federation.msg.DestroyFederation",
+	SerialVersionUID: 98121116105109,
+	Flags:            SC_SERIALIZABLE,
+	Fields: []FieldDesc{
+		{Name: "federationName", Type: TypeObject, ClassName: "Ljava/lang/String;"},
+	},
+	Super: ClassDescPorticoMessage,
+}
+
 func init() {
 	RegisterClassDesc(ClassDescCreateFederation)
+	RegisterClassDesc(ClassDescDestroyFederation)
 }
 
 // NewCreateFederation constrói uma instância de CreateFederation

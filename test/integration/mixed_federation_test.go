@@ -10,6 +10,7 @@ import (
 	"github.com/icemagno/valhalla/pkg/lrc"
 	"github.com/icemagno/valhalla/pkg/crc/portico/transport"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
 
 func TestMixedFederation_ThorAndValhalla(t *testing.T) {
@@ -75,6 +76,21 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 		t.Errorf("esperava que Thor tivesse handle 1, obteve %d", wpInfo.FederateHandle)
 	}
 
+	// Verificar se o WelcomePack entregou o ObjectModel sintetizado do OMT
+	wpObj, err := wire.DeserializePorticoControlMessage(welcomePayload)
+	if err != nil {
+		t.Fatalf("falha ao deserializar WelcomePack do Thor: %v", err)
+	}
+	results := wpObj.Get("results").(*metamodel.JavaObject)
+	entries := results.Get("entries").(map[any]any)
+	wpObjActual := entries["result"].(*metamodel.JavaObject)
+	fomObj, ok := wpObjActual.Get("fom").(*metamodel.JavaObject)
+	if !ok || fomObj == nil {
+		t.Fatal("esperava que o WelcomePack entregue pelo Valhalla contivesse o ObjectModel sintetizado do OMT")
+	}
+	t.Logf("WelcomePack do Thor contem ObjectModel sintetizado com sucesso: version=%v, oclasses=%v",
+		fomObj.Get("version"), fomObj.Get("oclasses"))
+
 	// 3. Conectar Federado Nativo Valhalla (usando pkg/lrc sobre VAL4)
 	ambValhalla := lrc.NewRTIambassador()
 	fedAmb := &lrc.NullFederateAmbassador{}
@@ -129,6 +145,43 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Valhalla UpdateAttributeValues falhou: %v", err)
 	}
+
+	// 5.1. Thor registra um objeto através do protocolo binário JOS Portico
+	regPayload, err := wire.NewRegisterObjectMsg(int32(common.HLAobjectRootHandle), "ThorShip_01")
+	if err != nil {
+		t.Fatalf("falha ao serializar RegisterObject do Thor: %v", err)
+	}
+	regHdr := wire.NewControlRequest(wire.MsgRegisterObject, 3, uint16(wpInfo.FederateHandle), 0, uint32(len(regPayload)))
+	if err := clientThor.SendPacket(regHdr, regPayload); err != nil {
+		t.Fatalf("falha ao enviar RegisterObject do Thor: %v", err)
+	}
+
+	_, regRespPayload, err := clientThor.ReadPacketTimeout(2 * time.Second)
+	if err != nil {
+		t.Fatalf("falha ao receber resposta de RegisterObject do Thor: %v", err)
+	}
+
+	// Verificar se a resposta indica sucesso (isError == false)
+	regObj, err := wire.DeserializePorticoControlMessage(regRespPayload)
+	if err != nil {
+		t.Fatalf("falha ao deserializar resposta do RegisterObject: %v", err)
+	}
+	if isErr, ok := regObj.Get("isError").(bool); ok && isErr {
+		t.Fatalf("esperava sucesso no RegisterObject do Thor, obteve: %+v", regObj)
+	}
+
+	// 5.2. Thor atualiza atributos do objeto
+	uavPayload, err := wire.NewUpdateAttributesMsg(2, map[int32][]byte{
+		562: []byte("ThorShipCoords:Lat-12.0_Long-38.5"),
+	}, nil)
+	if err != nil {
+		t.Fatalf("falha ao serializar UpdateAttributes do Thor: %v", err)
+	}
+	uavHdr := wire.NewControlRequest(wire.MsgUpdateAttributes, 4, uint16(wpInfo.FederateHandle), 0, uint32(len(uavPayload)))
+	if err := clientThor.SendPacket(uavHdr, uavPayload); err != nil {
+		t.Fatalf("falha ao enviar UpdateAttributes do Thor: %v", err)
+	}
+	_, _, _ = clientThor.ReadPacketTimeout(1 * time.Second)
 
 	// 6. Desingresso limpo
 	_ = ambValhalla.ResignFederationExecution()

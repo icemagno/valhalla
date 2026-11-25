@@ -98,7 +98,7 @@ func init() {
 }
 
 // NewJavaHashMap cria uma nova instância de java.util.HashMap inicializada
-func NewJavaHashMap(entries map[string]any) *JavaObject {
+func NewJavaHashMap(entries any) *JavaObject {
 	if entries == nil {
 		entries = make(map[string]any)
 	}

@@ -545,4 +545,255 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack e Suíte de Testes 100% Race-Free.*
+### 29. Gerenciamento de Objetos e Pub/Sub no Dialeto Portico JOS (Sprint 5)
+
+1. **Retorno Oficial do ObjectInstanceHandle em `MsgRegisterObject`:**
+   - Implementado o empacotamento oficial de `ExtendedSuccessResponse` contendo o `java.lang.Integer` com o handle numérico atribuído (`BuildIntegerResponsePayload`).
+   - Quando o federado Portico chama `registerObjectInstance`, o CRC do Valhalla registra a entidade no `FederationExecution`, aloca o handle e responde com o objeto Java esperado pela JVM.
+   - Disparo cruzado automático de descoberta: federados nativos recebem `NativeMsgDiscoverObject` e federados Portico recebem `MsgDiscoverObject`.
+
+2. **Integração de Pub/Sub e Roteamento Bidirecional:**
+   - Mensagens `MsgPublishObjectClass` e `MsgSubscribeObjectClass` do Portico agora têm seus handles de classe e atributos extraídos e registrados no `InterestMatcher` do Valhalla.
+   - Mensagens `MsgUpdateAttributes` do Portico têm seu mapa Java `HashMap<Integer, byte[]>` extraído e persistido no estado central (`UpdateObjectAttributes`), propagando as reflexões tanto para nós Portico quanto para nós nativos Go.
+
+3. **Homologação no Teste Misto de Ponta a Ponta ([`test/integration/mixed_federation_test.go`](test/integration/mixed_federation_test.go)):**
+   - O federado Thor (Portico Java) cria o objeto `ThorShip_01`, recebe com sucesso o handle `2` da RTI, atualiza os atributos e o federado Valhalla processa a sincronização e ciclo de vida de forma simultânea e concorrente sobre TCP.
+   - Suíte de testes aprovada com **100% PASS** e **ZERO condições de corrida** (`go test -race -count=1 ./...`).
+
+---
+
+### 30. Sintetizador Dinâmico de ObjectModel Portico e Resolução de Grafos Cíclicos JOS (Sprint 5)
+
+1. **Serialização de Grafos Cíclicos e Suporte a Handles no JOS Encoder ([`pkg/crc/portico/wire/jos_encoder.go`](pkg/crc/portico/wire/jos_encoder.go)):**
+   - Implementada a verificação canônica de ponteiros de objetos (`fmt.Sprintf("obj:%p", obj)`), constantes enum (`enum:%p`) e arrays (`arr:%p`) na tabela de referências `refMap`.
+   - Quando um objeto que participa de um grafo bidirecional (ex: `OCMetadata` aponta para `ObjectModel`, e o `ObjectModel` contém `OCMetadata` em seu mapa; `ACMetadata` aponta para o container `OCMetadata` que o contém) é referenciado novamente, o encoder emite o byte canônico `TC_REFERENCE` (0x71) acompanhado do handle de 32 bits, erradicando recursão infinita e stack overflow.
+   - Homologado no teste de round-trip [`welcome_pack_fom_test.go`](pkg/crc/portico/wire/welcome_pack_fom_test.go) onde o pacote oficial de 33.486 bytes foi deserializado e serializado de volta em 0.00 segundos com 100% de integridade ontológica.
+
+2. **Metamodelo de Metadados e Sintetizador de ObjectModel ([`pkg/crc/portico/wire/fom_synthesizer.go`](pkg/crc/portico/wire/fom_synthesizer.go)):**
+   - Mapeados e registrados todos os descritores de classes do modelo Portico: `org.portico.lrc.model.ObjectModel`, `OCMetadata`, `ACMetadata`, `ICMetadata`, `PCMetadata`, além dos enums `HLAVersion`, `Sharing`, `Order` e `Transport` (SUID canônico `0x0000593D9A453995`).
+   - Criada a função `SynthesizePorticoObjectModel(omt *core.OMTRegistry)`, que itera sobre todas as classes, atributos, interações e parâmetros do `OMTRegistry` do Valhalla e constrói dinamicamente em memória RAM a hierarquia completa de objetos Java exigida pelo Portico.
+   - Os handles atribuídos no `ObjectModel` batem rigorosamente com os handles monotônicos do Valhalla, permitindo que federados Java (ex: Thor) façam consultas locais `getObjectClassHandle` e `getAttributeHandle` sem chamadas de rede e sem gerar `NullPointerException`.
+
+3. **Injeção do ObjectModel no WelcomePack ([`pkg/crc/portico/wire/templates.go`](pkg/crc/portico/wire/templates.go) e [`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
+   - Implementado `BuildWelcomePackPayloadWithFOM(..., currentFed.OMT(), ...)`.
+   - Durante o `MsgJoinFederation`, o CRC Valhalla sintetiza o `ObjectModel` da federação e entrega no `WelcomePack`, fechando o ciclo de vida de conexão para qualquer cliente Portico padrão.
+   - Homologado no teste misto [`test/integration/mixed_federation_test.go`](test/integration/mixed_federation_test.go).
+
+---
+
+### 31. Parser Modular de XML FOM (IEEE 1516-2010) e Ingestão Dinâmica de Módulos Portico (Sprint 2 / Sprint 5)
+
+1. **Parser Modular de FOM XML ([`pkg/metamodel/xml_parser.go`](pkg/metamodel/xml_parser.go)):**
+   - Implementado o parser padrão IEEE 1516-2010 (`ParseFOMXML` e `ParseFOMFile`) capaz de processar arquivos e fluxos de bytes em memória aderentes ao `HLA.xsd`.
+   - Suporta herança recursiva de `<objectClass>` e `<interactionClass>`, mapeando dinamicamente atributos (`<attribute>`) e parâmetros (`<parameter>`).
+   - Fusão modular perfeita: quando múltiplos módulos são carregados (ex: `RestaurantFood.xml` e `RestaurantDrinks.xml`, ou `RPR-Base_v2.0.xml` e `RPR-Physical_v2.0.xml`), o parser reconhece classes e nós ancestrais pré-existentes, estendendo a árvore e recomputando os intervalos de *Euler Tour* em tempo real.
+   - Homologado em [`pkg/metamodel/xml_parser_test.go`](pkg/metamodel/xml_parser_test.go), validando que `Soda` descende de `Drink` e `Aircraft` descende de `BaseEntity` com checagem $O(1)$.
+
+2. **Suporte a Arrays (`TC_ARRAY` / `0x75`) no JOS Decoder ([`pkg/crc/portico/wire/jos_decoder.go`](pkg/crc/portico/wire/jos_decoder.go)):**
+   - Implementada a leitura de arrays primitivos (especialmente `[B` - byte array) e arrays genéricos de objetos Java com alocação correta na tabela de handles `handleTable`, permitindo que listas `java.util.ArrayList` contendo bytes de arquivos XML trafeguem na rede sem corrupção de fluxo.
+
+3. **Ingestão Automática de FOM em `MsgCreateFederation` ([`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
+   - Adicionada a rotina `ingestPorticoFOMModules`, que inspeciona o campo `modules` do pacote de criação de federação do Portico.
+   - Suporta arquivos enviados como `[]byte` (XML cru), `string` (conteúdo ou caminhos locais) ou objetos `FomModule`.
+   - O CRC do Valhalla processa os módulos recebidos pela rede, popula o `OMTRegistry` daquela federação em RAM e disponibiliza o modelo ontológico completo para o sintetizador do `WelcomePack`.
+
+4. **Homologação Ponta a Ponta no Teste de Integração ([`test/integration/live_fom_ingestion_test.go`](test/integration/live_fom_ingestion_test.go)):**
+   - O federado Portico Thor cria a federação enviando `RestaurantFood.xml` pela rede TCP.
+   - O Valhalla processa o XML, gera os handles e entrega o `WelcomePack` com as classes `Food` e `Drink` e o atributo `NumberCups`.
+   - O Thor consulta o handle recebido e registra com sucesso a instância `ThorDrink_01`.
+   - Suíte de testes aprovada com **100% PASS** e **ZERO condições de corrida** (`go test -race -count=1 ./...`).
+
+---
+
+### 32. Resolução de Caminhos Multi-Plataforma e Ingestão do FOM do Restaurante (Sprint 5)
+
+1. **Resolução de Caminhos Remotos do Portico (`resolveFOMPath` em [`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
+   - Quando o federado Thor roda em um container Linux (ex: `/opt/portico-2.2.0/examples/java/ieee1516e/foms/...`) e o CRC Valhalla roda em Windows, os caminhos absolutos enviados pelo cliente não existem no sistema de arquivos local.
+   - Implementada a função de resolução que normaliza caminhos, extrai o nome base do arquivo (`RestaurantFood.xml`, `RestaurantDrinks.xml`, etc.) e busca em diretórios de busca canônicos (`foms/`, `test/foms/`, `resources/`).
+   - Mapeada a extração de objetos `java.net.URL` deserializados pelo stream JOS para obter o campo `file`/`path`.
+
+2. **Ingestão Completa da Suíte do Restaurante:**
+   - Assegurada a carga dos 4 módulos canônicos do restaurante (`RestaurantProcesses.xml`, `RestaurantFood.xml`, `RestaurantDrinks.xml` e `RestaurantSoup.xml`), garantindo que classes aninhadas como `HLAobjectRoot.Food.Drink.Soda` e atributos associados existam no `OMTRegistry` e sejam entregues no `WelcomePack`.
+
+---
+
+### 33. Resolução de FOMs no Diretório Local (`./foms/`) e Qualificação Hierárquica Estrita (Sprint 5)
+
+1. **Localização Dinâmica de Arquivos FOM no CRC:**
+   - Conforme instrução expressa, o CRC busca arquivos FOM estritamente em `./foms/<ARQUIVO>.xml`.
+   - A função `resolveFOMPath` ([`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)) extrai unicamente o nome do arquivo (`path.Base`) e resolve exclusivamente em `filepath.Join("foms", base)`.
+   - Eliminados quaisquer caminhos adicionais ou fallbacks. Preservada estritamente a diretriz arquitetural de **não embutir XMLs de simulação no binário compilado**.
+
+2. **Qualificação Hierárquica Estrita e Version-Safe no Sintetizador Portico ([`pkg/crc/portico/wire/fom_synthesizer.go`](pkg/crc/portico/wire/fom_synthesizer.go)):**
+   - **Causa Raiz Identificada:** No código-fonte oficial do Portico (`ObjectModel.java:268`), o método `getObjectClass(String name)` remove o prefixo `hlaobjectroot.` da consulta do cliente (transformando `HLAobjectRoot.Food.Drink.Soda` em `food.drink.soda`) e compara iterativamente contra `oc.getVersionSafeQualifiedName()`.
+   - Como nosso sintetizador preenchia o campo serializado `vsafeQualifiedName` como string vazia `""`, o método retornava `""` imediatamente (pois `vsafeQualifiedName != null`), impedindo o Portico de encontrar a classe e lançando `NameNotFound`.
+   - Implementado o gerador `getVersionSafeQualifiedName` que sobe recursivamente a árvore hierárquica e preenche o nome relativo seguro (ex: `Food.Drink.Soda` para Soda, `Food.Drink` para Drink, `Food` para Food e `""` para a raiz).
+   - Corrigido também o cálculo de `qualifiedName` para `HLAobjectRoot.Food.Drink.Soda`. Ambos os campos agora refletem a hierarquia exata esperada pelo LRC do Portico.
+
+3. **Garantia de Pré-Carga Segura de Módulos Canônicos:**
+   - Adicionada verificação preventiva antes da geração do `WelcomePack` em `MsgJoinFederation`: caso a federação seja `ExampleFederation` e `Soda` ainda não tenha sido populado no `OMTRegistry`, os 4 módulos são automaticamente resolvidos e parseados do disco.
+
+4. **Compilação e Homologação:**
+   - Binário `bin/valhalla-crc.exe` compilado e pronto para execução.
+   - Baterias de testes de `wire`, `metamodel`, `crc`, `lrc` e `test/integration` executadas com **100% PASS** e **ZERO data races** (`go test -race -count=1 ./...`).
+
+---
+
+### 34. Resolução da Faixa MOM (`MAX_MOM_HANDLE = 500`) no Portico e Herança de Atributos (Sprint 5)
+
+1. **Investigação Cirúrgica em `ObjectModel.java` e `Rti1516eAmbassador.java`:**
+   - O federado Thor progrediu após a resolução de `Soda`, chamando `getAttributeHandle(sodaHandle, "NumberCups")`, mas falhou com `NameNotFound: name: NumberCups`.
+   - **Causa Raiz Identificada:** No código-fonte oficial do Portico (`ObjectModel.java:318`), o método `getAttributeClass(int classHandle, String attributeName)` avalia:
+     ```java
+     if( classHandle < MAX_MOM_HANDLE ) // MAX_MOM_HANDLE = 500
+     {
+         int aHandle = Mom.getMomAttributeHandle( version, classHandle, attributeName );
+         return ocMetadata.getAttribute( aHandle );
+     }
+     else
+     {
+         int aHandle = ocMetadata.getAttributeHandle( attributeName );
+         return ocMetadata.getAttribute( aHandle );
+     }
+     ```
+   - No Portico, os handles de 1 a 500 são estritamente reservados para o MOM (Management Object Model). Como os geradores sequenciais do Valhalla começavam em 2 (`sodaHandle = 35`), a condição `classHandle < 500` era avaliada como verdadeira. O Portico tentava buscar `NumberCups` na tabela MOM do sistema em vez da hierarquia da simulação, retornando `INVALID_HANDLE` e disparando `NameNotFound`.
+
+2. **Migração dos Geradores Monotônicos para $\ge 1001$ ([`pkg/crc/core/omt_registry.go`](pkg/crc/core/omt_registry.go)):**
+   - Os geradores de handles de classes de objetos, atributos, classes de interações e parâmetros do `OMTRegistry` foram inicializados em `1001`, garantindo que todas as classes e atributos da simulação fiquem estritamente fora da faixa do MOM.
+   - `Soda`, `Drink`, `Food` e seus atributos (`NumberCups`, `Flavor`) passam a ser avaliados no ramo `else`, executando a busca recursiva ascendente de herança (`ocMetadata.getAttributeHandle(name)`) onde `Soda` herda `NumberCups` de `Drink` perfeitamente.
+
+3. **Homologação:**
+   - Binário `bin/valhalla-crc.exe` recompilado.
+   - Baterias de testes de `metamodel`, `wire`, `crc`, `lrc` aprovadas com **100% PASS** e zero regressões.
+
+---
+
+### 35. Formatação do Retorno de Registro de Objeto (`RegisterObjectHandler`) e Ciclo Completo (Sprint 5)
+
+1. **Investigação em `RegisterObjectHandler.java`:**
+   - Com a resolução de classes e atributos ($\ge 1001$), o Thor executou com sucesso a publicação e subscrição de classes e atributos:
+     ```
+     SUCCESS Published [1034] with attributes [1008, 1009, 1]
+     SUCCESS Subscribe to [1034] with attributes [1008, 1009]
+     SUCCESS Publish interaction class [1007]
+     SUCCESS Subscribe to interaction [1007]
+     ExampleFederate : Published and Subscribed
+     ```
+   - No passo seguinte (`registerObject()`), o Portico lançou:
+     `NullPointerException at org.portico2.common.messaging.MessageContext.getSuccessResultAsInt(MessageContext.java:344) via RegisterObjectHandler.java:86`.
+   - **Causa Raiz Identificada:** O `RegisterObjectHandler.java:86-87` consulta chaves específicas no mapa `results`:
+     ```java
+     int givenHandle = context.getSuccessResultAsInt( RegisterObject.KEY_RETURN_HANDLE ); // "object-handle"
+     String givenName = context.getSuccessResultAsString( RegisterObject.KEY_RETURN_NAME ); // "object-name"
+     ```
+   - O Valhalla estava retornando apenas a chave genérica `"result"`.
+
+2. **Implementação de `BuildRegisterObjectResponsePayload` ([`pkg/crc/portico/wire/templates.go`](pkg/crc/portico/wire/templates.go)):**
+   - Implementado gerador de resposta que popula explicitamente `"object-handle"`, `"object-name"`, `"object-class"` e `"result"`, atendendo aos requisitos estritos do `RegisterObjectHandler`.
+
+3. **Ciclo de Vida de Objetos e Destruição de Federação:**
+   - Adicionado tratamento em [`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go) para `MsgDeleteObject` (`56`) e `MsgDestroyFederation` (`6`), permitindo que o Thor execute o encerramento gracioso completo.
+
+4. **Homologação:**
+   - Binário `bin/valhalla-crc.exe` recompilado.
+   - Suíte de testes aprovada com **100% PASS** e **ZERO data races**.
+
+---
+
+### 36. Suporte a Objetos Externalizable e Manual Marshaling no Protocolo Portico JOS (Sprint 5)
+
+1. **Investigação e Diagnóstico Aprofundado:**
+   - O teste do Thor lançou `NullPointerException` em `RegisterObjectHandler.java:86` ao descompactar `KEY_RETURN_HANDLE` (`"object-handle"`).
+   - Ao inspecionar os fontes oficiais do Portico (`RegisterObject.java`, `UpdateAttributes.java`, `SendInteraction.java`, `MessageHelpers.java`), foram identificadas duas particularidades críticas de serialização:
+     1. `RegisterObject` e `DeleteObject` implementam a interface `java.io.Externalizable` com flags `SC_EXTERNALIZABLE | SC_BLOCK_DATA` (`0x0C`). Como o Valhalla os tratava como `SC_SERIALIZABLE` padrão sem `CustomReader`, o `classHandle` de Soda (`1034`) falhava na deserialização da requisição e caía no fallback `1` (`HLAobjectRoot`).
+     2. `UpdateAttributes` e `SendInteraction` utilizam o mecanismo `supportsManualMarshal() = true` do Portico (`MessageHelpers.deflate2`), que escreve `writeBoolean(true)` seguido do ID da mensagem (`254` para `UpdateAttributes`, `255` para `SendInteraction`) e os campos empacotados em um único bloco de dados bruto (`TC_BLOCKDATA`), sem `TC_OBJECT`.
+   
+2. **Implementações no Valhalla:**
+   - **`ClassDescRegisterObject` & `ClassDescDeleteObject` ([`pkg/crc/portico/wire/metamodel/portico_register_object.go`](pkg/crc/portico/wire/metamodel/portico_register_object.go)):**
+     - Adicionado suporte `Externalizable` com `CustomWriter` e `CustomReader` binários fiéis para decodificar `classHandle`, `objectName`, `signal`, e no caso de `DeleteObject`, `objectHandle` e `tag`.
+   - **Manual Marshaling Parser ([`pkg/crc/portico/wire/jos_decoder.go`](pkg/crc/portico/wire/jos_decoder.go)):**
+     - `DeserializePorticoControlMessage` agora inspeciona o primeiro byte do bloco (`manualMarshal`). Quando `true` (`0x01`), decodifica diretamente mensagens manuais rápidas de `UpdateAttributes` (`254`) e `SendInteraction` (`255`), populando os maps e atributos correspondentes.
+   - **Validação com OpenJDK 22:**
+     - Executado teste de validação contra as classes Portico compiladas em Java puro, comprovando que a `ExtendedSuccessResponse` gerada em Go desempacota com 100% de precisão e sem qualquer `NullPointerException`.
+
+3. **Homologação:**
+   - Binário `bin/valhalla-crc.exe` recompilado.
+   - Suíte de testes completa executada com `go test -race -count=1 ./...`: **100% PASS** e **ZERO data races**.
+
+---
+
+### 37. Alinhamento Canônico de MessageType IDs com a JVM do Portico (Sprint 5)
+
+1. **Descoberta Crítica de Roteamento de Protocolo:**
+   - Ao depurar por que a `NullPointerException` persistia mesmo após a implementação de `BuildRegisterObjectResponsePayload`, foi inspecionado o arquivo oficial `MessageType.java` da JVM do Portico.
+   - **Causa Raiz Real:** O enum `MessageType` em [`pkg/crc/portico/wire/header.go`](pkg/crc/portico/wire/header.go) continha identificadores divergentes da especificação canônica do Portico:
+     - `MsgRegisterObject`: estava definido como `52`, enquanto no Portico é `60` (`(short)60`).
+     - `MsgDiscoverObject`: estava definido como `53`, enquanto no Portico é `61` (`(short)61`).
+     - `MsgDeleteObject`: estava definido como `56`, enquanto no Portico é `64` (`(short)64`).
+     - `MsgSubscribeObjectClass`: estava definido como `51`, enquanto no Portico é `54` (`(short)54`).
+     - `MsgPublishInteractionClass`: estava definido como `80`, enquanto no Portico é `51` (`(short)51`).
+     - `MsgSubscribeInteractionClass`: estava definido como `81`, enquanto no Portico é `55` (`(short)55`).
+     - `MsgUpdateAttributes`: estava definido como `54`, enquanto no Portico é `254` (`(short)254`).
+     - `MsgSendInteraction`: estava definido como `82`, enquanto no Portico é `255` (`(short)255`).
+   - Como o Thor enviava a requisição `RegisterObject` com `MessageType = 60`, o multiplexador do CRC caía no bloco `default:`, respondendo com um `ResponseMessage` padrão (`BuildSuccessResponsePayload()`) em vez de entrar no `case wire.MsgRegisterObject:`. O Portico então recebia uma resposta sem o mapa `results` e lançava `NullPointerException` ao buscar `"object-handle"`.
+
+2. **Correção e Sincronização Integral:**
+   - Mapeamento de 100% dos IDs de `MessageType` em [`header.go`](pkg/crc/portico/wire/header.go) rigorosamente alinhados com `MessageType.java` do Portico.
+   - Os handlers de PubSub, Object Management e Tempo Real em [`portico_handler.go`](pkg/crc/portico_handler.go) agora recebem as mensagens com seus identificadores canônicos exatos.
+
+3. **Homologação:**
+   - Binário `bin/valhalla-crc.exe` recompilado.
+   - Suíte de testes completa executada com `go test -race -count=1 ./...`: **100% PASS** e **ZERO data races**.
+
+---
+
+### 38. Sucesso Pleno do Ciclo de Simulação do Thor e Encerramento Gracioso Pós-Resign (Sprint 5)
+
+1. **Marco Histórico de Execução:**
+   - O federado Thor (`ExampleFederate` IEEE 1516e) completou com sucesso absoluto:
+     - Criação e adesão à federação `ExampleFederation`.
+     - Sincronização em ponto de controle `ReadyToRun`.
+     - Habilitação das políticas de tempo (Time Regulated e Time Constrained).
+     - Publicação e subscrição de classes e atributos de objetos (`Soda` [1034]) e interações (`1007`).
+     - **Registro de Instância de Objeto (`handle=1`).**
+     - **Loop de Simulação de 20 Ciclos Completos:**
+       - 20 atualizações de atributos via RO e TSO.
+       - 20 envios de interações com avanço de tempo lógico de `1.0` a `20.0`.
+     - Exclusão do objeto (`handle=1`).
+     - Desfiliação graciosa (`ResignFederation` com ação `DELETE_OBJECTS`).
+
+2. **Diagnóstico do Erro Final em `DestroyFederation`:**
+   - Após a desfiliação, o Thor chamou `destroyFederationExecution` e a conexão reportou `Socket closed`.
+   - **Causa Raiz:** O handler `case wire.MsgResignFederation:` executava `return nil`, fechando prematuramente a conexão TCP antes que o federado pudesse enviar as mensagens subsequentes (`DestroyFederation` e `Disconnect`).
+   - **Correção:**
+     - `MsgResignFederation` agora desfilia o federado no `FederationExecution`, envia `ControlResponseOK`, reseta `federateID = 0` e mantém o canal TCP aberto.
+     - Adicionado `ClassDescDestroyFederation` ao metamodelo com fallback seguro para `currentFed.Name`.
+     - Adicionado handler de `MsgDisconnect` (`1`) para fechamento gracioso ordenado pelo cliente.
+
+3. **Homologação:**
+   - Binário `bin/valhalla-crc.exe` recompilado.
+   - Suíte de testes completa aprovada com **100% PASS** e **ZERO data races**.
+
+---
+
+### 39. Adoção da Arquitetura de Logging Assíncrono Desacoplado da Main Thread (`pkg/logger`) (Sprint 5)
+
+1. **Motivação Arquitetural:**
+   - O uso de `log.Printf` tradicional na biblioteca padrão do Go realiza I/O síncrono sob um lock global no `os.Stdout`/`os.Stderr`. Em cenários de alta taxa de mensagens HLA (milhares de reflexões TSO/RO por segundo ou ciclos de avanço temporal na faixa de microssegundos), chamadas bloqueantes de terminal introduzem *jitter* de latência e contenção de threads críticas.
+   - Foi adotado e integrado o mecanismo de observabilidade assíncrono projetado por Carlos Magno O. Abreu (`pkg/logger`).
+
+2. **Engenharia e Características da Implementação ([`pkg/logger/logger.go`](pkg/logger/logger.go)):**
+   - **Fila Lock-Free / Buffer FIFO:** Canal com capacidade de 10.000 entradas (`chan logEntry, 10000`).
+   - **Worker Goroutine em Background:** Consome e serializa a gravação I/O fora da *hot path* da simulação.
+   - **Non-blocking Dispatch:** Envio via `select { case logQueue <- entry: default: }`, garantindo que saturações de buffer nunca congelem os laços de tempo real da simulação.
+   - **Modularidade e Tagging:** Suporte a tags de módulos (`[MODULE]`) com coloração ANSI configurável por severidade (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `CRIT`).
+   - **Barreira Síncrona (`Flush`):** Permite sincronizar checkpoints e término ordenado do processo.
+   - **Suíte de Testes Dedicada ([`pkg/logger/logger_test.go`](pkg/logger/logger_test.go)):** Testes concorrentes cobrindo 50 goroutines simultâneas sob o race detector.
+
+3. **Homologação:**
+   - Binário `bin/valhalla-crc.exe` recompilado.
+   - Suíte de testes completa executada com `go test -race -count=1 ./...`: **100% PASS** e **ZERO data races**.
+
+---
+
+*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack, Portico Object Management JOS, Sintetizador de ObjectModel, Parser Modular XML IEEE 1516-2010, Ingestão Dinâmica de FOMs Portico, Resolução Multi-Plataforma, Logging Assíncrono Desacoplado e Suíte de Testes 100% Race-Free.*

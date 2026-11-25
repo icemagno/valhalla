@@ -37,8 +37,9 @@ var ClassDescWelcomePack = &ClassDesc{
 
 		w.WriteBlockData(blk)
 
-		// 2. ObjectModel fom (null)
-		if err := w.WriteObject(nil); err != nil {
+		// 2. ObjectModel fom
+		fomObj := obj.Get("fom")
+		if err := w.WriteObject(fomObj); err != nil {
 			return err
 		}
 

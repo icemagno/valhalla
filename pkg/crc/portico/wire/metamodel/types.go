@@ -124,10 +124,17 @@ func (o *JavaObject) Get(name string) any {
 }
 
 func (o *JavaObject) String() string {
+	if o == nil {
+		return "<nil>"
+	}
 	if o.Class == nil {
 		return "JavaObject{Class: <nil>}"
 	}
-	return fmt.Sprintf("JavaObject{Class: %s, Fields: %v}", o.Class.Name, o.Fields)
+	keys := make([]string, 0, len(o.Fields))
+	for k := range o.Fields {
+		keys = append(keys, k)
+	}
+	return fmt.Sprintf("JavaObject{Class: %s, FieldKeys: %v}", o.Class.Name, keys)
 }
 
 // JavaEnum representa uma constante de enum Java serializável

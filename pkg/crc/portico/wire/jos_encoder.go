@@ -111,12 +111,21 @@ func (e *JOSEncoder) writeJavaEnum(en *JavaEnum) error {
 		return nil
 	}
 
+	refKey := fmt.Sprintf("enum:%p", en)
+	if handle, exists := e.refMap[refKey]; exists {
+		e.writeReference(handle)
+		return nil
+	}
+
 	e.w.WriteByte(TC_ENUM)
 	if err := e.writeClassDesc(en.Class); err != nil {
 		return err
 	}
-	e.assignHandle(fmt.Sprintf("enum:%p", en))
-	e.writeString(en.Name)
+	e.assignHandle(refKey)
+	// Java readEnum strictly requires TC_STRING (0x74) or TC_LONGSTRING (0x7C), never TC_REFERENCE (0x71)
+	e.w.WriteByte(TC_STRING)
+	e.writeUTF(en.Name)
+	e.assignHandle(fmt.Sprintf("enum_name:%d", e.nextHandle))
 	return nil
 }
 
@@ -156,11 +165,17 @@ func (e *JOSEncoder) writeJavaObject(obj *JavaObject) error {
 		return fmt.Errorf("jos encoder: objeto sem descritor de classe (ClassDesc nil)")
 	}
 
+	refKey := fmt.Sprintf("obj:%p", obj)
+	if handle, exists := e.refMap[refKey]; exists {
+		e.writeReference(handle)
+		return nil
+	}
+
 	e.w.WriteByte(TC_OBJECT)
 	if err := e.writeClassDesc(obj.Class); err != nil {
 		return err
 	}
-	e.assignHandle(fmt.Sprintf("obj:%p", obj))
+	e.assignHandle(refKey)
 
 	// Coletar hierarquia de classes da raiz (Object) até a folha (classe concreta)
 	chain := getClassHierarchy(obj.Class)
@@ -310,6 +325,12 @@ func getClassHierarchy(cls *ClassDesc) []*ClassDesc {
 }
 
 func (e *JOSEncoder) writeByteArray(data []byte) error {
+	refKey := fmt.Sprintf("arr:%p", data)
+	if handle, exists := e.refMap[refKey]; exists {
+		e.writeReference(handle)
+		return nil
+	}
+
 	e.w.WriteByte(TC_ARRAY)
 	byteArrDesc := &ClassDesc{
 		Name:             "[B",
@@ -321,7 +342,7 @@ func (e *JOSEncoder) writeByteArray(data []byte) error {
 	if err := e.writeClassDesc(byteArrDesc); err != nil {
 		return err
 	}
-	e.assignHandle(fmt.Sprintf("arr:%p", data))
+	e.assignHandle(refKey)
 	binary.Write(e.w, binary.BigEndian, int32(len(data)))
 	e.w.Write(data)
 	return nil

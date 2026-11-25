@@ -195,6 +195,9 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 		t.Errorf("esperado ControlResponseOK no Resign, obtido %s", resignResHdr.CallType)
 	}
 
+	// Cliente desconecta fechando o socket
+	_ = clientConn.Close()
+
 	// Aguardar término gracioso do servidor
 	select {
 	case err := <-serverErrChan:

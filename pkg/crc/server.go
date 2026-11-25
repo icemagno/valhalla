@@ -3,11 +3,18 @@ package crc
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/icemagno/valhalla/pkg/logger"
+)
+
+var (
+	logCRC        = logger.NewLogger("CRC")
+	logCRCNative  = logger.NewLogger("CRC-Native")
+	logCRCPortico = logger.NewLogger("CRC-Portico")
 )
 
 // Server representa o executivo central (CRC) do Valhalla com suporte a multiplexação de protocolos
@@ -61,7 +68,7 @@ func (s *Server) Start() error {
 	s.listener = l
 	s.running = true
 
-	log.Printf("[CRC] Valhalla RTI Executive active on %s", l.Addr())
+	logCRC.Info("Valhalla RTI Executive active on %s", l.Addr())
 
 	s.wg.Add(1)
 	go s.acceptLoop()
@@ -79,7 +86,7 @@ func (s *Server) acceptLoop() {
 			case <-s.stopChan:
 				return
 			default:
-				log.Printf("[CRC] Warning on accept: %v", err)
+				logCRC.Warn("Warning on accept: %v", err)
 				continue
 			}
 		}
@@ -101,16 +108,16 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	remoteAddr := conn.RemoteAddr().String()
-	log.Printf("[CRC] Connection from %s identified as: %s", remoteAddr, proto)
+	logCRC.Info("Connection from %s identified as: %s", remoteAddr, proto)
 
 	switch proto {
 	case ProtocolNative:
 		if err := HandleNativeConnection(wrappedConn, wrappedConn, s.fedManager); err != nil {
-			log.Printf("[CRC-Native] Connection %s terminated: %v", remoteAddr, err)
+			logCRCNative.Info("Connection %s terminated: %v", remoteAddr, err)
 		}
 	case ProtocolPortico:
 		if err := HandlePorticoConnection(wrappedConn, wrappedConn, s.fedManager); err != nil {
-			log.Printf("[CRC-Portico] Connection %s terminated: %v", remoteAddr, err)
+			logCRCPortico.Info("Connection %s terminated: %v", remoteAddr, err)
 		}
 	}
 }
@@ -128,7 +135,7 @@ func (s *Server) Stop() error {
 	s.mu.Unlock()
 
 	s.wg.Wait()
-	log.Printf("[CRC] Valhalla RTI Executive shut down successfully.")
+	logCRC.Info("Valhalla RTI Executive shut down successfully.")
 	return err
 }
 

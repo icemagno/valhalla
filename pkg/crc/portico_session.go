@@ -85,6 +85,10 @@ func (s *PorticoSession) SendPacket(hdr wire.Header, payload []byte) error {
 
 // SendControlResponseOK envia uma resposta bem-sucedida de controle para uma requisição recebida
 func (s *PorticoSession) SendControlResponseOK(reqID uint16, msgType wire.MessageType, payload []byte) error {
+	target := uint16(s.id)
+	if msgType == wire.MsgJoinFederation {
+		target = 0xFFFF
+	}
 	hdr := wire.Header{
 		Flags:         0,
 		PayloadLength: uint32(len(payload)),
@@ -93,7 +97,7 @@ func (s *PorticoSession) SendControlResponseOK(reqID uint16, msgType wire.Messag
 		MessageType:   msgType,
 		RequestId:     reqID,
 		SourceHandle:  0,
-		TargetHandle:  uint16(s.id),
+		TargetHandle:  target,
 	}
 	return s.SendPacket(hdr, payload)
 }

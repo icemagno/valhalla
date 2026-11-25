@@ -38,6 +38,31 @@ func TestTemplates_BuildWelcomePackAndSuccess(t *testing.T) {
 	if len(errResp) != 83 {
 		t.Errorf("tamanho esperado de ErrorResponse (ResponseMessage) 83, obtido %d", len(errResp))
 	}
+	regResp := BuildRegisterObjectResponsePayload(10, 1034, "Thor_Soda")
+	if len(regResp) == 0 {
+		t.Fatal("esperava payload nao vazio para RegisterObjectResponse")
+	}
+	decReg, err := DeserializePorticoControlMessage(regResp)
+	if err != nil {
+		t.Fatalf("falha ao deserializar RegisterObjectResponse: %v", err)
+	}
+	results := decReg.Get("results").(*metamodel.JavaObject)
+	var handleVal any
+	var nameVal any
+	switch m := results.Get("entries").(type) {
+	case map[string]any:
+		handleVal = m["object-handle"]
+		nameVal = m["object-name"]
+	case map[any]any:
+		handleVal = m["object-handle"]
+		nameVal = m["object-name"]
+	}
+	if handleVal == nil {
+		t.Errorf("chave 'object-handle' nao encontrada em RegisterObjectResponse")
+	}
+	if nameVal != "Thor_Soda" {
+		t.Errorf("chave 'object-name' inesperada: %v", nameVal)
+	}
 }
 
 func TestHashSet_MetamodelRoundtrip(t *testing.T) {
