@@ -6,26 +6,28 @@ import (
 	"io"
 	"log"
 	"net"
+
+	"github.com/icemagno/valhalla/pkg/common"
 )
 
 // Tipos de Mensagem do Protocolo Nativo Valhalla (HLA-4)
 const (
-	NativeMsgJoin                   uint8 = 1
-	NativeMsgJoinSuccess            uint8 = 2
-	NativeMsgRegisterSyncPoint      uint8 = 3
-	NativeMsgAchieveSyncPoint       uint8 = 4
-	NativeMsgSyncPointAchieved      uint8 = 5
-	NativeMsgFederationSynchronized uint8 = 6
-	NativeMsgRegisterObject         uint8 = 7
-	NativeMsgDiscoverObject         uint8 = 8
-	NativeMsgUpdateAttributes       uint8 = 9
-	NativeMsgReflectAttributes      uint8 = 10
-	NativeMsgSendInteraction        uint8 = 11
-	NativeMsgReceiveInteraction     uint8 = 12
-	NativeMsgTimeAdvanceRequest     uint8 = 13
-	NativeMsgTimeAdvanceGrant       uint8 = 14
-	NativeMsgResign                 uint8 = 15
-	NativeMsgSuccessOK              uint8 = 16
+	NativeMsgJoin                   = common.NativeMsgJoin
+	NativeMsgJoinSuccess            = common.NativeMsgJoinSuccess
+	NativeMsgRegisterSyncPoint      = common.NativeMsgRegisterSyncPoint
+	NativeMsgAchieveSyncPoint       = common.NativeMsgAchieveSyncPoint
+	NativeMsgSyncPointAchieved      = common.NativeMsgSyncPointAchieved
+	NativeMsgFederationSynchronized = common.NativeMsgFederationSynchronized
+	NativeMsgRegisterObject         = common.NativeMsgRegisterObject
+	NativeMsgDiscoverObject         = common.NativeMsgDiscoverObject
+	NativeMsgUpdateAttributes       = common.NativeMsgUpdateAttributes
+	NativeMsgReflectAttributes      = common.NativeMsgReflectAttributes
+	NativeMsgSendInteraction        = common.NativeMsgSendInteraction
+	NativeMsgReceiveInteraction     = common.NativeMsgReceiveInteraction
+	NativeMsgTimeAdvanceRequest     = common.NativeMsgTimeAdvanceRequest
+	NativeMsgTimeAdvanceGrant       = common.NativeMsgTimeAdvanceGrant
+	NativeMsgResign                 = common.NativeMsgResign
+	NativeMsgSuccessOK              = common.NativeMsgSuccessOK
 )
 
 // HandleNativeConnection gerencia um cliente nativo conectado usando o protocolo Valhalla

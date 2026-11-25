@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/icemagno/valhalla/pkg/portico/wire"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 )
 
 // Códigos de sincronização e enquadramento do transporte TCP do Portico

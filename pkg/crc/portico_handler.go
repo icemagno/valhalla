@@ -8,7 +8,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/icemagno/valhalla/pkg/portico/wire"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 )
 
 const (

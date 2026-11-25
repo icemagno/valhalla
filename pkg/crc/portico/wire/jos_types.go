@@ -1,6 +1,6 @@
 package wire
 
-import "github.com/icemagno/valhalla/pkg/portico/wire/metamodel"
+import "github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 
 // Reexportação dos tipos fundamentais do metamodelo para compatibilidade
 type (

@@ -1,7 +1,7 @@
 package wire
 
 import (
-	"github.com/icemagno/valhalla/pkg/portico/wire/metamodel"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
 
 // BuildSuccessResponsePayload constrói dinamicamente em Go a ResponseMessage de sucesso oficial

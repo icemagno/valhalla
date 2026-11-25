@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/icemagno/valhalla/pkg/crc"
+	"github.com/icemagno/valhalla/pkg/common"
 )
 
 type nativeResponse struct {
-	Header  crc.NativeHeader
+	Header  common.NativeHeader
 	Payload []byte
 	Err     error
 }
@@ -98,9 +98,9 @@ func (c *Client) SendRequest(msgType uint8, fedID, federateID uint32, payload []
 		c.pendingMu.Unlock()
 	}()
 
-	hdr := crc.NativeHeader{
-		Magic:      crc.NativeHeaderMagic,
-		Version:    crc.NativeProtocolVer,
+	hdr := common.NativeHeader{
+		Magic:      common.NativeHeaderMagic,
+		Version:    common.NativeProtocolVer,
 		Flags:      0x01, // SSZ
 		PayloadLen: uint32(len(payload)),
 		MsgType:    msgType,
@@ -123,11 +123,11 @@ func (c *Client) SendRequest(msgType uint8, fedID, federateID uint32, payload []
 	}
 }
 
-func (c *Client) writePacket(hdr crc.NativeHeader, payload []byte) error {
+func (c *Client) writePacket(hdr common.NativeHeader, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 
-	var buf [crc.NativeHeaderLength]byte
+	var buf [common.NativeHeaderLength]byte
 	binary.BigEndian.PutUint16(buf[0:2], hdr.Magic)
 	buf[2] = hdr.Version
 	buf[3] = hdr.Flags
@@ -155,7 +155,7 @@ func (c *Client) readLoop() {
 	defer c.Close()
 
 	for {
-		hdr, err := crc.ReadNativeHeader(c.conn)
+		hdr, err := common.ReadNativeHeader(c.conn)
 		if err != nil {
 			return
 		}

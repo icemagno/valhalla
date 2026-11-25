@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/icemagno/valhalla/pkg/portico/wire/metamodel"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
 
 // Definições canônicas das classes Portico delegadas ao metamodelo

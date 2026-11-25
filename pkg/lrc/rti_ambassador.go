@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/icemagno/valhalla/pkg/crc"
+	"github.com/icemagno/valhalla/pkg/common"
 )
 
 // RTIambassadorImpl implementa a interface padrão RTIambassador sobre o protocolo nativo Valhalla (HLA-4)
@@ -106,12 +106,12 @@ func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName
 	}
 
 	payload := []byte(federateName)
-	resp, err := a.client.SendRequest(crc.NativeMsgJoin, 0, 0, payload, 5*time.Second)
+	resp, err := a.client.SendRequest(common.NativeMsgJoin, 0, 0, payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
 
-	if resp.Header.MsgType != crc.NativeMsgJoinSuccess || len(resp.Payload) < 4 {
+	if resp.Header.MsgType != common.NativeMsgJoinSuccess || len(resp.Payload) < 4 {
 		return 0, ErrInvalidResponse
 	}
 
@@ -136,7 +136,7 @@ func (a *RTIambassadorImpl) ResignFederationExecution() error {
 		return ErrFederateNotExecutionMember
 	}
 
-	_, err := a.client.SendRequest(crc.NativeMsgResign, uint32(a.federationID), uint32(a.federateID), nil, 5*time.Second)
+	_, err := a.client.SendRequest(common.NativeMsgResign, uint32(a.federationID), uint32(a.federateID), nil, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 		return ErrFederateNotExecutionMember
 	}
 
-	_, err := a.client.SendRequest(crc.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), []byte(label), 5*time.Second)
+	_, err := a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), []byte(label), 5*time.Second)
 	return err
 }
 
@@ -173,7 +173,7 @@ func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
 		return ErrFederateNotExecutionMember
 	}
 
-	_, err := a.client.SendRequest(crc.NativeMsgAchieveSyncPoint, uint32(a.federationID), uint32(a.federateID), []byte(label), 5*time.Second)
+	_, err := a.client.SendRequest(common.NativeMsgAchieveSyncPoint, uint32(a.federationID), uint32(a.federateID), []byte(label), 5*time.Second)
 	return err
 }
 
@@ -194,7 +194,7 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 	binary.BigEndian.PutUint16(payload[4:6], uint16(len(objectName)))
 	copy(payload[6:], []byte(objectName))
 
-	resp, err := a.client.SendRequest(crc.NativeMsgRegisterObject, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := a.client.SendRequest(common.NativeMsgRegisterObject, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
@@ -237,7 +237,7 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 		offset += 8 + len(val)
 	}
 
-	_, err := a.client.SendRequest(crc.NativeMsgUpdateAttributes, uint32(a.federationID), uint32(a.federateID), buf, 5*time.Second)
+	_, err := a.client.SendRequest(common.NativeMsgUpdateAttributes, uint32(a.federationID), uint32(a.federateID), buf, 5*time.Second)
 	return err
 }
 
@@ -270,7 +270,7 @@ func (a *RTIambassadorImpl) SendInteraction(interactionClass int32, parameters m
 		offset += 8 + len(val)
 	}
 
-	_, err := a.client.SendRequest(crc.NativeMsgSendInteraction, uint32(a.federationID), uint32(a.federateID), buf, 5*time.Second)
+	_, err := a.client.SendRequest(common.NativeMsgSendInteraction, uint32(a.federationID), uint32(a.federateID), buf, 5*time.Second)
 	return err
 }
 
@@ -303,7 +303,7 @@ func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], math.Float64bits(targetTime))
 
-	_, err := a.client.SendRequest(crc.NativeMsgTimeAdvanceRequest, uint32(a.federationID), uint32(a.federateID), buf[:], 5*time.Second)
+	_, err := a.client.SendRequest(common.NativeMsgTimeAdvanceRequest, uint32(a.federationID), uint32(a.federateID), buf[:], 5*time.Second)
 	return err
 }
 
@@ -355,10 +355,10 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 	}
 
 	switch cb.MsgType {
-	case crc.NativeMsgFederationSynchronized:
+	case common.NativeMsgFederationSynchronized:
 		fedAmb.FederationSynchronized(string(cb.Payload))
 
-	case crc.NativeMsgDiscoverObject:
+	case common.NativeMsgDiscoverObject:
 		if len(cb.Payload) >= 10 {
 			objHandle := int32(binary.BigEndian.Uint32(cb.Payload[0:4]))
 			classHandle := int32(binary.BigEndian.Uint32(cb.Payload[4:8]))
@@ -370,7 +370,7 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 			fedAmb.DiscoverObjectInstance(objHandle, classHandle, name)
 		}
 
-	case crc.NativeMsgReflectAttributes:
+	case common.NativeMsgReflectAttributes:
 		if len(cb.Payload) >= 6 {
 			objHandle := int32(binary.BigEndian.Uint32(cb.Payload[0:4]))
 			count := int(binary.BigEndian.Uint16(cb.Payload[4:6]))
@@ -389,7 +389,7 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 			fedAmb.ReflectAttributeValues(objHandle, attrs, nil)
 		}
 
-	case crc.NativeMsgReceiveInteraction:
+	case common.NativeMsgReceiveInteraction:
 		if len(cb.Payload) >= 6 {
 			classHandle := int32(binary.BigEndian.Uint32(cb.Payload[0:4]))
 			count := int(binary.BigEndian.Uint16(cb.Payload[4:6]))
@@ -408,7 +408,7 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 			fedAmb.ReceiveInteraction(classHandle, params, nil)
 		}
 
-	case crc.NativeMsgTimeAdvanceGrant:
+	case common.NativeMsgTimeAdvanceGrant:
 		if len(cb.Payload) >= 8 {
 			bits := binary.BigEndian.Uint64(cb.Payload[0:8])
 			t := math.Float64frombits(bits)

@@ -3,7 +3,7 @@ package wire
 import (
 	"testing"
 
-	"github.com/icemagno/valhalla/pkg/portico/wire/metamodel"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
 
 func TestTemplates_BuildWelcomePackAndSuccess(t *testing.T) {

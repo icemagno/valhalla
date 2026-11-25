@@ -8,7 +8,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/icemagno/valhalla/pkg/portico/wire"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 )
 
 // PorticoSession implementa Session para conexões de federados legados Portico

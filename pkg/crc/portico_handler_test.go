@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/icemagno/valhalla/pkg/portico/wire"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 )
 
 func TestPorticoHandler_FullLifecycle(t *testing.T) {

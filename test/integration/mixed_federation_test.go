@@ -7,8 +7,8 @@ import (
 
 	"github.com/icemagno/valhalla/pkg/crc"
 	"github.com/icemagno/valhalla/pkg/lrc"
-	"github.com/icemagno/valhalla/pkg/portico/transport"
-	"github.com/icemagno/valhalla/pkg/portico/wire"
+	"github.com/icemagno/valhalla/pkg/crc/portico/transport"
+	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 )
 
 func TestMixedFederation_ThorAndValhalla(t *testing.T) {
