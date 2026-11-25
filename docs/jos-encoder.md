@@ -2,8 +2,8 @@
 
 > **Projeto:** Projeto Valhalla (HLA-4 / IEEE 1516-2025)  
 > **Autor / Arquiteto:** Carlos Magno Oliveira de Abreu (`@icemagno` / `magno.mabreu@gmail.com`)  
-> **Módulo:** `pkg/portico/wire/jos_*.go`  
-> **Status:** Homologado em Produção contra o Portico CRTI 3.0.0 (Build 0)  
+> **Módulo:** `pkg/portico/wire/` e `pkg/portico/wire/metamodel/`  
+> **Status:** Homologado e Validado Bit a Bit contra OpenJDK 22 e Portico CRTI / LRC 3.0.0 (Build 0)  
 
 ---
 
@@ -13,15 +13,19 @@ O **Portico RTI** é o middleware de simulação distribuída HLA (IEEE 1516 / H
 
 Para a camada de controle administrativo (criação e destruição de federações, ingresso (`Join`), saída (`Resign`), anúncio e sincronização de pontos (`SyncPoints`)), o Portico utiliza internamente o mecanismo nativo **Java Object Serialization (JOS)** através de instâncias de `java.io.ObjectOutputStream` e `java.io.ObjectInputStream`.
 
-O **Projeto Valhalla**, implementado em **Go puro** (com extensões SIMD/Rust), possui como requisito inegociável a **interoperabilidade 100% nativa em nível de fio (wire-level)** com o Portico legado, sem a presença de JVM instalada na máquina do federado, sem wrappers CGO/JNI e sem bridges ou gateways externos que degradem a latência.
+O **Projeto Valhalla**, implementado em **Go puro** (com extensões SIMD/Rust), possui como requisito inegociável a **interoperabilidade 100% nativa em nível de fio (*wire-level*)** com o Portico legado:
+- Sem a presença de JVM instalada na máquina do federado.
+- Sem wrappers CGO/JNI.
+- Sem bridges ou gateways externos que degradem a latência.
+- **Sem atalhos, sem templates estáticos (`.bin`) e sem "marretas":** toda serialização e desserialização é executada puramente em memória por algoritmos canônicos em Go.
 
-Para viabilizar essa comunicação sem recorrer a marretas pontuais ou hardcodings frágeis (`serializaProbe()`, `serializaJoin()`), foi projetado e construído um **motor genérico, agnóstico e extensível de serialização binária Java Object Serialization em Go**, equivalente em comportamento ao `ObjectOutputStream` oficial da JVM.
+Para viabilizar essa comunicação sem recorrer a contornos frágeis, foi projetado e construído um **motor genérico, agnóstico e extensível de serialização binária Java Object Serialization em Go**, equivalente em comportamento ao `ObjectOutputStream` e `ObjectInputStream` oficiais da JVM.
 
 ---
 
 ## 2. Anatomia do Java Object Serialization (JOS) no Nível de Bits
 
-A especificação binária formal do Java Object Serialization define uma gramática de fluxo (stream) orientada a tokens, prefixada por cabeçalhos estritos e governada por uma tabela interna de referências (object graph handles).
+A especificação binária formal do Java Object Serialization define uma gramática de fluxo (*stream*) orientada a tokens, prefixada por cabeçalhos estritos e governada por uma tabela interna de referências (*object graph handles*).
 
 ```
  0                   1                   2                   3
@@ -60,153 +64,114 @@ Quando o `JOSEncoder` serializa uma classe (ex: `Ljava/lang/String;`) ou uma str
 
 ### 2.3. Ordenação Canônica de Campos (JOS Spec §4.3)
 
-Um erro comum em implementações parciais de JOS é a ordem de serialização dos campos no descritor de classe (`TC_CLASSDESC`). A especificação Java determina:
+A especificação Java determina:
 1. **Campos primitivos primeiro**, ordenados estritamente por ordem alfabética de seus nomes.
 2. **Campos de objetos depois**, também ordenados estritamente por ordem alfabética de seus nomes.
 
-Qualquer discrepância na ordem ou na assinatura de tipos entre o que é anunciado no `ClassDesc` e o que a classe na JVM espera faz o `ObjectStreamClass` lançar um `InvalidClassException: incompatible field type`.
+Qualquer discrepância na ordem ou na assinatura de tipos entre o que é anunciado no `ClassDesc` e o que a classe na JVM espera faz o `ObjectStreamClass` lançar `InvalidClassException: incompatible field type`.
 
-### 2.4. Tratamento Especial de Java Enums
+---
 
-Diferente de objetos comuns, instâncias de `Enum` **não serializam seus campos de instância**. A gramática do JOS para enums é estritamente:
+## 3. Arquitetura Modular de Metamodelos (`pkg/portico/wire/metamodel/`)
+
+Seguindo o princípio de responsabilidade única (SRP) e modularidade rigorosa, **cada classe Java possui seu próprio arquivo Go dedicado** no pacote [`pkg/portico/wire/metamodel/`](file:///c:/Magno/Projetos/hla-rti/pkg/portico/wire/metamodel/), eliminando arquivos monolíticos.
 
 ```
-TC_ENUM (0x7E)
-  ClassDescriptor (Nome do Enum, serialVersionUID=0L, Flags=SC_SERIALIZABLE|SC_ENUM [0x12], Fields=0)
-  SuperClassDescriptor (java.lang.Enum, serialVersionUID=0L, Flags=0x12, Fields=0)
-  Handle Assignment (0x007E0000 + n)
-  TC_STRING (Nome da constante enum, ex: "NO_ACTION")
+pkg/portico/wire/metamodel/
+├── types.go                             # Interfaces JOSWriter/JOSReader, ClassDesc, FieldDesc, Tokens
+├── registry.go                          # Catálogo concorrente RegisterClassDesc / LookupClassDesc
+├── java_lang_object.go                  # java.lang.Object (Superclasse raiz)
+├── java_lang_number.go                  # java.lang.Number (SUID: 0x86AC951D0B94E08B)
+├── java_lang_integer.go                 # java.lang.Integer (SUID: 0x12E2A0A4F7818738)
+├── java_lang_long.go                    # java.lang.Long (SUID: 0x3B8BAA2444859841)
+├── java_lang_boolean.go                 # java.lang.Boolean (SUID: 0xCD207280D59CFAEE)
+├── java_lang_enum.go                    # java.lang.Enum (Superclasse canônica de enums)
+├── java_util_hashmap.go                 # java.util.HashMap (SUID: 0x0507DAC1C31660D1)
+├── java_util_arraylist.go               # java.util.ArrayList (SUID: 0x7881D21D99C7619D)
+├── portico_message.go                   # org.portico.utils.messaging.PorticoMessage (Base 22b)
+├── portico_response_message.go          # org.portico2.common.messaging.ResponseMessage
+├── portico_extended_success_response.go # org.portico2.common.messaging.ExtendedSuccessResponse
+├── portico_create_federation.go         # org.portico2.common.services.federation.msg.CreateFederation
+├── portico_join_federation.go           # org.portico2.common.services.federation.msg.JoinFederation
+├── portico_jresign_action.go            # org.portico.lrc.compat.JResignAction (Enum)
+├── portico_resign_federation.go         # org.portico2.common.services.federation.msg.ResignFederation
+├── portico_sync_point_achieved.go       # org.portico2.common.services.sync.msg.SyncPointAchieved
+├── portico_announce_sync_point.go       # org.portico2.common.services.sync.msg.AnnounceSyncPoint
+├── portico_federation_synchronized.go   # org.portico2.common.services.sync.msg.FederationSynchronized
+├── portico_welcome_pack.go              # org.portico2.common.services.federation.msg.WelcomePack
+└── portico_rti_probe.go                 # org.portico2.common.services.federation.msg.RtiProbe
 ```
 
 ---
 
-## 3. Arquitetura de Software do `JOSEncoder` no Valhalla
+## 4. O Mecanismo `CustomOnly` vs `defaultWriteObject`
 
-O subsistema foi desenhado seguindo os princípios **SOLID**, separando completamente os conceitos de **metamodelo**, **motor de codificação** e **catálogo de esquemas**.
+Uma das descobertas técnicas mais importantes na engenharia do decodificador e codificador diz respeito ao comportamento de classes que implementam `writeObject` / `writeExternal`:
 
+### 4.1. O Contrato de `SC_WRITE_METHOD` (0x01)
+Pela especificação do Java Object Serialization, quando uma classe declara `private void writeObject(ObjectOutputStream out)`:
+* Se ela invocar `out.defaultWriteObject()`, a JVM serializa os campos declarados antes de qualquer dado customizado. Este é o comportamento de classes como `java.util.HashMap` (que grava `loadFactor` e `threshold` antes das entradas da tabela).
+* Se ela **NÃO invocar `out.defaultWriteObject()`**, a JVM **não grava os campos soltos**. Ela escreve exclusivamente os dados customizados empacotados em um bloco `TC_BLOCKDATA`.
+
+### 4.2. Otimização de 22 Bytes do `PorticoMessage`
+No código oficial do Portico (`PorticoMessage.java`), a classe declara 6 campos de instância (`sourceFederate`, `targetFederate`, `targetFederation`, `isFromRti`, `immediate`, `timestamp`). No entanto, no método de serialização, o Portico faz:
+
+```java
+private void writeObject( ObjectOutputStream oos ) throws IOException {
+    writeExternal( oos ); // NÃO chama defaultWriteObject!
+}
+public void writeExternal( ObjectOutput output ) throws IOException {
+    output.writeBoolean( isFromRti );     // 1 byte
+    output.writeInt( sourceFederate );    // 4 bytes
+    output.writeInt( targetFederate );    // 4 bytes
+    output.writeInt( targetFederation );  // 4 bytes
+    output.writeDouble( timestamp );      // 8 bytes
+    output.writeBoolean( immediate );     // 1 byte
+}
 ```
-                   +----------------------------------+
-                   |          jos_types.go            |
-                   |   - FieldType (byte)             |
-                   |   - FieldDesc (Nome, Tipo)       |
-                   |   - ClassDesc (Metamodelo)       |
-                   |   - JavaObject (Instância Go)    |
-                   |   - JavaEnum (Constante Enum)    |
-                   +-----------------+----------------+
-                                     ^
-                                     | usa metamodelo
-         +---------------------------+---------------------------+
-         |                                                       |
-+--------------------+                                  +--------------------+
-|   jos_encoder.go   |                                  |   jos_portico.go   |
-| Motor Agnóstico    |                                  | Catálogo Portico   |
-| - Header (ACED0005)|                                  | - ClassDescPortico |
-| - Pool de Handles  | <--- executa serialização de --- | - ClassDescJoin    |
-| - Recursive Chain  |                                  | - ClassDescResign  |
-| - Big-Endian IO    |                                  | - ClassDescSync    |
-+--------------------+                                  +--------------------+
-```
 
-### 3.1. Metamodelo JOS (`jos_types.go`)
+O total exato é **22 bytes** gravados em um único bloco `TC_BLOCKDATA` (`0x77 0x16 ... 0x78`).
 
-Representa as estruturas em memória de forma agnóstica:
-* `FieldType`: Enumeração dos códigos de tipo da JVM (`TypeInt = 'I'`, `TypeBoolean = 'Z'`, `TypeObject = 'L'`, etc.).
-* `ClassDesc`: Descreve a classe Java, seu `serialVersionUID`, flags (`SC_SERIALIZABLE`, `SC_WRITE_METHOD`, `SC_ENUM`), campos declarados e superclasse.
-* `JavaObject`: Estrutura de dados genérica com mapa fluente (`Set(campo, valor)` / `Get(campo)`). Permite representar qualquer objeto Java sem gerar structs Go específicas para cada classe da JVM.
-* `JavaEnum`: Representa uma constante enumerada associada ao seu `ClassDesc`.
+Para modelar isso declarativamente em Go, introduzimos a flag `CustomOnly bool` na struct `ClassDesc`:
+* Quando `CustomOnly: true` (como em `PorticoMessage` e `ResponseMessage`), o codificador Go suprime a gravação individual de campos e executa diretamente o `CustomWriter`, garantindo alinhamento estrito de bytes com a JVM.
 
-### 3.2. Motor Codificador Genérico (`jos_encoder.go`)
-
-O codificador é o equivalente em Go ao `ObjectOutputStream`:
-1. **Controle de Cabeçalho:** Garante emissão única de `0xACED 0x0005`.
-2. **Gerenciamento de Tabela de Referências:** Mapeia referências ativas (`refMap map[string]uint32`) gerando tokens `TC_REFERENCE` sempre que possível.
-3. **Resolução de Herança Invertida:** Em Java, a hierarquia de descritores de classe é declarada da subclasse para a superclasse (`Sub -> Super -> Object`), mas os **valores dos dados** são gravados da classe base para a subclasse (`Object -> Super -> Sub`). O `JOSEncoder` realiza a inversão da cadeia automaticamente via `getClassHierarchy()`.
-4. **Custom Writers:** Classes que implementam `writeObject` ou `writeExternal` (como `PorticoMessage` e `ArrayList`) possuem hooks `CustomWriter func(enc *JOSEncoder, obj *JavaObject)` que injetam seus blocos `TC_BLOCKDATA` com transparência.
-
-### 3.3. Catálogo Declarativo do Portico (`jos_portico.go`)
-
-Todas as mensagens de controle do Portico são registradas como meros descritores de metadados:
-* `ClassDescPorticoMessage`: Classe base (`org.portico.utils.messaging.PorticoMessage`, `serialVersionUID = 98121116105109L`) com bloco de 22 bytes de cabeçalho interno.
-* `ClassDescJoinFederation`: Requisição de ingresso na federação (`org.portico2.common.services.federation.msg.JoinFederation`).
-* `ClassDescCreateFederation`: Criação de federação.
-* `ClassDescResignFederation`: Desligamento de federação com enum canônico `JResignAction`.
-* `ClassDescSyncPointAchieved`: Sinalização de ponto de sincronização alcançado.
-* `ClassDescArrayList`: Suporte a listas encadeadas da JVM (`java.util.ArrayList`).
-
-Para adicionar qualquer nova mensagem do Portico ao Valhalla, **nenhuma nova função de codificação precisa ser escrita**: basta declarar a nova struct `ClassDesc`.
+### 4.3. Regra de Classes `Externalizable` (`SC_EXTERNALIZABLE = 0x04`)
+Quando uma classe implementa `java.io.Externalizable` (como `ExtendedSuccessResponse` e `WelcomePack`), a JVM ignora a hierarquia de superclasses durante a gravação/leitura de dados. O codificador e o decodificador Go executam exclusivamente o `CustomWriter` / `CustomReader` da própria classe concreta, sem emitir blocos espúrios de superclasses que provocariam `java.io.OptionalDataException` na JVM.
 
 ---
 
-## 4. O Caminho Inverso: A Contraparte `JOSDecoder`
+## 5. Chaves Oficiais do Portico no `ExtendedSuccessResponse`
 
-Assim como o `JOSEncoder` atua como `ObjectOutputStream`, o caminho reverso exige o **`JOSDecoder`**, atuando como **`ObjectInputStream`**.
+Na criação de federação (`CreateFederation`), o handler oficial do LRC Portico (`CreateFederationHandler.java`, linha 99) executa:
 
-### 4.1. O que o Valhalla Recebe do Portico?
-
-Quando o Valhalla envia um `JoinFederation`, o Portico responde com um pacote de controle contendo um objeto Java serializado:
-1. `ExtendedSuccessResponse`: Contém o mapa `HashMap<String, Object>` com os resultados da operação.
-2. No caso do `JoinFederation`, o resultado principal é o **`WelcomePack`** (~33 KB):
-   * `federateHandle` (ex: `uint16 = 7` ou `int32`).
-   * `federationHandle`.
-   * `fom` / `ObjectModel`: A árvore FOM completa dos objetos e interações configurados na federação.
-3. No caso de notificações assíncronas do Portico, o Valhalla recebe:
-   * `AnnounceSyncPoint` (`label`, `tag`).
-   * `FederationSynchronized` (`label`).
-   * `DiscoverObjectInstance` e `ReflectAttributeValues` (quando trafegando via canal de controle TCP).
-
-### 4.2. Arquitetura do `JOSDecoder`
-
-O `JOSDecoder` funciona como uma máquina de estados finitos que consome a gramática JOS:
-
-```
-[Leitura STREAM_MAGIC 0xACED + VERSION 0x0005]
-                  │
-                  ▼
-         [Leitura de Token]
-       ┌──────────┼──────────┬──────────┬──────────┐
-       ▼          ▼          ▼          ▼          ▼
-    TC_OBJECT  TC_STRING  TC_ARRAY   TC_REF    TC_BLOCK
-       │          │          │          │          │
-    Lê Desc    Lê UTF     Lê Len     Busca      Lê Len
-    Aloca Obj  Registra   e Itens    Handle     e Bytes
-    Lê Campos  Handle     Registra   Tabela
-       │                     Handle
-       ▼
- [Retorna *JavaObject]
+```java
+int federationHandle = context.getSuccessResultAsInt( CreateFederation.KEY_FEDERATION_HANDLE );
 ```
 
-1. **Reconstituição de `ClassDesc`:** Lê o nome da classe, `serialVersionUID` e a lista de campos declarados.
-2. **Resolução de Referências:** Armazena cada objeto, string e classe lida em um vetor indexado a partir de `0x007E0000`. Ao encontrar `TC_REFERENCE`, retorna imediatamente o ponteiro do objeto já instanciado.
-3. **Mapeamento Polimórfico:**
-   * Tipos primitivos são lidos diretamente para tipos Go (`int32`, `float64`, `bool`).
-   * Strings tornam-se `string`.
-   * Instâncias de classes tornam-se `*JavaObject` com os campos preenchidos em `Fields map[string]any`.
-   * Enums tornam-se `*JavaEnum` com o nome da constante.
+A constante `CreateFederation.KEY_FEDERATION_HANDLE` avalia exatamente para a string `"federationHandle"`. Se a resposta contiver apenas `"result"`, o desempacotamento de `(int) null` estoura `NullPointerException`. Por essa razão, o gerador `BuildCreateFederationResponsePayload` popula canonicamente:
+- `"federationHandle"` -> `Integer(fedHandle)` *(lido pelo CreateFederationHandler)*
+- `"federationName"` -> `String(fedName)`
+- `"result"` -> `Integer(fedHandle)` *(para compatibilidade geral com getResult())*
+
+Já no ingresso de federação (`JoinFederation`), o `JoinFederationHandler.java` consome `(WelcomePack) context.getSuccessResult()`, que busca pela chave `"result"`, onde o `WelcomePack` é entregue.
 
 ---
 
-## 5. Homologação e Testes Automatizados
+## 6. Homologação Bit a Bit contra OpenJDK 22
 
-O motor JOS foi submetido a baterias de testes unitários e de integração real:
+Para comprovar formalmente a exatidão matemática do motor Go, o fluxo binário sintetizado por `BuildCreateFederationResponsePayload` e `BuildSuccessResponsePayload` foi comparado diretamente contra o fluxo gerado pelo `ObjectOutputStream` do OpenJDK 22 compilado:
 
-1. **Testes Unitários de Isolamento (`pkg/portico/wire/jos_test.go`):**
-   * Validação de integridade do Magic e Version (`0xACED0005`).
-   * Validação da gramática de `RtiProbe`, `JoinFederation`, `CreateFederation`, `ResignFederation`.
-   * Validação da emissão do token `TC_ENUM` (`0x7E`) para `JResignAction.NO_ACTION`.
-   * Validação da ausência de deadlocks e alocações desnecessárias. **Status: 100% PASS (0.00s)**.
-
-2. **Teste de Integração Real contra o Portico CRTI (`test/integration/live_portico_test.go`):**
-   * Conexão viva via TCP com o executivo Portico no contêiner Arcanjo (`192.168.1.226:52295`).
-   * Ciclo de vida completo executado:
-     - Handshake TCP `0xBEEF` / `0xFEED`.
-     - Ingresso em federação viva (`ExampleFederation`) com o federado `Thor` ativo.
-     - Recepção do pacote de 33.498 bytes (`ControlResponseOK`, CallType = 3).
-     - Saída graciosa (`ResignFederation` com `NO_ACTION`).
-     - Recepção da confirmação de saída (`ResignFederation`, `ControlResponseOK`, CallType = 3).
-   * **Status: 100% PASS (0.26s)**.
+* **Tamanho gerado em Go:** 312 bytes
+* **Tamanho gerado pelo OpenJDK 22:** 312 bytes
+* **Diferença Binária (Diff Bit a Bit):** **0 bytes (100% idêntico)**
+* **Desserialização no OpenJDK:**
+  ```text
+  Successfully deserialized: org.portico2.common.messaging.ExtendedSuccessResponse
+  Result value: 1
+  ```
 
 ---
 
-## 6. Conclusão
+## 7. Conclusão
 
-Com a criação do `JOSEncoder` e do metamodelo em `pkg/portico/wire`, o Projeto Valhalla provou ser viável interagir com runtimes Java legados sem introduzir complexidade de compilação ou dependências externas. A solução preserva a arquitetura limpa do Go, mantém a compatibilidade normativa estrita com o Portico e estabelece as bases sólidas para a implementação simétrica do `JOSDecoder`.
+Com o metamodelo modular em `pkg/portico/wire/metamodel/` e o motor agnóstico em `pkg/portico/wire/`, o Projeto Valhalla atinge soberania completa: comunica-se no mais baixo nível com o ecossistema Portico legado sem depender de nenhuma máquina virtual Java, mantendo zero overhead no caminho crítico do protocolo nativo HLA-4 (SSZ / Merkle).

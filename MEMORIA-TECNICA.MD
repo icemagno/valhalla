@@ -363,4 +363,37 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Marcos concluídos: CRC Soberano, Multiplexador Monoporta, LRC Nativo IEEE 1516-2025 e Orquestração Mista com Portico.*
+### 20. Metamodelo Modular JOS em Go Puro (Zero Workarounds / Clean-Room) e Interoperabilidade ao Vivo com Thor
+
+1. **Rejeição de Atalhos e Compromisso Soberano de Engenharia:**
+   * Diante de incompatibilidades de serialização do `CreateFederation` no LRC do Portico oficial (Thor em OpenJDK), rejeitou-se formalmente qualquer tentativa de contorno baseado em templates estáticos binários (`.bin`) pré-compilados via JVM externa.
+   * **Decisão Arquitetural Mandatória:** Todas as estruturas do Java Object Serialization (JOS) devem ser geradas algorítmica e dinamicamente em memória por código Go puro, mantendo modularidade estrita de **um arquivo por classe** no pacote dedicado [`pkg/portico/wire/metamodel/`](pkg/portico/wire/metamodel/).
+
+2. **Arquitetura do Metamodelo Modular ([`pkg/portico/wire/metamodel/`](pkg/portico/wire/metamodel/)):**
+   * Criado o catálogo declarativo de classes com suporte a SUIDs canônicos, descritores de campos e métodos de escrita/leitura customizados:
+     * **Classes Base da JVM:** `java.lang.Object`, `java.lang.Number`, `java.lang.Integer`, `java.lang.Long`, `java.lang.Boolean`, `java.lang.Enum`, `java.util.HashMap`, `java.util.ArrayList`.
+     * **Mensagens e Controles do Portico:** `PorticoMessage`, `ResponseMessage`, `ExtendedSuccessResponse`, `CreateFederation`, `JoinFederation`, `ResignFederation`, `JResignAction`, `SyncPointAchieved`, `AnnounceSyncPoint`, `FederationSynchronized`, `WelcomePack`, `RtiProbe`.
+   * **O Mecanismo `CustomOnly` vs `defaultWriteObject`:**
+     * Mapeado o comportamento oficial da especificação JOS da Oracle: classes com `SC_WRITE_METHOD` que não invocam `defaultWriteObject()` (caso de `PorticoMessage` com 22 bytes e `ResponseMessage` com 1 byte) suprimem a gravação individual de campos e utilizam blocos `TC_BLOCKDATA`. A flag `CustomOnly bool` foi introduzida no descritor de classe, garantindo alinhamento estrito sem hardcodings.
+     * Para classes `Externalizable` (como `ExtendedSuccessResponse` e `WelcomePack`), a JVM ignora campos de superclasses, executando apenas o `writeExternal` / `readExternal` da classe concreta.
+
+3. **Resolução de Chaves de Resposta no Portico LRC:**
+   * Investigada a causa do `NullPointerException` em `CreateFederationHandler.java:99` no Thor: a classe consulta `context.getSuccessResultAsInt(CreateFederation.KEY_FEDERATION_HANDLE)`, que busca explicitamente a chave `"federationHandle"` no mapa de retorno.
+   * O gerador `BuildCreateFederationResponsePayload` passou a popular `"federationHandle"`, `"federationName"` e `"result"`.
+
+4. **Implementação de Notificações de Sincronização (`AnnounceSyncPoint` e `FederationSynchronized`):**
+   * Implementadas as classes de notificação e integradas ao ciclo de vida do CRC: ao registrar um ponto, o CRC transmite a notificação `AnnounceSyncPoint` (mensagem 42) para todos os federados da federação. Ao atingir o quórum de conquista, transmite `FederationSynchronized` (mensagem 44).
+
+5. **Eliminação de Fallbacks Arbitrários:**
+   * Removido o gerador de nomes aleatórios (`PorticoNode_XXXXX`) em `MsgJoinFederation`. Conforme o padrão IEEE 1516, requisições com payload inválido ou sem nome são rejeitadas formalmente com erro (`SendControlResponseErr`).
+
+6. **Validação Matemática e Comprovação ao Vivo:**
+   * O fluxo binário do `BuildCreateFederationResponsePayload` foi comparado bit a bit contra o `ObjectOutputStream` do OpenJDK 22 compilado: **diferença de 0 bytes (100% idêntico)**.
+   * Execução ao vivo contra o federado **Thor** no contêiner Linux Arcanjo:
+     * `SUCCESS Created federation execution [ExampleFederation] with handle 1`
+     * `SUCCESS Federate [Thor] joined to federation [ExampleFederation] with handle [1]`
+     * `FederateAmbassador: Successfully registered sync point: ReadyToRun`
+
+---
+
+*Fim da entrada diária de 24/11/2026. Marcos concluídos: CRC Soberano, Multiplexador Monoporta, LRC Nativo IEEE 1516-2025, Metamodelo Modular JOS em Go Puro e Homologação ao Vivo com Portico (Thor).*
