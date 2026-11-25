@@ -78,6 +78,8 @@ hla-rti/
 ├── cmd/                                # Application entry points
 │   ├── valhalla-crc/                   # Central RTI Component (CRC server)
 │   └── valhalla-federate/              # Native Go HLA-4 test federate (LRC)
+├── examples/                           # Standalone end-user reference federates
+│   └── java-federate/                  # Standalone Maven Java federate consuming Valhalla via GitHub mvn-repo
 ├── pkg/                                # Core Go implementation packages
 │   ├── cabi/                           # C-ABI / CGo export layer for native LRC dynamic library
 │   ├── common/                         # SSZ encoding, protocol messages, Merkle trees, PQC
@@ -265,6 +267,20 @@ java -cp "out:dist/java/valhalla-lrc.jar" SimpleFederate
 #### Running the Built-in Java End-to-End Test Suite (DDM + Ownership)
 ```powershell
 powershell -File test/java_test/run_test.ps1
+```
+
+### 4. Standalone Example Federate (Official 11-Stage Homologation)
+
+A complete, standalone reference federate that runs against the sovereign CRC and verifies all 11 homologation stages (connection, creation, join, declaration, 3D Morton DDM, registration, spatial updates, attribute reflection, attribute ownership divestiture and acquisition, object deletion, resignation, destruction, disconnection) is located in `examples/java-federate`:
+
+```cmd
+# Windows (CMD / Batch)
+cd examples\java-federate
+run.bat
+
+# Linux / macOS (Bash)
+cd examples/java-federate
+./run.sh
 ```
 
 ---

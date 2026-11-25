@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>valhalla-example-federate</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Valhalla Standalone Example Federate</name>
+    <description>Standalone IEEE 1516e Java Federate consuming Valhalla SDK from GitHub Maven Repository</description>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <repositories>
+        <!-- Valhalla Official GitHub Maven Repository -->
+        <repository>
+            <id>valhalla-mvn-repo</id>
+            <url>https://raw.githubusercontent.com/icemagno/valhalla/mvn-repo/</url>
+            <snapshots>
+                <enabled>true</enabled>
+                <updatePolicy>always</updatePolicy>
+            </snapshots>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <!-- Valhalla Native Java Client SDK (contains IEEE 1516e + embedded DLL/SO) -->
+        <dependency>
+            <groupId>io.valhalla</groupId>
+            <artifactId>valhalla-lrc</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>17</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>org.valhalla.example.ExampleFederate</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
