@@ -959,16 +959,17 @@ const valhallaDashboardHTML = `<!DOCTYPE html>
       totalReflects++;
       document.getElementById('reflectCount').textContent = totalReflects;
       const p = msg.params;
-      if (entities[p.object]) {
-        // Parse sample POS(x=..., y=...)
-        const pos = p.attributes['1001'] || '';
-        const match = pos.match(/x=([0-9.]+),\s*y=([0-9.]+)/);
-        if (match) {
-          entities[p.object].x = parseFloat(match[1]);
-          entities[p.object].y = parseFloat(match[2]);
-        }
+      if (!entities[p.object]) {
+        entities[p.object] = { x: 500, y: 500, name: 'Track #' + p.object };
+      }
+      const pos = p.attributes['1001'] || Object.values(p.attributes)[0] || '';
+      const match = pos.match(/x=([0-9.]+)[^y]+y=([0-9.]+)/) || pos.match(/([0-9.]+)[,\s]+([0-9.]+)/);
+      if (match) {
+        entities[p.object].x = parseFloat(match[1]);
+        entities[p.object].y = parseFloat(match[2]);
       }
       addLog('REFLECT: Object #' + p.object + ' attrs=' + JSON.stringify(p.attributes), 'log-rx');
+      updateEntityList();
     } else if (msg.callback === 'removeObjectInstance') {
       delete entities[msg.params.object];
       addLog('REMOVE: Object #' + msg.params.object, 'log-warn');

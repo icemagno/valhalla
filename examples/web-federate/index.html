@@ -40,11 +40,12 @@
 <div class="main">
   <div class="panel">
     <div class="card">
-      <h3>Homologation Suite</h3>
+      <h3>Homologation & Simulation</h3>
       <p style="font-size:0.75rem; color:#9da9a0; margin-bottom:8px;">
-        Runs the complete 11-stage HLA-4 lifecycle natively in the browser via WebSockets.
+        Control live browser federate lifecycle and radar telemetry.
       </p>
       <button class="btn" id="runTestBtn" onclick="runHomologationTest()">Run 11-Stage Homologation Test</button>
+      <button class="btn" id="patrolBtn" onclick="togglePatrol()" style="background:#26435c; color:#7fbbb3; border-color:#3a6185; margin-top:8px;">Start Continuous Air Patrol</button>
     </div>
     <div class="card">
       <h3>Active Federation</h3>
@@ -67,6 +68,7 @@
 <div class="log-box" id="logs"></div>
 
 <script>
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   const logBox = document.getElementById('logs');
   function log(msg, cls = 'log-info') {
     const d = document.createElement('div');
@@ -88,13 +90,23 @@
     const cy = canvas.height / 2;
     const r = cx - 12;
 
-    // Rings
-    ctx.strokeStyle = '#1d2d3d';
+    // Background circle
+    ctx.fillStyle = '#080d14';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Range Rings
+    ctx.strokeStyle = '#1b2938';
     ctx.lineWidth = 1.5;
     for (let i = 1; i <= 4; i++) {
       ctx.beginPath();
       ctx.arc(cx, cy, (r / 4) * i, 0, Math.PI * 2);
       ctx.stroke();
+
+      ctx.fillStyle = '#3a5068';
+      ctx.font = '9px monospace';
+      ctx.fillText((i * 250) + 'm', cx + 4, cy - (r / 4) * i + 10);
     }
 
     // Crosshairs
@@ -103,29 +115,54 @@
     ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
     ctx.stroke();
 
+    // Radar Sweep Beam with trailing gradient
+    sweep = (sweep + 0.025) % (Math.PI * 2);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, sweep - 0.25, sweep);
+    ctx.closePath();
+    const beamGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    beamGrad.addColorStop(0, 'rgba(127, 187, 179, 0)');
+    beamGrad.addColorStop(1, 'rgba(127, 187, 179, 0.25)');
+    ctx.fillStyle = beamGrad;
+    ctx.fill();
+    ctx.restore();
+
     // Sweep Line
-    sweep = (sweep + 0.02) % (Math.PI * 2);
-    ctx.strokeStyle = 'rgba(127, 187, 179, 0.4)';
+    ctx.strokeStyle = '#a7c080';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.lineTo(cx + Math.cos(sweep) * r, cy + Math.sin(sweep) * r);
     ctx.stroke();
 
-    // Draw Entities
+    // Draw Entities (blips)
     for (const id in entities) {
       const e = entities[id];
       const ex = cx + ((e.x - 500) / 500) * (r * 0.85);
       const ey = cy + ((e.y - 500) / 500) * (r * 0.85);
 
-      ctx.fillStyle = '#a7c080';
+      // Blip pulse aura
+      ctx.fillStyle = 'rgba(167, 192, 128, 0.25)';
       ctx.beginPath();
-      ctx.arc(ex, ey, 6, 0, Math.PI * 2);
+      ctx.arc(ex, ey, 10 + Math.sin(Date.now() / 150) * 2, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = '#d3c6aa';
-      ctx.font = '11px monospace';
-      ctx.fillText((e.name || ('Asset #' + id)) + ' (' + Math.round(e.x) + ',' + Math.round(e.y) + ')', ex + 8, ey + 4);
+      // Blip center core
+      ctx.fillStyle = '#a7c080';
+      ctx.beginPath();
+      ctx.arc(ex, ey, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Label & coordinates
+      ctx.fillStyle = '#e5e9f0';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(e.name || ('Asset #' + id), ex + 9, ey - 2);
+
+      ctx.fillStyle = '#7fbbb3';
+      ctx.font = '9px monospace';
+      ctx.fillText('(' + Math.round(e.x) + ',' + Math.round(e.y) + ')', ex + 9, ey + 10);
     }
 
     requestAnimationFrame(renderRadar);
@@ -151,15 +188,17 @@
   rtiAmb.on('reflectAttributeValues', (p) => {
     reflectTotal++;
     document.getElementById('reflectCountText').textContent = reflectTotal;
-    if (entities[p.object]) {
-      const pos = p.attributes['1001'] || '';
-      const match = pos.match(/x=([0-9.]+),\s*y=([0-9.]+)/);
-      if (match) {
-        entities[p.object].x = parseFloat(match[1]);
-        entities[p.object].y = parseFloat(match[2]);
-      }
+    if (!entities[p.object]) {
+      entities[p.object] = { x: 500, y: 500, name: 'Track #' + p.object };
+    }
+    const pos = p.attributes['1001'] || Object.values(p.attributes)[0] || '';
+    const match = pos.match(/x=([0-9.]+)[^y]+y=([0-9.]+)/) || pos.match(/([0-9.]+)[,\s]+([0-9.]+)/);
+    if (match) {
+      entities[p.object].x = parseFloat(match[1]);
+      entities[p.object].y = parseFloat(match[2]);
     }
     log('REFLECT: Object #' + p.object + ' attrs=' + JSON.stringify(p.attributes), 'log-rx');
+    updateEntitiesUI();
   });
 
   rtiAmb.on('removeObjectInstance', (p) => {
@@ -176,13 +215,88 @@
       el.innerHTML = '<span style="color:#859289">No active entities</span>';
       return;
     }
-    el.innerHTML = keys.map(k => '<div style="color:#7fbbb3;">* [' + k + '] ' + entities[k].name + '</div>').join('');
+    el.innerHTML = keys.map(k => '<div style="color:#7fbbb3;">* [' + k + '] <b>' + entities[k].name + '</b> (' + Math.round(entities[k].x) + ',' + Math.round(entities[k].y) + ')</div>').join('');
   }
 
   // Connect automatically on page load
   rtiAmb.connect().catch(e => {
     log('Connection failed: ' + e.message, 'log-warn');
   });
+
+  let patrolInterval = null;
+  let patrolObjHandle = null;
+  let patrolAngle = 0;
+
+  async function togglePatrol() {
+    const btn = document.getElementById('patrolBtn');
+    if (patrolInterval) {
+      clearInterval(patrolInterval);
+      patrolInterval = null;
+      btn.textContent = 'Start Continuous Air Patrol';
+      btn.style.background = '#26435c';
+      if (patrolObjHandle) {
+        try {
+          await rtiAmb.deleteObjectInstance(patrolObjHandle, "PatrolStopped");
+          delete entities[patrolObjHandle];
+          updateEntitiesUI();
+          log("Patrol UAV deactivated.");
+        } catch (e) {}
+        patrolObjHandle = null;
+      }
+      return;
+    }
+
+    try {
+      btn.textContent = 'Starting Patrol...';
+      await rtiAmb.connect();
+      const fedName = "ValhallaHomologFederation";
+      try { await rtiAmb.createFederationExecution(fedName, ["foms/ValhallaAdvanced.xml"]); } catch (e) {}
+      await rtiAmb.joinFederationExecution("WebPatrolFederate", fedName);
+
+      const entityClass = await rtiAmb.getObjectClassHandle("TacticalEntity");
+      const posAttr = await rtiAmb.getAttributeHandle(entityClass, "Position");
+      const velAttr = await rtiAmb.getAttributeHandle(entityClass, "Velocity");
+      await rtiAmb.publishObjectClassAttributes(entityClass, [posAttr, velAttr]);
+
+      const dimX = await rtiAmb.getDimensionHandle("DimensionX");
+      const dimY = await rtiAmb.getDimensionHandle("DimensionY");
+      const dimZ = await rtiAmb.getDimensionHandle("DimensionZ");
+      const regHandle = await rtiAmb.createRegion([dimX, dimY, dimZ]);
+      await rtiAmb.setMetricBounds(regHandle, 0.0, 1000.0, 0.0, 1000.0, 0.0, 1000.0);
+      await rtiAmb.subscribeObjectClassAttributesWithRegions(entityClass, [posAttr, velAttr], regHandle);
+
+      patrolObjHandle = await rtiAmb.registerObjectInstance(entityClass, "Valhalla_Patrol_UAV");
+      entities[patrolObjHandle] = { x: 500, y: 500, name: "Valhalla_Patrol_UAV", class: entityClass };
+      updateEntitiesUI();
+      log("Continuous Air Patrol activated! Target orbiting on live radar...", "log-pass");
+
+      btn.textContent = 'Stop Air Patrol';
+      btn.style.background = '#7a3b3b';
+
+      patrolInterval = setInterval(async () => {
+        patrolAngle += 0.04;
+        const px = Math.round(500 + 300 * Math.cos(patrolAngle));
+        const py = Math.round(500 + 300 * Math.sin(patrolAngle));
+        if (entities[patrolObjHandle]) {
+          entities[patrolObjHandle].x = px;
+          entities[patrolObjHandle].y = py;
+          updateEntitiesUI();
+        }
+
+        try {
+          await rtiAmb.updateAttributeValuesSpatial(patrolObjHandle, {
+            [posAttr]: `POS(x=${px}.0, y=${py}.0, z=200.0)`,
+            [velAttr]: "VEL(mach=2.2)"
+          }, px, py, 200.0, "Patrol");
+        } catch (e) {}
+      }, 100);
+
+    } catch (err) {
+      log("Failed to start patrol: " + err.message, "log-warn");
+      btn.textContent = 'Start Continuous Air Patrol';
+      btn.style.background = '#26435c';
+    }
+  }
 
   async function runHomologationTest() {
     const btn = document.getElementById('runTestBtn');
@@ -197,6 +311,7 @@
       log("[Stage 1/11] Initializing and Connecting to Valhalla CRC...");
       await rtiAmb.connect();
       log("  [+] Connected to CRC via WebSocket!");
+      await sleep(300);
 
       // Stage 2: Create & Join
       const fedName = "ValhallaHomologFederation";
@@ -212,6 +327,7 @@
       document.getElementById('fedNameText').textContent = fedName;
       document.getElementById('fedHandleText').textContent = fedHandle;
       log("  [+] Joined federation! FederateHandle: " + fedHandle);
+      await sleep(300);
 
       // Stage 3: Dynamic FOM Resolution
       log("[Stage 3/11] Resolving Object Class & Attributes from FOM...");
@@ -224,6 +340,7 @@
 
       await rtiAmb.publishObjectClassAttributes(entityClass, [posAttr, velAttr, payloadAttr]);
       log("  [+] Published FOM attributes!");
+      await sleep(300);
 
       // Stage 4: Dynamic DDM 3D Spatial Region
       log("[Stage 4/11] Resolving DDM Dimensions & Creating 3D Region...");
@@ -236,6 +353,7 @@
       await rtiAmb.setMetricBounds(regHandle, 0.0, 1000.0, 0.0, 1000.0, 0.0, 1000.0);
       await rtiAmb.subscribeObjectClassAttributesWithRegions(entityClass, [posAttr, velAttr, payloadAttr], regHandle);
       log("  [+] Subscribed with 3D Morton region " + regHandle + " bounding [0, 1000]^3!");
+      await sleep(300);
 
       // Stage 5: Register Object Instance
       const assetName = "Valhalla_Web_Drone_01";
@@ -243,14 +361,36 @@
       const objHandle = await rtiAmb.registerObjectInstance(entityClass, assetName);
       log("  [+] Object instance registered! Handle: " + objHandle);
 
-      // Stage 6: 3D Spatial Attribute Updates
-      log("[Stage 6/11] Performing 3D Spatial Attribute Updates...");
-      await rtiAmb.updateAttributeValuesSpatial(objHandle, {
-        [posAttr]: "POS(x=350.0, y=350.0, z=150.0)",
-        [velAttr]: "VEL(mach=1.8)",
-        [payloadAttr]: "WEB_SEARCH_ACTIVE"
-      }, 350.0, 350.0, 150.0, "WebCycle_1");
-      log("  [+] Sent spatial update at (350.0, 350.0, 150.0)!");
+      // Add to local radar display immediately!
+      entities[objHandle] = { x: 220, y: 220, name: assetName, class: entityClass };
+      updateEntitiesUI();
+      await sleep(500);
+
+      // Stage 6: 3D Spatial Attribute Updates with visible radar flight path!
+      log("[Stage 6/11] Performing 3D Spatial Attribute Updates with Live Flight Path...");
+      const waypoints = [
+        { x: 300, y: 280 },
+        { x: 420, y: 380 },
+        { x: 550, y: 450 },
+        { x: 680, y: 350 },
+        { x: 750, y: 240 }
+      ];
+
+      for (let i = 0; i < waypoints.length; i++) {
+        const wp = waypoints[i];
+        entities[objHandle].x = wp.x;
+        entities[objHandle].y = wp.y;
+        updateEntitiesUI();
+
+        await rtiAmb.updateAttributeValuesSpatial(objHandle, {
+          [posAttr]: `POS(x=${wp.x}.0, y=${wp.y}.0, z=150.0)`,
+          [velAttr]: "VEL(mach=1.8)",
+          [payloadAttr]: "WEB_SEARCH_ACTIVE"
+        }, wp.x, wp.y, 150.0, "WebCycle_" + (i + 1));
+
+        log(`  [+] Sent spatial waypoint ${i + 1}/5 at (${wp.x}, ${wp.y}, 150) - Live Radar Tracked!`);
+        await sleep(400);
+      }
 
       // Stage 7: Ownership Management
       log("[Stage 7/11] Testing Attribute Ownership Management on 'Position'...");
@@ -264,11 +404,15 @@
       await rtiAmb.attributeOwnershipAcquisition(objHandle, [posAttr], "WebAcquireTag");
       const afterAcquire = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
       log("  [+] Ownership after re-acquisition: " + afterAcquire + " (expected: true)");
+      await sleep(600);
 
       // Stage 8: Delete Object Instance
       log("[Stage 8/11] Deleting object instance " + objHandle + "...");
       await rtiAmb.deleteObjectInstance(objHandle, "WebHomologDone");
+      delete entities[objHandle];
+      updateEntitiesUI();
       log("  [+] Object deleted cleanly!");
+      await sleep(400);
 
       // Stage 9: Resign
       log("[Stage 9/11] Resigning federation execution...");
