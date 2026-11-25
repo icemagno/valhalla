@@ -22,7 +22,7 @@ Each entry documents in detail:
 
 ---
 
-## Technical Decisions - 24/11/2026
+## Technical Decisions 
 
 ### 1. Contextualization and Official Specification Alignment (HLA/RTI)
 * **Standards Evolution:** Analyzed the historical trajectory from HLA 1.3 (DMSO), through IEEE 1516-2000, IEEE 1516-2010 (HLA Evolved), to the contemporary IEEE 1516-2025 (HLA-4).
