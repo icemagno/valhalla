@@ -1,0 +1,64 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": [
+        "icon-16.png",
+        "icon-24.png",
+        "icon-32.png",
+        "icon-48.png",
+        "icon-64.png",
+        "icon-96.png",
+        "icon-128.png",
+        "icon-256.png"
+      ]
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": {
+          "name": "Project Valhalla CRC",
+          "version": "1.0.0.0"
+        },
+        "description": "Valhalla Central RTI Component (IEEE 1516-2025)",
+        "minimum-os": "win7",
+        "execution-level": "as invoker",
+        "ui-access": false,
+        "auto-elevate": false,
+        "dpi-awareness": "system",
+        "disable-theming": false,
+        "disable-window-filtering": false,
+        "high-resolution-scrolling-aware": true,
+        "ultra-high-resolution-scrolling-aware": true,
+        "long-path-aware": true,
+        "printer-driver-isolation": false,
+        "gdi-scaling": false,
+        "segment-heap": false,
+        "use-common-controls-v6": true
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "fixed": {
+          "file_version": "1.0.0.0",
+          "product_version": "1.0.0.0"
+        },
+        "info": {
+          "0409": {
+            "Comments": "Sovereign High-Performance HLA-4 (IEEE 1516-2025) Run-Time Infrastructure",
+            "CompanyName": "Project Valhalla",
+            "FileDescription": "Valhalla Central RTI Component (CRC)",
+            "FileVersion": "1.0.0.0",
+            "InternalName": "valhalla-crc",
+            "LegalCopyright": "Copyright (C) 2026 Carlos Magno Oliveira de Abreu. Apache License 2.0.",
+            "OriginalFilename": "valhalla-crc.exe",
+            "ProductName": "Project Valhalla",
+            "ProductVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  }
+}
