@@ -5,7 +5,7 @@ cd "$DIR"
 
 if [ ! -f cpp_federate ]; then
     echo "[*] Building cpp_federate..."
-    g++ -std=c++14 -Wno-deprecated src/main.cpp -Isrc -I../../sdk/cpp/include -I../../sdk/c/include ../../sdk/cpp/librti1516e.a -L../../dist/bin -lvalhalla_lrc -o cpp_federate
+    g++ -std=c++14 -Wno-deprecated src/main.cpp -Isrc -I../../dist/include ../../dist/lib/librti1516e.a -L../../dist/bin -lvalhalla_lrc -o cpp_federate
 fi
 
 export LD_LIBRARY_PATH="../../dist/bin:$LD_LIBRARY_PATH"
