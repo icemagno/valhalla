@@ -36,5 +36,6 @@ go.work.sum
 
 # Third-party runtime, distribution & jar binaries
 portico-3.0/
+portico-3.0-homolog/
 *.jar
 
