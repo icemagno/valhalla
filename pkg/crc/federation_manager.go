@@ -62,6 +62,29 @@ func (m *FederationManager) GetFederation(name string) (*FederationExecution, bo
 	return fed, exists
 }
 
+// GetFirstFederation obtém a primeira federação ativa existente
+func (m *FederationManager) GetFirstFederation() (*FederationExecution, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, fed := range m.federations {
+		return fed, true
+	}
+	return nil, false
+}
+
+// ListFederations retorna a lista com o nome de todas as federações ativas
+func (m *FederationManager) ListFederations() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	names := make([]string, 0, len(m.federations))
+	for name := range m.federations {
+		names = append(names, name)
+	}
+	return names
+}
+
 // DestroyFederation remove a federação se não houver federados ativos
 func (m *FederationManager) DestroyFederation(name string) error {
 	m.mu.Lock()

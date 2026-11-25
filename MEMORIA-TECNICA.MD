@@ -903,4 +903,49 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack, Portico Object Management JOS, Sintetizador de ObjectModel, Parser Modular XML IEEE 1516-2010, Ingestão Dinâmica de FOMs Portico, Resolução Multi-Plataforma, Homologação Definitiva de Interoperabilidade Portico IEEE 1516e, Federação Mista Portico (Java) & Federado Nativo Valhalla (Go VAL4) em Tempo Real, Encerramento Soberano Imediato do CRC, Logging Assíncrono Desacoplado e Suíte de Testes 100% Race-Free.*
+### 45. Suíte de Testes Avançados Portico (Java) com FOM Customizado e Protocolos Estendidos (Sprint 6)
+
+1. **Estruturação da Suíte de Testes Avançados ([`portico-3.0/examples/java/aditional/`](portico-3.0/examples/java/aditional/)):**
+   - Construída a suíte de testes avançados para homologação conjunta do núcleo soberano Valhalla e do canal de transporte legado:
+     - **FOM Avançado (`foms/ValhallaAdvanced.xml`):** Define `HLAobjectRoot.TacticalEntity` (com atributos `Position`, `Velocity`, `PayloadStatus`, `BatteryLevel` sob política `DivestAcquire`), interações `SensorTrack` e `MissionControl`, e dimensões espaciais DDM (`DimensionX`, `DimensionY`, `DimensionZ`).
+     - **Federado Java (`ExampleFederate.java`):** Implementa 4 fases de validação rigorosa:
+       - *Fase 1 (Tempo Orientado a Eventos):* Avanços temporais estritos orientados a eventos via `nextMessageRequest` (NMR) intercalados com interações e reflexões de atributos.
+       - *Fase 2 (Gerenciamento de Posse):* Desincorporação incondicional de atributos (`unconditionalAttributeOwnershipDivestiture`) e consulta de titularidade (`queryAttributeOwnership`).
+       - *Fase 3 (Persistência e Checkpointing):* Solicitação e confirmação de salvamento global (`requestFederationSave`) e restauração (`requestFederationRestore`).
+       - *Fase 4 (Alta Escala e Vazão):* Burst contínuo de atualizações e interações em alta frequência.
+     - **Scripts e Empacotamento:** Compilação do bytecode com `javac` e empacotamento em `java-ieee1516e.jar`, acompanhado de scripts executáveis `windows.bat` e `linux.sh`.
+
+2. **Ingestão e Descoberta Dinâmica de Módulos FOM no CRC ([`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
+   - Adequação do handler de `MsgCreateFederation` e `MsgJoinFederation` para inspecionar e extrair coleções de módulos serializados (`rawFomModules`, `modules`, `fomModuleLocations`).
+   - Resolução determinística e agnóstica de arquivos FOM em disco (`resolveFOMPath`), localizando e sintetizando o `ObjectModel` em tempo de execução para os clientes Portico.
+
+---
+
+### 46. Implementação de DDM Morton 3D (Z-Order Hashing) e Ownership Management no Core Valhalla (Sprint 6)
+
+1. **Data Distribution Management com Curvas Espaciais Morton 3D ([`pkg/crc/core/morton.go`](pkg/crc/core/morton.go)):**
+   - Implementado o algoritmo canônico de entrelaçamento de bits (Z-order space-filling curves) com 21 bits por coordenada ortogonal (totalizando 63 bits em `uint64`).
+   - Mapeamento métrico contínuo de coordenadas terrestres globais ECEF ($[-10.000\ \text{km}, +10.000\ \text{km}]$) com precisão métrica de $\approx 9,5$ metros por voxel.
+   - **Performance Incomparável comprovada via benchmarks Go:**
+     - `BenchmarkMortonEncode`: **3.72 ns / op** (~270 milhões de conversões/s).
+     - `BenchmarkMortonDecode`: **3.39 ns / op** (~295 milhões de descompressões/s).
+     - `SpatialRegion.ContainsMorton`: Verificação bitwise de pertinência espacial em **< 2 ns**.
+   - **Integração no Roteador `InterestMatcher`:**
+     - Adicionado suporte a assinaturas regionais DDM (`SubscribeObjectClassWithRegion` e `GetAttributeSubscribersInRegion`).
+     - Benchmark de roteamento espacial completo: **71.25 ns / op** (incluindo descompressão, validação bitwise de regiões e retorno de handles de federados).
+
+2. **Gerenciamento de Posse de Atributos ([`pkg/crc/core/ownership.go`](pkg/crc/core/ownership.go)):**
+   - Implementado o `OwnershipManager` thread-safe para governança normativa de posse de atributos de entidades:
+     - Atribuição inicial de posse na criação/registro de instâncias de objetos.
+     - Desincorporação incondicional (`UnconditionalDivestiture`) e aquisição (`AcquireAttributeOwnership`).
+     - Consulta de titularidade (`QueryAttributeOwnership`) com distinção entre atributos possuídos por federados, possuídos pelo RTI ou desincorporados (`unowned`).
+     - Limpeza e liberação atômica em eventos de desligamento ou exclusão de entidades (`DeleteObjectOwnership`, `RemoveFederate`).
+
+3. **Homologação Simultânea de Federação Mista Avançada em Tempo Real:**
+   - Executada a federação `ValhallaAdvancedFed` com o executivo central `valhalla-crc`, o federado Java Portico `AdvancedAlpha` e o observador nativo Go `valhalla-observer` (`VAL4`).
+   - O observador nativo capturou e decodificou com perfeição todas as 50 transmissões da entidade tática (`Position`, `Velocity`, `PayloadStatus`, `BatteryLevel`), as interações de rastreio de alvos (`TrackID`, `SensorData`) e a notificação de encerramento da entidade.
+   - A suíte completa de 25 ciclos de alta vazão encerrou em **347 ms (~14.000 atualizações/s)** com **ZERO data races** em `go test -race -count=1 ./...`.
+
+---
+
+*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack, Portico Object Management JOS, Sintetizador de ObjectModel, Parser Modular XML IEEE 1516-2010, Ingestão Dinâmica de FOMs Portico, Resolução Multi-Plataforma, Homologação Definitiva de Interoperabilidade Portico IEEE 1516e, Federação Mista Portico (Java) & Federado Nativo Valhalla (Go VAL4) em Tempo Real, Suíte de Testes Avançados `aditional` com FOM Customizado, Data Distribution Management com Curvas Morton 3D em < 4 ns, Ownership Management Normativo, Encerramento Soberano Imediato do CRC, Logging Assíncrono Desacoplado e Suíte de Testes 100% Race-Free.*

@@ -41,6 +41,15 @@ type InterestMatcher struct {
 	fedObjSubs         map[common.FederateHandle][]ClassAttrKey
 	fedInteractionPubs map[common.FederateHandle][]common.InteractionClassHandle
 	fedInteractionSubs map[common.FederateHandle][]common.InteractionClassHandle
+
+	// 6. DDM Spatial Region Subscriptions: (ClassHandle, AttrHandle) -> []RegionSubscription
+	objRegionSubs map[ClassAttrKey][]RegionSubscription
+}
+
+// RegionSubscription represents a federate's subscription bound to a 3D DDM spatial region
+type RegionSubscription struct {
+	FedID  common.FederateHandle
+	Region SpatialRegion
 }
 
 // NewInterestMatcher creates a new router instance associated with an OMT registry
@@ -55,6 +64,7 @@ func NewInterestMatcher(omt *OMTRegistry) *InterestMatcher {
 		fedObjSubs:             make(map[common.FederateHandle][]ClassAttrKey),
 		fedInteractionPubs:     make(map[common.FederateHandle][]common.InteractionClassHandle),
 		fedInteractionSubs:     make(map[common.FederateHandle][]common.InteractionClassHandle),
+		objRegionSubs:          make(map[ClassAttrKey][]RegionSubscription),
 	}
 }
 
@@ -280,6 +290,80 @@ func (m *InterestMatcher) GetAttributeSubscribers(class common.ObjectClassHandle
 	return resultBitset.ToFederateHandles()
 }
 
+// SubscribeObjectClassWithRegion registers a federate's subscription constrained by a 3D DDM spatial region
+func (m *InterestMatcher) SubscribeObjectClassWithRegion(fedID common.FederateHandle, class common.ObjectClassHandle, attrs []common.AttributeHandle, region SpatialRegion) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.omt.GetObjectClass(class); !exists {
+		return ErrClassNotFound
+	}
+
+	for _, attr := range attrs {
+		if _, err := m.omt.ResolveAttribute(class, attr); err != nil {
+			return err
+		}
+	}
+
+	for _, attr := range attrs {
+		key := ClassAttrKey{ClassHandle: class, AttrHandle: attr}
+		m.objRegionSubs[key] = append(m.objRegionSubs[key], RegionSubscription{
+			FedID:  fedID,
+			Region: region,
+		})
+	}
+	return nil
+}
+
+// GetAttributeSubscribersInRegion resolves subscribers considering standard subscriptions and 3D Morton spatial filtering
+func (m *InterestMatcher) GetAttributeSubscribersInRegion(class common.ObjectClassHandle, attr common.AttributeHandle, pointCode uint64) []common.FederateHandle {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var resultBitset *Bitset
+
+	// 1. Standard global subscribers (opt-in zero-overhead baseline)
+	key := ClassAttrKey{ClassHandle: class, AttrHandle: attr}
+	if bs, exists := m.objSubscribers[key]; exists && !bs.IsEmpty() {
+		resultBitset = bs.Clone()
+	}
+
+	// Polymorphic global ancestors
+	ancestors := m.omt.GetClassAncestors(class)
+	for _, ancHandle := range ancestors {
+		ancKey := ClassAttrKey{ClassHandle: ancHandle, AttrHandle: attr}
+		if bs, exists := m.objSubscribers[ancKey]; exists && !bs.IsEmpty() {
+			if resultBitset == nil {
+				resultBitset = bs.Clone()
+			} else {
+				resultBitset.Union(bs)
+			}
+		}
+	}
+
+	// 2. DDM regional subscribers evaluated with 3D Morton containment check
+	checkRegionSubs := func(k ClassAttrKey) {
+		for _, regSub := range m.objRegionSubs[k] {
+			if regSub.Region.ContainsMorton(pointCode) {
+				if resultBitset == nil {
+					resultBitset = NewBitset()
+				}
+				resultBitset.Set(uint32(regSub.FedID))
+			}
+		}
+	}
+
+	checkRegionSubs(key)
+	for _, ancHandle := range ancestors {
+		checkRegionSubs(ClassAttrKey{ClassHandle: ancHandle, AttrHandle: attr})
+	}
+
+	if resultBitset == nil || resultBitset.IsEmpty() {
+		return nil
+	}
+	return resultBitset.ToFederateHandles()
+}
+
 // GetInteractionSubscribers resolves the set of federates recipient to an interaction,
 // taking into account polymorphic inheritance (subscribers to this interaction or any ancestor, like HLAinteractionRoot).
 func (m *InterestMatcher) GetInteractionSubscribers(interaction common.InteractionClassHandle) []common.FederateHandle {
@@ -350,4 +434,19 @@ func (m *InterestMatcher) RemoveFederate(fedID common.FederateHandle) {
 		}
 	}
 	delete(m.fedInteractionSubs, fedID)
+
+	// Clean DDM region subscriptions
+	for key, subs := range m.objRegionSubs {
+		var filtered []RegionSubscription
+		for _, s := range subs {
+			if s.FedID != fedID {
+				filtered = append(filtered, s)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(m.objRegionSubs, key)
+		} else {
+			m.objRegionSubs[key] = filtered
+		}
+	}
 }

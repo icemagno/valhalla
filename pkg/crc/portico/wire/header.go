@@ -93,6 +93,36 @@ const (
 	MsgSendInteraction   MessageType = 255
 	MsgReceiveInteraction MessageType = 255
 
+	// Federation Save & Restore (081-098)
+	MsgSaveInitiate         MessageType = 81
+	MsgSaveBegun            MessageType = 82
+	MsgSaveComplete         MessageType = 83
+	MsgFederationSaved      MessageType = 84
+	MsgSaveStatusQuery      MessageType = 85
+	MsgSaveRequest          MessageType = 86
+	MsgRestoreRequest       MessageType = 90
+	MsgRestoreRequestResult MessageType = 91
+	MsgRestoreBegun         MessageType = 92
+	MsgRestoreInitiate      MessageType = 93
+	MsgRestoreComplete      MessageType = 94
+	MsgRestoreAbort         MessageType = 95
+	MsgFederationRestored   MessageType = 96
+	MsgRestoreStatusQuery   MessageType = 97
+	MsgRestoreQueryResponse MessageType = 98
+
+	// Ownership Management (100-110)
+	MsgAttributeDivest         MessageType = 100
+	MsgAttributeAcquire        MessageType = 101
+	MsgAttributeRelease        MessageType = 102
+	MsgAttributesUnavailable   MessageType = 103
+	MsgCancelAcquire           MessageType = 104
+	MsgCancelDivest            MessageType = 105
+	MsgCancelConfirmation      MessageType = 106
+	MsgOwnershipAcquired       MessageType = 107
+	MsgDivestConfirmation      MessageType = 108
+	MsgQueryOwnership          MessageType = 109
+	MsgQueryOwnershipResponse  MessageType = 110
+
 	// Time Management (120-139)
 	MsgEnableTimeConstrained  MessageType = 120
 	MsgDisableTimeConstrained MessageType = 121
@@ -103,6 +133,16 @@ const (
 	MsgTimeAdvanceGrant       MessageType = 126
 	MsgNextEventRequest       MessageType = 127
 	MsgFlushQueueRequest      MessageType = 128
+	MsgQueryGALT              MessageType = 129
+	MsgEnableAsynchDelivery   MessageType = 130
+	MsgDisableAsynchDelivery  MessageType = 131
+
+	// Data Distribution Management - DDM (140-144)
+	MsgCreateRegion      MessageType = 140
+	MsgDeleteRegion      MessageType = 141
+	MsgModifyRegion      MessageType = 142
+	MsgAssociateRegion   MessageType = 143
+	MsgUnassociateRegion MessageType = 144
 )
 
 func (m MessageType) String() string {

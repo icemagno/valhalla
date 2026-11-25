@@ -189,3 +189,73 @@ func BenchmarkInterestMatcher_GetAttributeSubscribers(b *testing.B) {
 		_ = router.GetAttributeSubscribers(leaf.Handle, attr.Handle)
 	}
 }
+
+func TestInterestMatcher_DDMSpatialFiltering(t *testing.T) {
+	reg := NewOMTRegistry()
+	asset, _ := reg.AddObjectClass("TacticalAsset", HLAobjectRootHandle)
+	posAttr, _ := reg.AddAttribute(asset.Handle, "Position", "Spatial")
+
+	router := NewInterestMatcher(reg)
+
+	// Fed 1: Global subscriber (receives updates from anywhere on Earth)
+	_ = router.SubscribeObjectClass(1, asset.Handle, []common.AttributeHandle{posAttr.Handle}, true)
+
+	// Fed 2: Regional subscriber inside Area Alpha [-50km, +50km]
+	regAlpha, _ := NewSpatialRegionFromMetric(-50000, 50000, -50000, 50000, 0, 10000)
+	_ = router.SubscribeObjectClassWithRegion(2, asset.Handle, []common.AttributeHandle{posAttr.Handle}, regAlpha)
+
+	// Fed 3: Regional subscriber inside Area Bravo [+200km, +300km]
+	regBravo, _ := NewSpatialRegionFromMetric(200000, 300000, 200000, 300000, 0, 10000)
+	_ = router.SubscribeObjectClassWithRegion(3, asset.Handle, []common.AttributeHandle{posAttr.Handle}, regBravo)
+
+	// Update 1: Entity inside Area Alpha (0, 0, 5000)
+	ptAlpha := EncodeECEF(0, 0, 5000)
+	subs1 := router.GetAttributeSubscribersInRegion(asset.Handle, posAttr.Handle, ptAlpha)
+	sort.Slice(subs1, func(i, j int) bool { return subs1[i] < subs1[j] })
+
+	// Should match Fed 1 (global) and Fed 2 (Alpha)
+	expected1 := []common.FederateHandle{1, 2}
+	if !reflect.DeepEqual(subs1, expected1) {
+		t.Fatalf("expected subscribers %v, got %v for point in Area Alpha", expected1, subs1)
+	}
+
+	// Update 2: Entity inside Area Bravo (250000, 250000, 5000)
+	ptBravo := EncodeECEF(250000, 250000, 5000)
+	subs2 := router.GetAttributeSubscribersInRegion(asset.Handle, posAttr.Handle, ptBravo)
+	sort.Slice(subs2, func(i, j int) bool { return subs2[i] < subs2[j] })
+
+	// Should match Fed 1 (global) and Fed 3 (Bravo)
+	expected2 := []common.FederateHandle{1, 3}
+	if !reflect.DeepEqual(subs2, expected2) {
+		t.Fatalf("expected subscribers %v, got %v for point in Area Bravo", expected2, subs2)
+	}
+
+	// Update 3: Entity in deep space / ocean outside both regions
+	ptOutside := EncodeECEF(1000000, 1000000, 5000)
+	subs3 := router.GetAttributeSubscribersInRegion(asset.Handle, posAttr.Handle, ptOutside)
+
+	// Should match only Fed 1 (global)
+	expected3 := []common.FederateHandle{1}
+	if !reflect.DeepEqual(subs3, expected3) {
+		t.Fatalf("expected subscribers %v, got %v for outside point", expected3, subs3)
+	}
+}
+
+func BenchmarkInterestMatcher_DDMSpatialFiltering(b *testing.B) {
+	reg := NewOMTRegistry()
+	asset, _ := reg.AddObjectClass("TacticalAsset", HLAobjectRootHandle)
+	posAttr, _ := reg.AddAttribute(asset.Handle, "Position", "Spatial")
+
+	router := NewInterestMatcher(reg)
+	_ = router.SubscribeObjectClass(1, asset.Handle, []common.AttributeHandle{posAttr.Handle}, true)
+
+	regAlpha, _ := NewSpatialRegionFromMetric(-50000, 50000, -50000, 50000, 0, 10000)
+	_ = router.SubscribeObjectClassWithRegion(2, asset.Handle, []common.AttributeHandle{posAttr.Handle}, regAlpha)
+
+	code := EncodeECEF(0, 0, 5000)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = router.GetAttributeSubscribersInRegion(asset.Handle, posAttr.Handle, code)
+	}
+}

@@ -91,10 +91,11 @@ type FederationExecution struct {
 	nextFederateHandle int32
 	nextObjectHandle   int32
 
-	omt       *core.OMTRegistry
-	router    *core.InterestMatcher
-	stateTree *core.FederationStateTree
-	timeMgr   *core.TimeManager
+	omt          *core.OMTRegistry
+	router       *core.InterestMatcher
+	stateTree    *core.FederationStateTree
+	timeMgr      *core.TimeManager
+	ownershipMgr *core.OwnershipManager
 }
 
 // NewFederationExecution cria uma nova federação com contadores e mapas inicializados
@@ -103,6 +104,7 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 	router := core.NewInterestMatcher(omt)
 	stateTree := core.NewFederationStateTree()
 	timeMgr := core.NewTimeManager()
+	ownershipMgr := core.NewOwnershipManager()
 
 	return &FederationExecution{
 		Handle:             handle,
@@ -118,6 +120,7 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		router:             router,
 		stateTree:          stateTree,
 		timeMgr:            timeMgr,
+		ownershipMgr:       ownershipMgr,
 	}
 }
 
@@ -139,6 +142,11 @@ func (f *FederationExecution) StateTree() *core.FederationStateTree {
 // TimeManager retorna o coordenador de avanço temporal determinístico da federação
 func (f *FederationExecution) TimeManager() *core.TimeManager {
 	return f.timeMgr
+}
+
+// OwnershipManager retorna o gerenciador de posse de atributos da federação
+func (f *FederationExecution) OwnershipManager() *core.OwnershipManager {
+	return f.ownershipMgr
 }
 
 // Join registra um federado na federação e atribui seu handle sequencial exclusivo
@@ -199,6 +207,11 @@ func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 	// Remover federado do motor temporal
 	if f.timeMgr != nil {
 		f.timeMgr.UnregisterFederate(common.FederateHandle(id))
+	}
+
+	// Limpar posse de atributos do federado
+	if f.ownershipMgr != nil {
+		f.ownershipMgr.RemoveFederate(common.FederateHandle(id))
 	}
 
 	return fed, nil
@@ -289,6 +302,18 @@ func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name str
 	if f.stateTree != nil {
 		f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(handle), obj.MerkleRoot)
 	}
+
+	// Atribuir posse inicial de atributos ao registrador
+	if f.ownershipMgr != nil && f.omt != nil {
+		if cls, ok := f.omt.GetObjectClass(common.ObjectClassHandle(classHandle)); ok {
+			var attrHandles []common.AttributeHandle
+			for _, a := range cls.Attributes {
+				attrHandles = append(attrHandles, a.Handle)
+			}
+			f.ownershipMgr.RegisterInitialOwnership(common.ObjectInstanceHandle(handle), attrHandles, common.FederateHandle(ownerID))
+		}
+	}
+
 	return obj, nil
 }
 
@@ -346,6 +371,10 @@ func (f *FederationExecution) DeleteObjectInstance(objHandle int32, federateID i
 
 	if f.stateTree != nil {
 		f.stateTree.RemoveObjectState(common.ObjectInstanceHandle(objHandle))
+	}
+
+	if f.ownershipMgr != nil {
+		f.ownershipMgr.DeleteObjectOwnership(common.ObjectInstanceHandle(objHandle))
 	}
 
 	return obj, nil

@@ -15,6 +15,14 @@ type XMLObjectModel struct {
 	XMLName      xml.Name              `xml:"objectModel"`
 	Objects      []XMLObjectClass      `xml:"objects>objectClass"`
 	Interactions []XMLInteractionClass `xml:"interactions>interactionClass"`
+	Dimensions   []XMLDimension        `xml:"dimensions>dimension"`
+}
+
+// XMLDimension represents a <dimension> element in the FOM XML.
+type XMLDimension struct {
+	Name       string `xml:"name"`
+	DataType   string `xml:"dataType"`
+	UpperBound int64  `xml:"upperBound"`
 }
 
 // XMLObjectClass represents a hierarchical <objectClass> element in the FOM XML.
@@ -77,6 +85,14 @@ func ParseFOMXML(omt *core.OMTRegistry, data []byte) error {
 	for _, rootInter := range fom.Interactions {
 		if err := mergeInteractionClass(omt, rootInter, 0); err != nil {
 			return err
+		}
+	}
+
+	// 3. Process Dimensions
+	for _, dim := range fom.Dimensions {
+		name := strings.TrimSpace(dim.Name)
+		if name != "" {
+			_, _ = omt.RegisterDimension(name, dim.DataType, dim.UpperBound)
 		}
 	}
 

@@ -158,12 +158,21 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 
 		case NativeMsgJoin:
 			var joinReq common.JoinFederationPayload
-			if err := joinReq.UnmarshalBinary(payload); err != nil || joinReq.FederateName == "" || joinReq.FederationName == "" {
-				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid join request: federateName and federationName are mandatory"))
+			if err := joinReq.UnmarshalBinary(payload); err != nil || joinReq.FederateName == "" {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid join request: federateName is mandatory"))
 				continue
 			}
 
-			fedExec, exists := fedManager.GetFederation(joinReq.FederationName)
+			targetFedName := joinReq.FederationName
+			var fedExec *FederationExecution
+			var exists bool
+
+			if targetFedName == "" || targetFedName == "*" || targetFedName == "auto" {
+				fedExec, exists = fedManager.GetFirstFederation()
+			} else {
+				fedExec, exists = fedManager.GetFederation(targetFedName)
+			}
+
 			if !exists {
 				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrFederationExecutionDoesNotExist)
 				continue

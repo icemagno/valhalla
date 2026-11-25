@@ -137,7 +137,7 @@ func (h *ObserverCallbackHandler) RemoveObjectInstance(theObject int32, tag []by
 
 func main() {
 	addr := flag.String("address", "127.0.0.1:52295", "CRC Server address (ip:port)")
-	fedName := flag.String("federation", "ExampleFederation", "Federation Execution name to monitor")
+	fedName := flag.String("federation", "", "Federation Execution name to monitor (empty or 'auto' for dynamic discovery)")
 	name := flag.String("name", "ValhallaObserver", "Federate name")
 	flag.Parse()
 
@@ -146,12 +146,17 @@ func main() {
 		targetAddr = ":" + targetAddr
 	}
 
+	targetFedDisplay := *fedName
+	if targetFedDisplay == "" || targetFedDisplay == "auto" {
+		targetFedDisplay = "[DYNAMIC AUTO-DISCOVERY] Any Active Federation"
+	}
+
 	fmt.Println("====================================================================")
 	fmt.Println("            PROJECT VALHALLA - NATIVE FEDERATE OBSERVER")
 	fmt.Println("       Passive Real-Time Telemetry & Monitoring (IEEE 1516-2025)")
 	fmt.Println("====================================================================")
 	fmt.Printf("Connecting to CRC at: %s\n", targetAddr)
-	fmt.Printf("Federation Target  : %s\n", *fedName)
+	fmt.Printf("Federation Target  : %s\n", targetFedDisplay)
 	fmt.Printf("Observer Federate  : %s (Protocol: VAL4 Native)\n\n", *name)
 
 	handler := NewObserverCallbackHandler()
@@ -185,8 +190,8 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// 2. Join Federation Execution (with auto-retry if Thor hasn't started yet)
-	fmt.Printf("[2/4] Joining federation execution '%s'...\n", *fedName)
+	// 2. Join Federation Execution (with auto-retry until a federation is created by simulator)
+	fmt.Printf("[2/4] Joining federation execution '%s'...\n", targetFedDisplay)
 	var fedHandle int32
 	for {
 		h, err := amb.JoinFederationExecution(*name, *fedName)
@@ -194,28 +199,35 @@ func main() {
 			fedHandle = h
 			break
 		}
-		fmt.Printf("      Waiting for federation '%s' to be created by simulator... (retrying)\n", *fedName)
+		if *fedName == "" || *fedName == "auto" {
+			fmt.Println("      Waiting for ANY active federation to be created by simulator... (retrying)")
+		} else {
+			fmt.Printf("      Waiting for federation '%s' to be created by simulator... (retrying)\n", *fedName)
+		}
 		select {
 		case <-sigChan:
 			fmt.Println("\n[!] Observer cancelled before federation was created.")
 			return
-		case <-time.After(1 * time.Second):
+		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	fmt.Printf("[+] Joined federation '%s' successfully! Assigned Handle: %d\n", *fedName, fedHandle)
+	fmt.Printf("[+] Successfully attached to federation! Assigned Federate Handle: %d\n", fedHandle)
 
-	// 3. Subscribe to FOM classes (MIM HLAobjectRoot + Soda [1034] + Interaction [1007])
+	// 3. Subscribe to FOM classes (Universal dynamic subscriptions)
 	fmt.Println("[3/4] Subscribing to simulation object and interaction classes...")
-	// Subscribe to root object class and Soda class
+	// Root object class + TacticalEntity (1001) + Soda (1034)
 	_ = amb.SubscribeObjectClassAttributes(1, []int32{1})
-	_ = amb.SubscribeObjectClassAttributes(1034, []int32{1008, 1009, 1})
-	// Subscribe to interaction class 1007 and root interaction class 1
-	_ = amb.SubscribeInteractionClass(1007)
+	_ = amb.SubscribeObjectClassAttributes(1001, []int32{1, 1001, 1002, 1003, 1004})
+	_ = amb.SubscribeObjectClassAttributes(1034, []int32{1, 1008, 1009})
+	// Root interaction class + SensorTrack (1001) + MissionControl (1002) + Interaction (1007)
 	_ = amb.SubscribeInteractionClass(1)
-	fmt.Println("[+] Subscriptions active: [1034:Soda (NumberCups, Flavor)], [1007:Interaction]")
+	_ = amb.SubscribeInteractionClass(1001)
+	_ = amb.SubscribeInteractionClass(1002)
+	_ = amb.SubscribeInteractionClass(1007)
+	fmt.Println("[+] Subscriptions active: [TacticalEntity (1001), Soda (1034), SensorTrack (1001), MissionControl (1002), Interaction (1007)]")
 
 	// 4. Enter passive listening loop
-	fmt.Println("\n[4/4] 🚀 Observer is ACTIVE and waiting for simulation events from Thor!")
+	fmt.Println("\n[4/4] 🚀 Observer is ACTIVE and waiting for real-time simulation events!")
 	fmt.Println(">>> Press Ctrl+C to resign and exit cleanly <<<")
 	fmt.Println()
 

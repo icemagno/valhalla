@@ -39,6 +39,14 @@ type AttributeDef struct {
 	ClassHandle common.ObjectClassHandle
 }
 
+// DimensionDef defines metadata for a DDM routing space dimension
+type DimensionDef struct {
+	Handle     common.DimensionHandle
+	Name       string
+	Datatype   string
+	UpperBound int64
+}
+
 // ObjectClass defines an object class in the HLA OMT hierarchy
 type ObjectClass struct {
 	Handle       common.ObjectClassHandle
@@ -98,11 +106,16 @@ type OMTRegistry struct {
 	interactionClasses     map[common.InteractionClassHandle]*InteractionClass
 	interactionNameToClass map[string]common.InteractionClassHandle
 
+	// DDM Dimensions
+	dimensions            map[common.DimensionHandle]*DimensionDef
+	dimensionNameToHandle map[string]common.DimensionHandle
+
 	// Monotonic Sequential Handle Generators
 	nextObjectClassHandle      common.ObjectClassHandle
 	nextAttributeHandle        common.AttributeHandle
 	nextInteractionClassHandle common.InteractionClassHandle
 	nextParameterHandle        common.ParameterHandle
+	nextDimensionHandle        common.DimensionHandle
 }
 
 // NewOMTRegistry initializes the OMT registry, pre-populating native Standard MIM
@@ -113,10 +126,13 @@ func NewOMTRegistry() *OMTRegistry {
 		objectNameToClass:          make(map[string]common.ObjectClassHandle),
 		interactionClasses:         make(map[common.InteractionClassHandle]*InteractionClass),
 		interactionNameToClass:     make(map[string]common.InteractionClassHandle),
+		dimensions:                 make(map[common.DimensionHandle]*DimensionDef),
+		dimensionNameToHandle:      make(map[string]common.DimensionHandle),
 		nextObjectClassHandle:      1001,
 		nextAttributeHandle:        1001,
 		nextInteractionClassHandle: 1001,
 		nextParameterHandle:        1001,
+		nextDimensionHandle:        1001,
 	}
 
 	// 1. Install HLAobjectRoot with HLAprivilegeToDeleteObject
@@ -489,4 +505,58 @@ func (r *OMTRegistry) GetInteractionAncestors(interactionHandle common.Interacti
 	res := make([]common.InteractionClassHandle, len(interaction.Ancestors))
 	copy(res, interaction.Ancestors)
 	return res
+}
+
+// RegisterDimension registers a DDM dimension into the OMT
+func (r *OMTRegistry) RegisterDimension(name string, datatype string, upperBound int64) (common.DimensionHandle, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if h, exists := r.dimensionNameToHandle[name]; exists {
+		return h, nil
+	}
+
+	h := r.nextDimensionHandle
+	r.nextDimensionHandle++
+
+	dim := &DimensionDef{
+		Handle:     h,
+		Name:       name,
+		Datatype:   datatype,
+		UpperBound: upperBound,
+	}
+	r.dimensions[h] = dim
+	r.dimensionNameToHandle[name] = h
+	return h, nil
+}
+
+// GetDimension returns a dimension definition by handle
+func (r *OMTRegistry) GetDimension(handle common.DimensionHandle) (*DimensionDef, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	dim, ok := r.dimensions[handle]
+	return dim, ok
+}
+
+// GetDimensionByName returns a dimension definition by name
+func (r *OMTRegistry) GetDimensionByName(name string) (*DimensionDef, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	h, ok := r.dimensionNameToHandle[name]
+	if !ok {
+		return nil, false
+	}
+	dim, ok := r.dimensions[h]
+	return dim, ok
+}
+
+// GetAllDimensions returns all registered dimensions
+func (r *OMTRegistry) GetAllDimensions() []*DimensionDef {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	dims := make([]*DimensionDef, 0, len(r.dimensions))
+	for _, d := range r.dimensions {
+		dims = append(dims, d)
+	}
+	return dims
 }

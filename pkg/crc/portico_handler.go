@@ -123,7 +123,11 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			// Ingest any FOM modules provided in the CreateFederation request
 			if obj != nil {
-				ingestPorticoFOMModules(currentFed.OMT(), obj.Get("modules"))
+				for _, key := range []string{"rawFomModules", "modules", "fomModuleLocations", "rawFomModuleLocations"} {
+					if val := obj.Get(key); val != nil {
+						ingestPorticoFOMModules(currentFed.OMT(), val)
+					}
+				}
 			}
 
 			// If it's the standard Portico ExampleFederation, ensure the 4 canonical restaurant modules are loaded
@@ -138,6 +142,16 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 					} else {
 						logCRCPortico.Warn("Warning: could not resolve canonical module '%s' on disk", mod)
 					}
+				}
+			} else if fedName == "ValhallaAdvancedFed" {
+				if resolved := resolveFOMPath("ValhallaAdvanced.xml"); resolved != "" {
+					if err := fomparser.ParseFOMFile(currentFed.OMT(), resolved); err == nil {
+						logCRCPortico.Info("Ingested advanced FOM module '%s' (from '%s') for [%s]", "ValhallaAdvanced.xml", resolved, fedName)
+					} else {
+						logCRCPortico.Warn("Warning: failed to parse advanced module '%s': %v", resolved, err)
+					}
+				} else {
+					logCRCPortico.Warn("Warning: could not resolve advanced module 'ValhallaAdvanced.xml' on disk")
 				}
 			}
 
@@ -193,7 +207,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			session.SetFederateID(federateID)
 			session.SetFederationHandle(currentFed.Handle)
 
-			// Safety check: if ExampleFederation is missing Soda, load canonical modules now before WelcomePack
+			// Safety check: ensure canonical / advanced modules are loaded before WelcomePack
 			if fedName == "ExampleFederation" {
 				if _, hasSoda := currentFed.OMT().GetObjectClassByName("Soda"); !hasSoda {
 					for _, mod := range []string{"RestaurantProcesses.xml", "RestaurantFood.xml", "RestaurantDrinks.xml", "RestaurantSoup.xml"} {
@@ -201,6 +215,14 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 							if err := fomparser.ParseFOMFile(currentFed.OMT(), resolved); err == nil {
 								logCRCPortico.Info("Ingested canonical FOM module '%s' (from '%s') for [%s]", mod, resolved, fedName)
 							}
+						}
+					}
+				}
+			} else if fedName == "ValhallaAdvancedFed" {
+				if _, hasTactical := currentFed.OMT().GetObjectClassByName("TacticalEntity"); !hasTactical {
+					if resolved := resolveFOMPath("ValhallaAdvanced.xml"); resolved != "" {
+						if err := fomparser.ParseFOMFile(currentFed.OMT(), resolved); err == nil {
+							logCRCPortico.Info("Ingested advanced FOM module '%s' (from '%s') for [%s]", "ValhallaAdvanced.xml", resolved, fedName)
 						}
 					}
 				}
@@ -522,7 +544,7 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
 			logCRCPortico.Info("Federate [%d] enabled time constrained", federateID)
 
-		case wire.MsgTimeAdvanceRequest:
+		case wire.MsgTimeAdvanceRequest, wire.MsgNextEventRequest, wire.MsgFlushQueueRequest:
 			if currentFed == nil || federateID <= 0 {
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
 				continue
@@ -607,6 +629,75 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			logCRCPortico.Info("Connection disconnected gracefully")
 			return nil
 
+		case wire.MsgSaveRequest:
+			label := "Checkpoint"
+			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+				if l, ok := obj.Get("label").(string); ok && l != "" {
+					label = l
+				}
+			}
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			logCRCPortico.Info("Federate [%d] requested federation save with label '%s'", federateID, label)
+
+			saveInitObj := metamodel.NewJavaObject(metamodel.ClassDescObject)
+			saveInitObj.Set("label", label)
+			if savePayload, err := wire.SerializePorticoControlMessage(saveInitObj); err == nil {
+				for _, f := range currentFed.GetAllFederates() {
+					if f.Session != nil && f.Protocol == ProtocolPortico {
+						_ = f.Session.SendNotification(uint8(wire.MsgSaveInitiate), savePayload)
+					}
+				}
+			}
+
+		case wire.MsgSaveBegun:
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+
+		case wire.MsgSaveComplete:
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			logCRCPortico.Info("Federate [%d] completed save. Broadcasting FederationSaved.", federateID)
+			for _, f := range currentFed.GetAllFederates() {
+				if f.Session != nil && f.Protocol == ProtocolPortico {
+					_ = f.Session.SendNotification(uint8(wire.MsgFederationSaved), wire.BuildSuccessResponsePayload())
+				}
+			}
+
+		case wire.MsgRestoreRequest:
+			label := "Checkpoint"
+			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+				if l, ok := obj.Get("label").(string); ok && l != "" {
+					label = l
+				}
+			}
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			logCRCPortico.Info("Federate [%d] requested federation restore with label '%s'", federateID, label)
+
+			restoreInitObj := metamodel.NewJavaObject(metamodel.ClassDescObject)
+			restoreInitObj.Set("label", label)
+			if restPayload, err := wire.SerializePorticoControlMessage(restoreInitObj); err == nil {
+				for _, f := range currentFed.GetAllFederates() {
+					if f.Session != nil && f.Protocol == ProtocolPortico {
+						_ = f.Session.SendNotification(uint8(wire.MsgRestoreInitiate), restPayload)
+					}
+				}
+			}
+
+		case wire.MsgRestoreComplete:
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			logCRCPortico.Info("Federate [%d] completed restore. Broadcasting FederationRestored.", federateID)
+			for _, f := range currentFed.GetAllFederates() {
+				if f.Session != nil && f.Protocol == ProtocolPortico {
+					_ = f.Session.SendNotification(uint8(wire.MsgFederationRestored), wire.BuildSuccessResponsePayload())
+				}
+			}
+
+		case wire.MsgAttributeDivest:
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			logCRCPortico.Info("Federate [%d] divested attribute ownership", federateID)
+
+		case wire.MsgQueryOwnership:
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			logCRCPortico.Info("Federate [%d] queried attribute ownership", federateID)
+
 		default:
 			if hdr.CallType == wire.CallTypeControlRequest {
 				_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
@@ -651,7 +742,7 @@ func performPorticoHandshake(conn net.Conn, writer io.Writer, reader io.Reader) 
 	return nil
 }
 
-// resolveFOMPath searches for a FOM file on disk strictly as ./foms/<ARQUIVO>.xml
+// resolveFOMPath searches for a FOM file on disk strictly as ./foms/<ARQUIVO>.xml or bin/foms/<ARQUIVO>.xml
 func resolveFOMPath(rawPath string) string {
 	cleanPath := strings.TrimPrefix(rawPath, "file:///")
 	cleanPath = strings.TrimPrefix(cleanPath, "file://")
@@ -660,9 +751,14 @@ func resolveFOMPath(rawPath string) string {
 	normPath := strings.ReplaceAll(cleanPath, "\\", "/")
 	base := filepath.Base(normPath)
 
-	target := filepath.Join("foms", base)
-	if _, err := os.Stat(target); err == nil {
-		return target
+	candidates := []string{
+		filepath.Join("foms", base),
+		filepath.Join("bin", "foms", base),
+	}
+	for _, target := range candidates {
+		if _, err := os.Stat(target); err == nil {
+			return target
+		}
 	}
 	return ""
 }
