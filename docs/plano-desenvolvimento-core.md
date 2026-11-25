@@ -40,13 +40,13 @@ Para garantir que o **LRC** (biblioteca cliente do federado) possa ser distribu�
                                     └─────────┬─────────┘
                                               │
                                     ┌─────────┴─────────┐
-                                    │    pkg/portico    │
+                                    │  pkg/crc/portico  │
                                     │ (Metamodelo JOS)  │
                                     └───────────────────┘
 ```
 
 ### Regras de Ouro de Importação:
-1. **`pkg/common`:** Não importa NENHUM outro pacote interno (`crc`, `lrc`, `portico`). Define:
+1. **`pkg/common`:** Não importa NENHUM outro pacote interno (`crc`, `lrc`). Define:
    - Identificadores e Handles canônicos (`FederateHandle`, `ObjectClassHandle`, `AttributeHandle`, `InteractionClassHandle`).
    - Erros e exceções oficiais da norma IEEE 1516.
    - Especificação e codificador/decodificador do cabeçalho binário nativo **VAL4** (`NativeHeader`, códigos de mensagens `NativeMsg...`).
@@ -57,10 +57,10 @@ Para garantir que o **LRC** (biblioteca cliente do federado) possa ser distribu�
 3. **`pkg/crc` (O Executável Centralizador):**
    - É o motor do servidor (`cmd/valhalla-crc`).
    - Importa `pkg/common` para tipos e cabeçalhos nativos.
-   - Importa `pkg/portico` para o adaptador legado.
+   - Contém internamente `pkg/crc/portico` como seu adaptador legado.
    - **NUNCA é importado pelo `pkg/lrc`.**
-4. **`pkg/portico` (Compatibilidade Wire-Level):**
-   - Fica isolado, contendo apenas o metamodelo JOS e codecs binários legados. Usado exclusivamente pelo adaptador Portico do CRC.
+4. **`pkg/crc/portico` (Compatibilidade Wire-Level):**
+   - Fica contido abaixo de `pkg/crc`, contendo apenas o metamodelo JOS e codecs binários legados. Usado exclusivamente pelo adaptador Portico do CRC.
 
 ---
 

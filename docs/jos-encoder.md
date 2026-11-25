@@ -2,7 +2,7 @@
 
 > **Projeto:** Projeto Valhalla (HLA-4 / IEEE 1516-2025)  
 > **Autor / Arquiteto:** Carlos Magno Oliveira de Abreu (`@icemagno` / `magno.mabreu@gmail.com`)  
-> **Módulo:** `pkg/portico/wire/` e `pkg/portico/wire/metamodel/`  
+> **Módulo:** `pkg/crc/portico/wire/` e `pkg/crc/portico/wire/metamodel/`  
 > **Status:** Homologado e Validado Bit a Bit contra OpenJDK 22 e Portico CRTI / LRC 3.0.0 (Build 0)  
 
 ---
