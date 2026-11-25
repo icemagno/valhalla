@@ -10,7 +10,7 @@ import (
 	"github.com/icemagno/valhalla/pkg/common"
 )
 
-// RTIambassadorImpl implementa a interface padrão RTIambassador sobre o protocolo nativo Valhalla (HLA-4)
+// RTIambassadorImpl implements the standard RTIambassador interface over the native Valhalla HLA-4 protocol
 type RTIambassadorImpl struct {
 	mu             sync.RWMutex
 	client         *Client
@@ -23,12 +23,12 @@ type RTIambassadorImpl struct {
 	lookahead      float64
 }
 
-// NewRTIambassador instancia um novo RTIambassador para o federado
+// NewRTIambassador instantiates a new RTIambassador for the federate
 func NewRTIambassador() RTIambassador {
 	return &RTIambassadorImpl{}
 }
 
-// Connect conecta o federado ao servidor executivo CRC
+// Connect connects the federate to the CRC executive
 func (a *RTIambassadorImpl) Connect(fedAmb FederateAmbassador, address string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -52,7 +52,7 @@ func (a *RTIambassadorImpl) Connect(fedAmb FederateAmbassador, address string) e
 	return nil
 }
 
-// Disconnect encerra a conexão com o CRC
+// Disconnect closes the connection with the CRC
 func (a *RTIambassadorImpl) Disconnect() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -85,7 +85,7 @@ func checkNativeResponse(resp nativeResponse) error {
 	return nil
 }
 
-// CreateFederationExecution cria ou assegura a existência de uma federação no CRC
+// CreateFederationExecution creates or ensures existence of a federation on the CRC
 func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -111,7 +111,7 @@ func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) err
 	return checkNativeResponse(resp)
 }
 
-// CreateFederationExecutionWithFOM cria ou assegura a existência de uma federação no CRC com módulos de FOM
+// CreateFederationExecutionWithFOM creates a federation on the CRC with associated FOM modules
 func (a *RTIambassadorImpl) CreateFederationExecutionWithFOM(federationName string, fomModules []string) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -140,7 +140,7 @@ func (a *RTIambassadorImpl) CreateFederationExecutionWithFOM(federationName stri
 	return checkNativeResponse(resp)
 }
 
-// GetObjectClassHandle resolve o identificador de uma classe de objeto pelo seu nome no FOM
+// GetObjectClassHandle resolves the handle of an object class by its FOM name
 func (a *RTIambassadorImpl) GetObjectClassHandle(className string) (int32, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -178,7 +178,7 @@ func (a *RTIambassadorImpl) GetObjectClassHandle(className string) (int32, error
 	return respPayload.Handle, nil
 }
 
-// GetAttributeHandle resolve o identificador de um atributo de uma classe pelo seu nome no FOM
+// GetAttributeHandle resolves the handle of an attribute in an object class by its FOM name
 func (a *RTIambassadorImpl) GetAttributeHandle(classHandle int32, attributeName string) (int32, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -219,7 +219,7 @@ func (a *RTIambassadorImpl) GetAttributeHandle(classHandle int32, attributeName 
 	return respPayload.Handle, nil
 }
 
-// GetDimensionHandle resolve o identificador de uma dimensão DDM pelo seu nome no FOM
+// GetDimensionHandle resolves the handle of a DDM dimension by its FOM name
 func (a *RTIambassadorImpl) GetDimensionHandle(dimensionName string) (int32, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -257,7 +257,7 @@ func (a *RTIambassadorImpl) GetDimensionHandle(dimensionName string) (int32, err
 	return respPayload.Handle, nil
 }
 
-// DestroyFederationExecution remove a federação do CRC
+// DestroyFederationExecution destroys the federation execution on the CRC
 func (a *RTIambassadorImpl) DestroyFederationExecution(federationName string) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -283,7 +283,7 @@ func (a *RTIambassadorImpl) DestroyFederationExecution(federationName string) er
 	return checkNativeResponse(resp)
 }
 
-// JoinFederationExecution ingressa o federado em uma federação com atribuição de handle
+// JoinFederationExecution joins the federate to a federation execution with handle assignment
 func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName string) (int32, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -335,7 +335,7 @@ func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName
 	return a.federateID, nil
 }
 
-// ResignFederationExecution desingressa o federado da federação
+// ResignFederationExecution resigns the federate from the federation execution
 func (a *RTIambassadorImpl) ResignFederationExecution() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -363,7 +363,7 @@ func (a *RTIambassadorImpl) ResignFederationExecution() error {
 	return nil
 }
 
-// RegisterFederationSynchronizationPoint anuncia um novo ponto de sincronização
+// RegisterFederationSynchronizationPoint announces a new federation synchronization point
 func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string, tag []byte) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -392,7 +392,7 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 	return checkNativeResponse(resp)
 }
 
-// SynchronizationPointAchieved notifica o CRC que este federado conquistou o ponto
+// SynchronizationPointAchieved notifies the CRC that this federate achieved the synchronization point
 func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -418,7 +418,7 @@ func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
 	return checkNativeResponse(resp)
 }
 
-// PublishObjectClassAttributes publica atributos de uma classe de objeto
+// PublishObjectClassAttributes publishes attributes of an object class
 func (a *RTIambassadorImpl) PublishObjectClassAttributes(objectClass int32, attributes []int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -452,7 +452,7 @@ func (a *RTIambassadorImpl) PublishObjectClassAttributes(objectClass int32, attr
 	return checkNativeResponse(resp)
 }
 
-// UnpublishObjectClass cancela a publicação de uma classe de objeto
+// UnpublishObjectClass unpublishes an object class
 func (a *RTIambassadorImpl) UnpublishObjectClass(objectClass int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -480,7 +480,7 @@ func (a *RTIambassadorImpl) UnpublishObjectClass(objectClass int32) error {
 	return checkNativeResponse(resp)
 }
 
-// PublishInteractionClass publica uma classe de interação
+// PublishInteractionClass publishes an interaction class
 func (a *RTIambassadorImpl) PublishInteractionClass(interactionClass int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -508,7 +508,7 @@ func (a *RTIambassadorImpl) PublishInteractionClass(interactionClass int32) erro
 	return checkNativeResponse(resp)
 }
 
-// UnpublishInteractionClass cancela a publicação de uma classe de interação
+// UnpublishInteractionClass unpublishes an interaction class
 func (a *RTIambassadorImpl) UnpublishInteractionClass(interactionClass int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -536,7 +536,7 @@ func (a *RTIambassadorImpl) UnpublishInteractionClass(interactionClass int32) er
 	return checkNativeResponse(resp)
 }
 
-// SubscribeObjectClassAttributes assina atributos de uma classe de objeto
+// SubscribeObjectClassAttributes subscribes to attributes of an object class
 func (a *RTIambassadorImpl) SubscribeObjectClassAttributes(objectClass int32, attributes []int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -571,7 +571,7 @@ func (a *RTIambassadorImpl) SubscribeObjectClassAttributes(objectClass int32, at
 	return checkNativeResponse(resp)
 }
 
-// UnsubscribeObjectClass cancela a assinatura de uma classe de objeto
+// UnsubscribeObjectClass unsubscribes from an object class
 func (a *RTIambassadorImpl) UnsubscribeObjectClass(objectClass int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -599,7 +599,7 @@ func (a *RTIambassadorImpl) UnsubscribeObjectClass(objectClass int32) error {
 	return checkNativeResponse(resp)
 }
 
-// SubscribeInteractionClass assina uma classe de interação
+// SubscribeInteractionClass subscribes to an interaction class
 func (a *RTIambassadorImpl) SubscribeInteractionClass(interactionClass int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -628,7 +628,7 @@ func (a *RTIambassadorImpl) SubscribeInteractionClass(interactionClass int32) er
 	return checkNativeResponse(resp)
 }
 
-// UnsubscribeInteractionClass cancela a assinatura de uma classe de interação
+// UnsubscribeInteractionClass unsubscribes from an interaction class
 func (a *RTIambassadorImpl) UnsubscribeInteractionClass(interactionClass int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -656,7 +656,7 @@ func (a *RTIambassadorImpl) UnsubscribeInteractionClass(interactionClass int32) 
 	return checkNativeResponse(resp)
 }
 
-// RegisterObjectInstance registra uma nova instância de objeto no modelo de simulação
+// RegisterObjectInstance registers a new object instance in the simulation model
 func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName string) (int32, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -698,7 +698,7 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 	return objHandle, nil
 }
 
-// DeleteObjectInstance solicita a exclusão de uma entidade da federação
+// DeleteObjectInstance requests deletion of an object instance from the federation
 func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -727,7 +727,7 @@ func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte)
 	return checkNativeResponse(resp)
 }
 
-// UpdateAttributeValues despacha valores de atributos atualizados para a federação
+// UpdateAttributeValues dispatches updated attribute values to the federation
 func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes map[int32][]byte, tag []byte) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -763,7 +763,7 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 	return checkNativeResponse(resp)
 }
 
-// SendInteraction despacha uma interação com parâmetros para a federação
+// SendInteraction dispatches an interaction with parameters to the federation
 func (a *RTIambassadorImpl) SendInteraction(interactionClass int32, parameters map[int32][]byte, tag []byte) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -799,7 +799,7 @@ func (a *RTIambassadorImpl) SendInteraction(interactionClass int32, parameters m
 	return checkNativeResponse(resp)
 }
 
-// EnableTimeRegulation habilita a regulação de tempo com lookahead
+// EnableTimeRegulation enables time regulation with the specified lookahead
 func (a *RTIambassadorImpl) EnableTimeRegulation(lookahead float64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -841,7 +841,7 @@ func (a *RTIambassadorImpl) EnableTimeRegulation(lookahead float64) error {
 	return nil
 }
 
-// DisableTimeRegulation desabilita a regulação de tempo do federado
+// DisableTimeRegulation disables time regulation for the federate
 func (a *RTIambassadorImpl) DisableTimeRegulation() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -860,7 +860,7 @@ func (a *RTIambassadorImpl) DisableTimeRegulation() error {
 	return checkNativeResponse(resp)
 }
 
-// EnableTimeConstrained habilita a restrição de tempo do federado
+// EnableTimeConstrained enables time constrained state for the federate
 func (a *RTIambassadorImpl) EnableTimeConstrained() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -892,7 +892,7 @@ func (a *RTIambassadorImpl) EnableTimeConstrained() error {
 	return nil
 }
 
-// DisableTimeConstrained desabilita a restrição temporal do federado
+// DisableTimeConstrained disables time constrained state for the federate
 func (a *RTIambassadorImpl) DisableTimeConstrained() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -911,7 +911,7 @@ func (a *RTIambassadorImpl) DisableTimeConstrained() error {
 	return checkNativeResponse(resp)
 }
 
-// TimeAdvanceRequest solicita avanço no tempo lógico da simulação
+// TimeAdvanceRequest requests advance of logical simulation time
 func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -936,7 +936,7 @@ func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 	return checkNativeResponse(resp)
 }
 
-// NextMessageRequest solicita avanço até o próximo timestamp de mensagem ou targetTime
+// NextMessageRequest requests advance to the next message timestamp or targetTime
 func (a *RTIambassadorImpl) NextMessageRequest(targetTime float64) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -961,7 +961,7 @@ func (a *RTIambassadorImpl) NextMessageRequest(targetTime float64) error {
 	return checkNativeResponse(resp)
 }
 
-// FlushQueueRequest solicita avanço com descarga de todas as mensagens TSO
+// FlushQueueRequest requests advance with delivery of all queued TSO messages
 func (a *RTIambassadorImpl) FlushQueueRequest(targetTime float64) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -986,7 +986,7 @@ func (a *RTIambassadorImpl) FlushQueueRequest(targetTime float64) error {
 	return checkNativeResponse(resp)
 }
 
-// EvokeCallback entrega um callback pendente à FederateAmbassador se houver
+// EvokeCallback delivers one pending callback to the FederateAmbassador if available
 func (a *RTIambassadorImpl) EvokeCallback(timeout time.Duration) (bool, error) {
 	a.mu.RLock()
 	client := a.client
@@ -1013,7 +1013,7 @@ func (a *RTIambassadorImpl) EvokeCallback(timeout time.Duration) (bool, error) {
 	}
 }
 
-// EvokeMultipleCallbacks processa continuamente callbacks disponíveis até o limite de tempo
+// EvokeMultipleCallbacks repeatedly processes available callbacks up to maxTimeout
 func (a *RTIambassadorImpl) EvokeMultipleCallbacks(minTimeout, maxTimeout time.Duration) error {
 	deadline := time.Now().Add(maxTimeout)
 	for time.Now().Before(deadline) {
@@ -1088,7 +1088,7 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 	}
 }
 
-// UnconditionalAttributeOwnershipDivestiture abre mão incondicionalmente da posse dos atributos especificados
+// UnconditionalAttributeOwnershipDivestiture unconditionally divests ownership of the specified attributes
 func (a *RTIambassadorImpl) UnconditionalAttributeOwnershipDivestiture(objectHandle int32, attributes []int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1121,7 +1121,7 @@ func (a *RTIambassadorImpl) UnconditionalAttributeOwnershipDivestiture(objectHan
 	return checkNativeResponse(resp)
 }
 
-// AcquireAttributeOwnership adquire a posse de atributos não possuídos ou renunciados
+// AcquireAttributeOwnership acquires ownership of unowned or divested attributes
 func (a *RTIambassadorImpl) AcquireAttributeOwnership(objectHandle int32, attributes []int32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1154,7 +1154,7 @@ func (a *RTIambassadorImpl) AcquireAttributeOwnership(objectHandle int32, attrib
 	return checkNativeResponse(resp)
 }
 
-// QueryAttributeOwnership consulta o proprietário atual de um atributo de instância
+// QueryAttributeOwnership queries the current owner of an object instance attribute
 func (a *RTIambassadorImpl) QueryAttributeOwnership(objectHandle int32, attributeHandle int32) (int32, bool, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1197,7 +1197,7 @@ func (a *RTIambassadorImpl) QueryAttributeOwnership(objectHandle int32, attribut
 	return int32(respPayload.OwnerHandle), respPayload.IsOwned, nil
 }
 
-// CreateRegion cria uma região espacial para gerenciamento de distribuição de dados (DDM)
+// CreateRegion creates a spatial region for Data Distribution Management (DDM)
 func (a *RTIambassadorImpl) CreateRegion(dimensions []int32) (uint32, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1244,7 +1244,7 @@ func (a *RTIambassadorImpl) CreateRegion(dimensions []int32) (uint32, error) {
 	return respPayload.RegionHandle, nil
 }
 
-// SetRangeBounds define limites de faixa discretos em uma dimensão da região
+// SetRangeBounds sets discrete range bounds on a region dimension
 func (a *RTIambassadorImpl) SetRangeBounds(regionHandle uint32, dimension int32, lowerBound, upperBound uint32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1274,7 +1274,7 @@ func (a *RTIambassadorImpl) SetRangeBounds(regionHandle uint32, dimension int32,
 	return checkNativeResponse(resp)
 }
 
-// SetMetricBounds define limites contínuos métricos ECEF em metros para uma região espacial DDM
+// SetMetricBounds sets continuous ECEF metric bounds in meters for a DDM spatial region
 func (a *RTIambassadorImpl) SetMetricBounds(regionHandle uint32, minX, maxX, minY, maxY, minZ, maxZ float64) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1307,7 +1307,7 @@ func (a *RTIambassadorImpl) SetMetricBounds(regionHandle uint32, minX, maxX, min
 	return checkNativeResponse(resp)
 }
 
-// SubscribeObjectClassAttributesWithRegion assina atributos de classe vinculados a uma região DDM espacial
+// SubscribeObjectClassAttributesWithRegion subscribes to class attributes bound to a DDM spatial region
 func (a *RTIambassadorImpl) SubscribeObjectClassAttributesWithRegion(objectClass int32, attributes []int32, regionHandle uint32) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1341,7 +1341,7 @@ func (a *RTIambassadorImpl) SubscribeObjectClassAttributesWithRegion(objectClass
 	return checkNativeResponse(resp)
 }
 
-// UpdateAttributeValuesWithSpatial despacha valores de atributos atualizados com coordenadas espaciais métricas (ECEF)
+// UpdateAttributeValuesWithSpatial dispatches updated attribute values with metric (ECEF) spatial coordinates
 func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32, attributes map[int32][]byte, x, y, z float64, tag []byte) error {
 	a.mu.RLock()
 	defer a.mu.RUnlock()

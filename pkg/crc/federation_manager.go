@@ -4,14 +4,14 @@ import (
 	"sync"
 )
 
-// FederationManager gerencia o ciclo de vida de todas as execuções de federação ativas no CRC
+// FederationManager manages the lifecycle of all active federation executions in the CRC
 type FederationManager struct {
 	mu          sync.RWMutex
 	federations map[string]*FederationExecution
 	nextHandle  int32
 }
 
-// NewFederationManager instancia o gerenciador de federações central
+// NewFederationManager instantiates the central federation manager
 func NewFederationManager() *FederationManager {
 	return &FederationManager{
 		federations: make(map[string]*FederationExecution),
@@ -19,12 +19,12 @@ func NewFederationManager() *FederationManager {
 	}
 }
 
-// CreateFederation cria uma nova federação com nome exclusivo
+// CreateFederation creates a new federation execution with a unique name
 func (m *FederationManager) CreateFederation(name string) (*FederationExecution, error) {
 	return m.CreateFederationWithFOMs(name, nil)
 }
 
-// CreateFederationWithFOMs cria uma nova federação e ingere os módulos de FOM especificados
+// CreateFederationWithFOMs creates a new federation execution and ingests specified FOM modules
 func (m *FederationManager) CreateFederationWithFOMs(name string, foms []string) (*FederationExecution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -39,18 +39,18 @@ func (m *FederationManager) CreateFederationWithFOMs(name string, foms []string)
 	fed := NewFederationExecution(h, name)
 	m.federations[name] = fed
 
-	// Ingerir módulos especificados
+	// Ingest specified FOM modules
 	for _, f := range foms {
 		_ = IngestFOMIntoFederation(fed, f)
 	}
 
-	// Ingerir módulos canônicos para federações padrão
+	// Ingest canonical defaults for standard federations
 	IngestCanonicalDefaults(fed)
 
 	return fed, nil
 }
 
-// GetOrCreateFederation obtém uma federação existente ou cria se não existir
+// GetOrCreateFederation retrieves an existing federation or creates one if it does not exist
 func (m *FederationManager) GetOrCreateFederation(name string) *FederationExecution {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -67,7 +67,7 @@ func (m *FederationManager) GetOrCreateFederation(name string) *FederationExecut
 	return fed
 }
 
-// GetFederation busca uma federação pelo nome
+// GetFederation looks up a federation execution by name
 func (m *FederationManager) GetFederation(name string) (*FederationExecution, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -76,7 +76,7 @@ func (m *FederationManager) GetFederation(name string) (*FederationExecution, bo
 	return fed, exists
 }
 
-// GetFirstFederation obtém a primeira federação ativa existente
+// GetFirstFederation retrieves the first active federation execution
 func (m *FederationManager) GetFirstFederation() (*FederationExecution, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -87,7 +87,7 @@ func (m *FederationManager) GetFirstFederation() (*FederationExecution, bool) {
 	return nil, false
 }
 
-// ListFederations retorna a lista com o nome de todas as federações ativas
+// ListFederations returns a list of names of all active federations
 func (m *FederationManager) ListFederations() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -99,7 +99,7 @@ func (m *FederationManager) ListFederations() []string {
 	return names
 }
 
-// DestroyFederation remove a federação se não houver federados ativos
+// DestroyFederation removes the federation execution if no active federates remain
 func (m *FederationManager) DestroyFederation(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -110,7 +110,7 @@ func (m *FederationManager) DestroyFederation(name string) error {
 	}
 
 	if len(fed.GetAllFederates()) > 0 {
-		return ErrFederatesCurrentlyJoined // Federação ainda possui participantes ativos
+		return ErrFederatesCurrentlyJoined // Federation still has active federate members
 	}
 
 	delete(m.federations, name)

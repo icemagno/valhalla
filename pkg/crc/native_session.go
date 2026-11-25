@@ -18,7 +18,7 @@ type NativeHeader = common.NativeHeader
 var ReadNativeHeader = common.ReadNativeHeader
 var WriteNativeHeader = common.WriteNativeHeader
 
-// NativeSession gerencia a conexão de um federado moderno nativo do Valhalla
+// NativeSession manages the connection of a modern native Valhalla federate
 type NativeSession struct {
 	id       int32
 	fedID    int32
@@ -27,7 +27,7 @@ type NativeSession struct {
 	isClosed bool
 }
 
-// NewNativeSession instancia uma nova sessão nativa
+// NewNativeSession instantiates a new native session
 func NewNativeSession(conn net.Conn) *NativeSession {
 	return &NativeSession{
 		conn: conn,
@@ -50,7 +50,7 @@ func (s *NativeSession) Protocol() ProtocolType {
 	return ProtocolNative
 }
 
-// SendMessage envia uma mensagem nativa enquadrada com o cabeçalho de 48 bytes
+// SendMessage sends a framed native message with the 48-byte header
 func (s *NativeSession) SendMessage(hdr NativeHeader, payload []byte) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -73,7 +73,7 @@ func (s *NativeSession) SendMessage(hdr NativeHeader, payload []byte) error {
 	return nil
 }
 
-// SendNotification envia uma notificação nativa para o federado
+// SendNotification sends an asynchronous native notification to the federate
 func (s *NativeSession) SendNotification(msgType uint8, payload []byte) error {
 	hdr := NativeHeader{
 		Magic:      NativeHeaderMagic,
@@ -87,7 +87,7 @@ func (s *NativeSession) SendNotification(msgType uint8, payload []byte) error {
 	return s.SendMessage(hdr, payload)
 }
 
-// Close encerra a sessão nativa
+// Close closes the native session and underlying socket
 func (s *NativeSession) Close() error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

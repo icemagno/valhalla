@@ -17,7 +17,7 @@ var (
 	logCRCPortico = logger.NewLogger("CRC-Portico")
 )
 
-// Server representa o executivo central (CRC) do Valhalla com suporte a multiplexação de protocolos
+// Server represents the Valhalla Central RTI Component (CRC) executive supporting dual-protocol multiplexing
 type Server struct {
 	addr        string
 	listener    net.Listener
@@ -33,7 +33,7 @@ type Server struct {
 	running  bool
 }
 
-// NewServer instancia o executivo CRC do Valhalla
+// NewServer instantiates the Valhalla CRC executive
 func NewServer(addr string) *Server {
 	if addr == "" {
 		addr = ":52295"
@@ -50,12 +50,12 @@ func NewServer(addr string) *Server {
 	}
 }
 
-// FederationManager retorna o gerenciador central de federações
+// FederationManager returns the central federation manager
 func (s *Server) FederationManager() *FederationManager {
 	return s.fedManager
 }
 
-// Start inicia o escutador TCP do CRC na porta configurada e atende conexões concorrentes
+// Start begins listening on the configured TCP address and handles concurrent federate connections
 func (s *Server) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -114,7 +114,7 @@ func (s *Server) acceptLoop() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
-	// Detectar o protocolo examinando os primeiros bytes na porta unificada
+	// Detect dialect by examining initial bytes on the unified port
 	proto, wrappedConn, err := DetectProtocol(conn, s.peekTimeout)
 	if err != nil {
 		_ = conn.Close()
@@ -136,7 +136,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-// Stop desliga o executivo CRC graciosamente
+// Stop shuts down the CRC executive gracefully
 func (s *Server) Stop() error {
 	s.mu.Lock()
 	if !s.running {
@@ -147,7 +147,7 @@ func (s *Server) Stop() error {
 	close(s.stopChan)
 	err := s.listener.Close()
 
-	// Fechar proativamente todas as conexões ativas para desbloquear os loops de leitura
+	// Proactively close all active connections to unblock read loops
 	s.connsMu.Lock()
 	for c := range s.conns {
 		_ = c.Close()
@@ -161,7 +161,7 @@ func (s *Server) Stop() error {
 	return err
 }
 
-// Addr retorna o endereço real em que o servidor está escutando
+// Addr returns the real listener address
 func (s *Server) Addr() net.Addr {
 	s.mu.Lock()
 	defer s.mu.Unlock()

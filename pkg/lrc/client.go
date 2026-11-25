@@ -22,7 +22,7 @@ type callbackItem struct {
 	Payload []byte
 }
 
-// Client gerencia a conexão de transporte e protocolo nativo (VAL4) com o CRC
+// Client manages the transport connection and native protocol (VAL4) with the CRC
 type Client struct {
 	conn       net.Conn
 	writeMu    sync.Mutex
@@ -34,7 +34,7 @@ type Client struct {
 	closedChan chan struct{}
 }
 
-// NewClient conecta ao CRC via TCP e estabelece o preâmbulo nativo VAL4
+// NewClient connects to the CRC over TCP and establishes the native VAL4 preamble
 func NewClient(address string) (*Client, error) {
 	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {
@@ -60,7 +60,7 @@ func NewClient(address string) (*Client, error) {
 	return c, nil
 }
 
-// Close encerra a conexão de transporte
+// Close shuts down the transport connection
 func (c *Client) Close() error {
 	if atomic.CompareAndSwapInt32(&c.isClosed, 0, 1) {
 		close(c.closedChan)
@@ -69,12 +69,12 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// IsClosed indica se o cliente foi desconectado
+// IsClosed indicates whether the client was disconnected
 func (c *Client) IsClosed() bool {
 	return atomic.LoadInt32(&c.isClosed) == 1
 }
 
-// SendRequest transmite uma mensagem síncrona com timeout e aguarda a resposta
+// SendRequest transmits a synchronous message with timeout and waits for the response
 func (c *Client) SendRequest(msgType uint8, fedID, federateID uint32, payload []byte, timeout time.Duration) (nativeResponse, error) {
 	if c.IsClosed() {
 		return nativeResponse{}, ErrConnectionClosed
@@ -157,7 +157,7 @@ func (c *Client) readLoop() {
 			}
 		}
 
-		// Se tem ReqID associado, entrega para a goroutine que fez a requisição síncrona
+		// If ReqID is set, deliver to the goroutine waiting on synchronous response
 		if hdr.ReqID > 0 {
 			c.pendingMu.Lock()
 			ch, ok := c.pending[hdr.ReqID]
@@ -171,11 +171,11 @@ func (c *Client) readLoop() {
 			}
 		}
 
-		// Caso contrário, é uma notificação assíncrona do RTI enviada para a fila de callbacks
+		// Otherwise, it is an asynchronous RTI notification dispatched to the callback queue
 		select {
 		case c.callbacks <- callbackItem{MsgType: hdr.MsgType, Payload: payload}:
 		default:
-			// Fila saturada
+			// Queue saturated, drop to prevent memory ballooning
 		}
 	}
 }

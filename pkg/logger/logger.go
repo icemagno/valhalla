@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// GlobalConfigAccessor define a interface necessária para o logger obter o nível global.
+// GlobalConfigAccessor defines the interface required by the logger to obtain the global log level.
 type GlobalConfigAccessor interface {
 	GetLogLevel() int
 }
@@ -23,7 +23,7 @@ var (
 	configAccessor   GlobalConfigAccessor
 )
 
-// SetConfigAccessor permite registrar um provedor de configuração global.
+// SetConfigAccessor registers a global configuration provider.
 func SetConfigAccessor(a GlobalConfigAccessor) {
 	configAccessorMu.Lock()
 	defer configAccessorMu.Unlock()
@@ -39,7 +39,7 @@ func getConfigLogLevel() (LogLevel, bool) {
 	return LevelInfo, false
 }
 
-// LogLevel define a severidade da mensagem.
+// LogLevel defines message severity.
 type LogLevel int
 
 const (
@@ -71,7 +71,7 @@ func (l LogLevel) String() string {
 	}
 }
 
-// ParseLogLevel converte uma string para o tipo LogLevel.
+// ParseLogLevel converts a string to LogLevel.
 func ParseLogLevel(level string) LogLevel {
 	switch level {
 	case "trace":
@@ -91,7 +91,7 @@ func ParseLogLevel(level string) LogLevel {
 	}
 }
 
-// Logger define a interface universal de observabilidade assíncrona do Valhalla.
+// Logger defines Valhalla's asynchronous observability interface.
 type Logger interface {
 	Critical(format string, args ...interface{})
 	Debug(format string, args ...interface{})
@@ -103,7 +103,7 @@ type Logger interface {
 	GetLevel() LogLevel
 }
 
-// valhallaLogger é a implementação assíncrona desacoplada de alto desempenho do Logger.
+// valhallaLogger is the high-performance decoupled asynchronous Logger implementation.
 type valhallaLogger struct {
 	mu     sync.RWMutex
 	level  LogLevel
@@ -123,7 +123,7 @@ type logEntry struct {
 var (
 	globalLogger Logger
 	once         sync.Once
-	logQueue     = make(chan logEntry, 10000) // Buffer FIFO desacoplado
+	logQueue     = make(chan logEntry, 10000) // Decoupled FIFO buffer
 )
 
 const (
@@ -135,7 +135,7 @@ const (
 )
 
 func init() {
-	// Worker assíncrono em background para processamento de I/O de logs fora da hot path
+	// Background asynchronous worker for out-of-hotpath logging I/O
 	go func() {
 		for entry := range logQueue {
 			if entry.flushDone != nil {
@@ -171,7 +171,7 @@ func init() {
 	}()
 }
 
-// Flush bloqueia até que todas as mensagens enfileiradas até o momento sejam gravadas na saída.
+// Flush blocks until all currently queued messages are written to output.
 func Flush() {
 	done := make(chan struct{})
 	select {
@@ -181,7 +181,7 @@ func Flush() {
 	}
 }
 
-// InitGlobalLogger inicializa o logger global sem nome de módulo.
+// InitGlobalLogger initializes the global logger without a module name.
 func InitGlobalLogger(level LogLevel) Logger {
 	once.Do(func() {
 		globalLogger = &valhallaLogger{
@@ -193,7 +193,7 @@ func InitGlobalLogger(level LogLevel) Logger {
 	return globalLogger
 }
 
-// NewLogger cria uma instância de logger para um módulo específico.
+// NewLogger creates a logger instance for a specific module.
 func NewLogger(module string) Logger {
 	level := LevelInfo
 	if l, ok := getConfigLogLevel(); ok {
@@ -206,7 +206,7 @@ func NewLogger(module string) Logger {
 	}
 }
 
-// GetGlobal retorna o logger global.
+// GetGlobal returns the global logger instance.
 func GetGlobal() Logger {
 	if globalLogger == nil {
 		level := LevelInfo
@@ -240,7 +240,7 @@ func (l *valhallaLogger) log(level LogLevel, format string, args ...interface{})
 		return
 	}
 
-	// Envio assíncrono não-bloqueante para a fila
+	// Non-blocking asynchronous dispatch to queue
 	select {
 	case logQueue <- logEntry{
 		timestamp: time.Now().Format("15:04:05.000"),
@@ -250,7 +250,7 @@ func (l *valhallaLogger) log(level LogLevel, format string, args ...interface{})
 		output:    l.output,
 	}:
 	default:
-		// Em caso de saturação do buffer de 10k, descarta para proteger latência de simulação
+		// Drop message if buffer overflows (10k items) to protect simulation latency
 	}
 }
 
@@ -261,7 +261,7 @@ func (l *valhallaLogger) Error(f string, a ...interface{})    { l.log(LevelError
 func (l *valhallaLogger) Trace(f string, a ...interface{})    { l.log(LevelTrace, f, a...) }
 func (l *valhallaLogger) Critical(f string, a ...interface{}) { l.log(LevelCritical, f, a...) }
 
-// Atalhos globais delegados
+// Global delegated shortcuts
 func Debug(f string, a ...interface{})    { GetGlobal().Debug(f, a...) }
 func Info(f string, a ...interface{})     { GetGlobal().Info(f, a...) }
 func Warn(f string, a ...interface{})     { GetGlobal().Warn(f, a...) }

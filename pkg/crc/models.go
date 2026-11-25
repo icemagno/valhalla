@@ -10,7 +10,7 @@ import (
 	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
-// ProtocolType identifica o dialeto de transporte e serialização usado pelo federado
+// ProtocolType identifies the transport and serialization dialect used by the federate
 type ProtocolType = common.ProtocolType
 
 const (
@@ -18,7 +18,7 @@ const (
 	ProtocolPortico = common.ProtocolPortico
 )
 
-// Session define a interface de transporte para despacho assíncrono de mensagens a um federado
+// Session defines the transport interface for asynchronous message dispatch to a federate
 type Session interface {
 	FederateID() int32
 	Protocol() ProtocolType
@@ -26,7 +26,7 @@ type Session interface {
 	Close() error
 }
 
-// Federate representa um nó participante de uma execução de federação no CRC
+// Federate represents a participant node in a federation execution on the CRC
 type Federate struct {
 	ID           int32
 	Name         string
@@ -35,7 +35,7 @@ type Federate struct {
 	Session      Session
 	JoinedAt     time.Time
 
-	// Estado de Gerenciamento Temporal (Time Management)
+	// Time Management State
 	CurrentTime   float64
 	Lookahead     float64
 	IsRegulating  bool
@@ -44,7 +44,7 @@ type Federate struct {
 	TargetTime    float64
 }
 
-// SyncPoint representa um ponto de sincronização ativo na federação
+// SyncPoint represents an active synchronization point in the federation
 type SyncPoint struct {
 	Label             string
 	Tag               []byte
@@ -54,7 +54,7 @@ type SyncPoint struct {
 	CreatedAt         time.Time
 }
 
-// NewSyncPoint instancia um novo ponto de sincronização
+// NewSyncPoint instantiates a new synchronization point
 func NewSyncPoint(label string, tag []byte, registrarID int32) *SyncPoint {
 	return &SyncPoint{
 		Label:             label,
@@ -65,7 +65,7 @@ func NewSyncPoint(label string, tag []byte, registrarID int32) *SyncPoint {
 	}
 }
 
-// ObjectInstance representa uma instância viva de objeto registrada na simulação
+// ObjectInstance represents an active object instance registered in the simulation
 type ObjectInstance struct {
 	Handle      int32
 	ClassHandle int32
@@ -76,7 +76,7 @@ type ObjectInstance struct {
 	UpdatedAt   time.Time
 }
 
-// FederationExecution representa o estado de uma federação em execução no CRC
+// FederationExecution represents the runtime state of a federation execution on the CRC
 type FederationExecution struct {
 	mu sync.RWMutex
 
@@ -101,7 +101,7 @@ type FederationExecution struct {
 	ownershipMgr *core.OwnershipManager
 }
 
-// NewFederationExecution cria uma nova federação com contadores e mapas inicializados
+// NewFederationExecution creates a new federation execution with initialized counters and maps
 func NewFederationExecution(handle int32, name string) *FederationExecution {
 	omt := core.NewOMTRegistry()
 	router := core.NewInterestMatcher(omt)
@@ -117,7 +117,7 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		syncPoints:         make(map[string]*SyncPoint),
 		objects:            make(map[int32]*ObjectInstance),
 		nameToObjID:        make(map[string]int32),
-		nextFederateHandle: 1, // Handles começam em 1
+		nextFederateHandle: 1, // Handles start at 1
 		nextObjectHandle:   1,
 		nextRegionHandle:   1,
 		regions:            make(map[uint32]*core.SpatialRegion),
@@ -129,32 +129,32 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 	}
 }
 
-// OMT retorna o registro de modelo de objetos (OMT) da federação
+// OMT returns the Object Model Template (OMT) registry of the federation
 func (f *FederationExecution) OMT() *core.OMTRegistry {
 	return f.omt
 }
 
-// Router retorna o roteador de pub/sub (InterestMatcher) da federação
+// Router returns the publish/subscribe router (InterestMatcher) of the federation
 func (f *FederationExecution) Router() *core.InterestMatcher {
 	return f.router
 }
 
-// StateTree retorna a árvore de estado criptográfico Merkle da federação
+// StateTree returns the cryptographic Merkle state tree of the federation
 func (f *FederationExecution) StateTree() *core.FederationStateTree {
 	return f.stateTree
 }
 
-// TimeManager retorna o coordenador de avanço temporal determinístico da federação
+// TimeManager returns the deterministic time advance coordinator of the federation
 func (f *FederationExecution) TimeManager() *core.TimeManager {
 	return f.timeMgr
 }
 
-// OwnershipManager retorna o gerenciador de posse de atributos da federação
+// OwnershipManager returns the attribute ownership manager of the federation
 func (f *FederationExecution) OwnershipManager() *core.OwnershipManager {
 	return f.ownershipMgr
 }
 
-// Join registra um federado na federação e atribui seu handle sequencial exclusivo
+// Join registers a federate in the federation and assigns its unique sequential handle
 func (f *FederationExecution) Join(name, fedType string, proto ProtocolType, sess Session) (*Federate, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -186,7 +186,7 @@ func (f *FederationExecution) Join(name, fedType string, proto ProtocolType, ses
 	return fed, nil
 }
 
-// Resign remove o federado da federação liberando seu nome e sessao
+// Resign removes the federate from the federation, freeing its name and session
 func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -199,22 +199,22 @@ func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 	delete(f.federates, id)
 	delete(f.nameToID, fed.Name)
 
-	// Remover de pontos de sincronização pendentes
+	// Remove from pending synchronization points
 	for _, sp := range f.syncPoints {
 		delete(sp.AchievedFederates, id)
 	}
 
-	// Limpar interesses e publicações do federado no roteador
+	// Clear federate interests and publications in router
 	if f.router != nil {
 		f.router.RemoveFederate(common.FederateHandle(id))
 	}
 
-	// Remover federado do motor temporal
+	// Remove federate from time manager
 	if f.timeMgr != nil {
 		f.timeMgr.UnregisterFederate(common.FederateHandle(id))
 	}
 
-	// Limpar posse de atributos do federado
+	// Clear attribute ownership held by federate
 	if f.ownershipMgr != nil {
 		f.ownershipMgr.RemoveFederate(common.FederateHandle(id))
 	}
@@ -222,7 +222,7 @@ func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 	return fed, nil
 }
 
-// GetFederate obtém um federado pelo ID com thread-safety
+// GetFederate retrieves a federate by ID with thread-safety
 func (f *FederationExecution) GetFederate(id int32) (*Federate, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -230,7 +230,7 @@ func (f *FederationExecution) GetFederate(id int32) (*Federate, bool) {
 	return fed, exists
 }
 
-// RegisterSyncPoint registra um novo ponto de sincronização se o rótulo for único
+// RegisterSyncPoint registers a new synchronization point if the label is unique
 func (f *FederationExecution) RegisterSyncPoint(label string, tag []byte, registrarID int32) (*SyncPoint, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -244,7 +244,7 @@ func (f *FederationExecution) RegisterSyncPoint(label string, tag []byte, regist
 	return sp, nil
 }
 
-// AchieveSyncPoint marca um ponto como conquistado por um federado e verifica sincronização global
+// AchieveSyncPoint marks a point as achieved by a federate and checks global synchronization
 func (f *FederationExecution) AchieveSyncPoint(label string, federateID int32) (isFederationSynchronized bool, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -256,7 +256,7 @@ func (f *FederationExecution) AchieveSyncPoint(label string, federateID int32) (
 
 	sp.AchievedFederates[federateID] = true
 
-	// Uma federação está sincronizada quando TODOS os federados atingiram o ponto
+	// A federation is synchronized when ALL active federates have achieved the point
 	if len(f.federates) > 0 && len(sp.AchievedFederates) >= len(f.federates) {
 		sp.IsSynchronized = true
 		return true, nil
@@ -265,7 +265,7 @@ func (f *FederationExecution) AchieveSyncPoint(label string, federateID int32) (
 	return false, nil
 }
 
-// GetAllFederates retorna uma cópia de leitura de todos os federados ativos
+// GetAllFederates returns a thread-safe slice of all active federates
 func (f *FederationExecution) GetAllFederates() []*Federate {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -277,7 +277,7 @@ func (f *FederationExecution) GetAllFederates() []*Federate {
 	return list
 }
 
-// RegisterObjectInstance registra uma nova instância de objeto na federação
+// RegisterObjectInstance registers a new object instance in the federation
 func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name string, ownerID int32) (*ObjectInstance, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -308,7 +308,7 @@ func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name str
 		f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(handle), obj.MerkleRoot)
 	}
 
-	// Atribuir posse inicial de atributos ao registrador
+	// Assign initial attribute ownership to the registering federate
 	if f.ownershipMgr != nil && f.omt != nil {
 		if cls, ok := f.omt.GetObjectClass(common.ObjectClassHandle(classHandle)); ok {
 			var attrHandles []common.AttributeHandle
@@ -322,7 +322,7 @@ func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name str
 	return obj, nil
 }
 
-// UpdateObjectAttributes atualiza os atributos de uma instância e recalcula a raiz Merkle
+// UpdateObjectAttributes updates attributes of an instance and recomputes the Merkle root
 func (f *FederationExecution) UpdateObjectAttributes(objHandle int32, attrs map[int32][]byte, merkleRoot [32]byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -336,7 +336,7 @@ func (f *FederationExecution) UpdateObjectAttributes(objHandle int32, attrs map[
 		obj.Attributes[k] = v
 	}
 
-	// Se a raiz Merkle não foi fornecida previamente, computar deterministicamente via SSZ
+	// If Merkle root was not provided, compute deterministically via SSZ
 	if merkleRoot == [32]byte{} {
 		attrMap := make(map[common.AttributeHandle][]byte, len(obj.Attributes))
 		for k, v := range obj.Attributes {
@@ -355,7 +355,7 @@ func (f *FederationExecution) UpdateObjectAttributes(objHandle int32, attrs map[
 	return nil
 }
 
-// DeleteObjectInstance remove a entidade da simulação validando posse ou privilégio de exclusão
+// DeleteObjectInstance removes the entity from simulation after validating ownership or delete privilege
 func (f *FederationExecution) DeleteObjectInstance(objHandle int32, federateID int32, tag []byte) (*ObjectInstance, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -365,8 +365,8 @@ func (f *FederationExecution) DeleteObjectInstance(objHandle int32, federateID i
 		return nil, common.ErrObjectInstanceNotKnown
 	}
 
-	// Validação estrita da norma IEEE 1516-2025:
-	// Apenas o proprietário que registrou a entidade OU quem detém privilégio de exclusão pode deletar
+	// Strict IEEE 1516-2025 standard validation:
+	// Only registering owner OR federate holding delete privilege can delete instance
 	if obj.OwnerID != federateID {
 		return nil, common.ErrDeletePrivilegeNotHeld
 	}
@@ -385,7 +385,7 @@ func (f *FederationExecution) DeleteObjectInstance(objHandle int32, federateID i
 	return obj, nil
 }
 
-// GetAllObjects retorna um snapshot thread-safe de todas as instâncias de objetos ativas
+// GetAllObjects returns a thread-safe snapshot of all active object instances
 func (f *FederationExecution) GetAllObjects() []*ObjectInstance {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -397,7 +397,7 @@ func (f *FederationExecution) GetAllObjects() []*ObjectInstance {
 	return list
 }
 
-// GetObjectInstance busca uma instância de objeto pelo handle
+// GetObjectInstance looks up an object instance by handle
 func (f *FederationExecution) GetObjectInstance(handle int32) (*ObjectInstance, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -405,7 +405,7 @@ func (f *FederationExecution) GetObjectInstance(handle int32) (*ObjectInstance, 
 	return obj, exists
 }
 
-// CreateRegion aloca um handle único para uma região espacial DDM
+// CreateRegion allocates a unique handle for a DDM spatial region
 func (f *FederationExecution) CreateRegion() uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -420,7 +420,7 @@ func (f *FederationExecution) CreateRegion() uint32 {
 	return handle
 }
 
-// SetRegionRangeBounds define limites de faixa discretos em uma dimensão da região
+// SetRegionRangeBounds sets discrete range bounds on a region dimension
 func (f *FederationExecution) SetRegionRangeBounds(handle uint32, dim uint32, lower, upper uint32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -441,7 +441,7 @@ func (f *FederationExecution) SetRegionRangeBounds(handle uint32, dim uint32, lo
 	return nil
 }
 
-// SetRegionMetricBounds define limites contínuos ECEF em metros para uma região
+// SetRegionMetricBounds sets continuous ECEF metric bounds in meters for a region
 func (f *FederationExecution) SetRegionMetricBounds(handle uint32, minX, maxX, minY, maxY, minZ, maxZ float64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -459,7 +459,7 @@ func (f *FederationExecution) SetRegionMetricBounds(handle uint32, minX, maxX, m
 	return nil
 }
 
-// GetRegion retorna uma cópia de valor da região espacial DDM
+// GetRegion returns a value copy of the DDM spatial region
 func (f *FederationExecution) GetRegion(handle uint32) (core.SpatialRegion, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()

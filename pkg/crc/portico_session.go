@@ -45,7 +45,7 @@ func (s *PorticoSession) Protocol() ProtocolType {
 	return ProtocolPortico
 }
 
-// SendPacket envia um pacote com enquadramento oficial 0xCAFE:
+// SendPacket sends a packet using official 0xCAFE framing:
 //   [int32: 0xCAFE] [int32: bundleLength] [Header: 12 bytes] [Payload: N bytes]
 func (s *PorticoSession) SendPacket(hdr wire.Header, payload []byte) error {
 	s.writeMu.Lock()
@@ -83,7 +83,7 @@ func (s *PorticoSession) SendPacket(hdr wire.Header, payload []byte) error {
 	return s.writer.Flush()
 }
 
-// SendControlResponseOK envia uma resposta bem-sucedida de controle para uma requisição recebida
+// SendControlResponseOK sends a successful control response for a received request
 func (s *PorticoSession) SendControlResponseOK(reqID uint16, msgType wire.MessageType, payload []byte) error {
 	target := uint16(s.id)
 	if msgType == wire.MsgJoinFederation {
@@ -102,7 +102,7 @@ func (s *PorticoSession) SendControlResponseOK(reqID uint16, msgType wire.Messag
 	return s.SendPacket(hdr, payload)
 }
 
-// SendControlResponseErr envia uma resposta de erro para uma requisição de controle
+// SendControlResponseErr sends an error control response for a received request
 func (s *PorticoSession) SendControlResponseErr(reqID uint16, msgType wire.MessageType, errMsg string) error {
 	payload := wire.BuildErrorResponsePayload(errMsg)
 	hdr := wire.Header{
@@ -118,7 +118,7 @@ func (s *PorticoSession) SendControlResponseErr(reqID uint16, msgType wire.Messa
 	return s.SendPacket(hdr, payload)
 }
 
-// SendNotification envia uma notificação assíncrona (ex: AnnounceSyncPoint, FederationSynchronized, TAG)
+// SendNotification sends an asynchronous notification (e.g., AnnounceSyncPoint, FederationSynchronized, TAG)
 func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 	hdr := wire.Header{
 		Flags:         0,
@@ -133,7 +133,7 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 	return s.SendPacket(hdr, payload)
 }
 
-// Close encerra a sessão e o socket
+// Close terminates the session and underlying socket
 func (s *PorticoSession) Close() error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -145,38 +145,38 @@ func (s *PorticoSession) Close() error {
 	return nil
 }
 
-// ReadPacket le o proximo pacote enquadrado com 0xCAFE da conexao
+// ReadPacket reads the next packet framed with 0xCAFE from the connection
 func (s *PorticoSession) ReadPacket(reader io.Reader) (wire.Header, []byte, error) {
 	var hdr wire.Header
 
 	for {
-		// 1. Ler o magic do bundle (0xCAFE)
+		// 1. Read bundle magic (0xCAFE)
 		var magic int32
 		if err := binary.Read(reader, binary.BigEndian, &magic); err != nil {
 			return hdr, nil, err
 		}
 		if magic != wire.MagicTCPBundle {
-			return hdr, nil, fmt.Errorf("magic bundle invalido: 0x%X", magic)
+			return hdr, nil, fmt.Errorf("invalid bundle magic: 0x%X", magic)
 		}
 
-		// 2. Ler o tamanho do bundle
+		// 2. Read bundle length
 		var bundleLen int32
 		if err := binary.Read(reader, binary.BigEndian, &bundleLen); err != nil {
 			return hdr, nil, err
 		}
 		if bundleLen == 0 {
-			// Keepalive vazio
+			// Empty keepalive
 			continue
 		}
 		if bundleLen < wire.HeaderLength {
-			return hdr, nil, fmt.Errorf("bundle menor que header de 12 bytes: %d", bundleLen)
+			return hdr, nil, fmt.Errorf("bundle length smaller than 12-byte header: %d", bundleLen)
 		}
 		const maxPorticoBundleLen = 64 * 1024 * 1024
 		if bundleLen > maxPorticoBundleLen {
-			return hdr, nil, fmt.Errorf("bundleLen excede limite maximo de seguranca: %d", bundleLen)
+			return hdr, nil, fmt.Errorf("bundleLen exceeds maximum safety limit: %d", bundleLen)
 		}
 
-		// 3. Ler o header de 12 bytes
+		// 3. Read 12-byte header
 		var hdrBuf [wire.HeaderLength]byte
 		if _, err := io.ReadFull(reader, hdrBuf[:]); err != nil {
 			return hdr, nil, err
@@ -185,7 +185,7 @@ func (s *PorticoSession) ReadPacket(reader io.Reader) (wire.Header, []byte, erro
 			return hdr, nil, err
 		}
 
-		// 4. Ler o payload
+		// 4. Read payload
 		payloadLen := int(bundleLen) - wire.HeaderLength
 		var payload []byte
 		if payloadLen > 0 {

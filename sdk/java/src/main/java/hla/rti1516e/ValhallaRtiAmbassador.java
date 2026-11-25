@@ -122,6 +122,24 @@ public class ValhallaRtiAmbassador implements RTIambassador {
                 throw new AttributeNotOwned("Attribute is not owned by federate in " + operation);
             case IValhallaLrc.VALHALLA_ERR_ALREADY_OWNED:
                 throw new RTIexception("Attribute is already owned in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_FEDERATION_EXISTS:
+                throw new FederationExecutionAlreadyExists("Federation execution already exists in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_FEDERATION_NOT_FOUND:
+                throw new FederationExecutionDoesNotExist("Federation execution does not exist in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_CLASS_NOT_FOUND:
+                throw new ObjectClassNotDefined("Object class is not defined in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_ATTR_NOT_FOUND:
+                throw new AttributeNotDefined("Attribute is not defined in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_OBJECT_NOT_FOUND:
+                throw new ObjectInstanceNotKnown("Object instance is not known in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_NOT_MEMBER:
+                throw new FederateNotExecutionMember("Federate is not execution member in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_FEDERATES_JOINED:
+                throw new FederatesCurrentlyJoined("Federates are currently joined in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_FEDERATE_NAME_IN_USE:
+                throw new FederateNameAlreadyInUse("Federate name already in use in " + operation);
+            case IValhallaLrc.VALHALLA_ERR_INTERACTION_NOT_FOUND:
+                throw new InteractionClassNotDefined("Interaction class is not defined in " + operation);
             default:
                 throw new RTIinternalError("Valhalla RTI Error (" + status + ") during " + operation);
         }

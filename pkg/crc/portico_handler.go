@@ -386,7 +386,8 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 			if classHandle <= 0 {
-				classHandle = 1 // fallback to HLAobjectRootHandle
+				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectClassNotDefined")
+				continue
 			}
 
 			objInst, err := currentFed.RegisterObjectInstance(classHandle, objectName, federateID)
@@ -437,8 +438,14 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 
-			if objectId > 0 && len(attrsMap) > 0 {
-				_ = currentFed.UpdateObjectAttributes(objectId, attrsMap, [32]byte{})
+			if objectId <= 0 {
+				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown")
+				continue
+			}
+
+			if err := currentFed.UpdateObjectAttributes(objectId, attrsMap, [32]byte{}); err != nil {
+				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown")
+				continue
 			}
 			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
 
@@ -470,7 +477,6 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
 				continue
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
 
 			var interactionId int32
 			var paramsMap map[int32][]byte
@@ -484,6 +490,17 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 					tag = t
 				}
 			}
+
+			if interactionId <= 0 {
+				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined")
+				continue
+			}
+			if _, exists := currentFed.OMT().GetInteractionClass(common.InteractionClassHandle(interactionId)); !exists {
+				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined")
+				continue
+			}
+
+			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
 
 			nativeParams := make(map[common.ParameterHandle][]byte, len(paramsMap))
 			for k, v := range paramsMap {
@@ -554,13 +571,15 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound")
 				continue
 			}
-			requestedTime := fed.CurrentTime + 1.0
+			var requestedTime float64
+			hasTime := false
 			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
 				if t, ok := obj.Get("time").(float64); ok {
 					requestedTime = t
+					hasTime = true
 				}
 			}
-			if requestedTime < fed.CurrentTime {
+			if !hasTime || requestedTime < fed.CurrentTime {
 				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidLogicalTime")
 				continue
 			}

@@ -18,6 +18,15 @@ public interface IValhallaLrc extends Library {
     int VALHALLA_ERR_RTI_EXCEPTION = 3;
     int VALHALLA_ERR_NOT_OWNER = 4;
     int VALHALLA_ERR_ALREADY_OWNED = 5;
+    int VALHALLA_ERR_FEDERATION_EXISTS = 6;
+    int VALHALLA_ERR_FEDERATION_NOT_FOUND = 7;
+    int VALHALLA_ERR_CLASS_NOT_FOUND = 8;
+    int VALHALLA_ERR_ATTR_NOT_FOUND = 9;
+    int VALHALLA_ERR_OBJECT_NOT_FOUND = 10;
+    int VALHALLA_ERR_NOT_MEMBER = 11;
+    int VALHALLA_ERR_FEDERATES_JOINED = 12;
+    int VALHALLA_ERR_FEDERATE_NAME_IN_USE = 13;
+    int VALHALLA_ERR_INTERACTION_NOT_FOUND = 14;
 
     interface DiscoverObjectCallback extends Callback {
         void invoke(int theObject, int theObjectClass, String objectName);

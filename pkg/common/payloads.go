@@ -151,7 +151,7 @@ func (p *JoinFederationPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// JoinFederationResponsePayload resposta com identificadores concedidos
+// JoinFederationResponsePayload contains granted federate and federation identifiers.
 type JoinFederationResponsePayload struct {
 	FederateHandle   FederateHandle
 	FederationHandle int32
@@ -232,7 +232,7 @@ func (p *RegisterSyncPointPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// SyncPointLabelPayload payload para mensagens que transmitem apenas o label (Achieve, Announce, Synchronized)
+// SyncPointLabelPayload represents messages carrying only a label string (Achieve, Announce, Synchronized).
 type SyncPointLabelPayload struct {
 	Label string
 }
@@ -260,7 +260,7 @@ func (p *SyncPointLabelPayload) UnmarshalBinary(data []byte) error {
 // 2. DECLARATION MANAGEMENT (PUB/SUB) PAYLOADS
 // ============================================================================
 
-// PublishObjectClassPayload publica atributos de uma classe de objetos
+// PublishObjectClassPayload publishes attributes of an object class.
 type PublishObjectClassPayload struct {
 	ClassHandle      ObjectClassHandle
 	AttributeHandles []AttributeHandle
@@ -299,7 +299,7 @@ func (p *PublishObjectClassPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// SubscribeObjectClassPayload subscreve atributos de uma classe de objetos
+// SubscribeObjectClassPayload subscribes to attributes of an object class.
 type SubscribeObjectClassPayload struct {
 	ClassHandle      ObjectClassHandle
 	AttributeHandles []AttributeHandle

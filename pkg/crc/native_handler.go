@@ -11,7 +11,7 @@ import (
 	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
-// Tipos de Mensagem do Protocolo Nativo Valhalla (HLA-4)
+// Message types for the native Valhalla HLA-4 protocol
 const (
 	NativeMsgCreateFederation       = common.NativeMsgCreateFederation
 	NativeMsgDestroyFederation      = common.NativeMsgDestroyFederation
@@ -103,7 +103,7 @@ func convertToAttrHandles(attrs []uint32) []common.AttributeHandle {
 	return res
 }
 
-// HandleNativeConnection gerencia um cliente nativo conectado usando o protocolo Valhalla
+// HandleNativeConnection manages a connected native client using the Valhalla binary protocol
 func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *FederationManager) error {
 	session := NewNativeSession(conn)
 	defer session.Close()
@@ -371,7 +371,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 
-			// Catch-up Discovery: notificar o assinante sobre todas as instâncias existentes que casam com a hierarquia
+			// Catch-up Discovery: notify the subscriber about all existing instances matching the hierarchy
 			if subReq.Active {
 				for _, obj := range currentFed.GetAllObjects() {
 					if currentFed.OMT().IsSubclassOfObject(common.ObjectClassHandle(obj.ClassHandle), subReq.ClassHandle) {
@@ -633,7 +633,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 
-			// Roteamento inteligente de assinantes via Router (InterestMatcher)
+			// Intelligent subscriber routing via Router (InterestMatcher)
 			targetSubs := make(map[common.FederateHandle]bool)
 			for attrHandle := range uavReq.Attributes {
 				subs := currentFed.Router().GetAttributeSubscribers(common.ObjectClassHandle(obj.ClassHandle), attrHandle)
@@ -644,7 +644,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				}
 			}
 
-			// Despacha reflexões para federados com assinatura ativa (TSO ou RO)
+			// Dispatch reflections to federates with active subscriptions (TSO or RO)
 			for subID := range targetSubs {
 				if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
 					if uavReq.HasTime && f.IsConstrained {
@@ -690,7 +690,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 
-			// Roteamento polimórfico de interações via Router (TSO ou RO)
+			// Polymorphic interaction routing via Router (TSO or RO)
 			subs := currentFed.Router().GetInteractionSubscribers(interReq.ClassHandle)
 			for _, subID := range subs {
 				if subID != common.FederateHandle(federateID) {
