@@ -72,6 +72,18 @@ type RTIambassador interface {
 	NextMessageRequest(targetTime float64) error
 	FlushQueueRequest(targetTime float64) error
 
+	// Ownership Management
+	UnconditionalAttributeOwnershipDivestiture(objectHandle int32, attributes []int32) error
+	AcquireAttributeOwnership(objectHandle int32, attributes []int32) error
+	QueryAttributeOwnership(objectHandle int32, attributeHandle int32) (int32, bool, error)
+
+	// Data Distribution Management (DDM)
+	CreateRegion(dimensions []int32) (uint32, error)
+	SetRangeBounds(regionHandle uint32, dimension int32, lowerBound, upperBound uint32) error
+	SetMetricBounds(regionHandle uint32, minX, maxX, minY, maxY, minZ, maxZ float64) error
+	SubscribeObjectClassAttributesWithRegion(objectClass int32, attributes []int32, regionHandle uint32) error
+	UpdateAttributeValuesWithSpatial(objectHandle int32, attributes map[int32][]byte, x, y, z float64, tag []byte) error
+
 	// Callback Evocation
 	EvokeCallback(timeout time.Duration) (bool, error)
 	EvokeMultipleCallbacks(minTimeout, maxTimeout time.Duration) error

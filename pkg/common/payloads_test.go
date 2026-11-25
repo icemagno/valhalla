@@ -285,6 +285,194 @@ func TestPayloads_RoundTrip(t *testing.T) {
 			t.Errorf("Roundtrip mismatch: got %+v, want %+v", decoded, orig)
 		}
 	})
+
+	t.Run("OwnershipPayloads", func(t *testing.T) {
+		divest := DivestOwnershipPayload{
+			ObjectHandle: 777,
+			Attributes:   []uint32{1, 2, 3},
+		}
+		dData, err := divest.MarshalBinary()
+		if err != nil {
+			t.Fatalf("Divest Marshal failed: %v", err)
+		}
+		var dDecoded DivestOwnershipPayload
+		if err := dDecoded.UnmarshalBinary(dData); err != nil {
+			t.Fatalf("Divest Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(divest, dDecoded) {
+			t.Errorf("Divest mismatch: got %+v, want %+v", dDecoded, divest)
+		}
+
+		acquire := AcquireOwnershipPayload{
+			ObjectHandle: 777,
+			Attributes:   []uint32{1, 2, 3},
+		}
+		aData, err := acquire.MarshalBinary()
+		if err != nil {
+			t.Fatalf("Acquire Marshal failed: %v", err)
+		}
+		var aDecoded AcquireOwnershipPayload
+		if err := aDecoded.UnmarshalBinary(aData); err != nil {
+			t.Fatalf("Acquire Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(acquire, aDecoded) {
+			t.Errorf("Acquire mismatch: got %+v, want %+v", aDecoded, acquire)
+		}
+
+		query := QueryOwnershipPayload{
+			ObjectHandle:    777,
+			AttributeHandle: 2,
+		}
+		qData, err := query.MarshalBinary()
+		if err != nil {
+			t.Fatalf("Query Marshal failed: %v", err)
+		}
+		var qDecoded QueryOwnershipPayload
+		if err := qDecoded.UnmarshalBinary(qData); err != nil {
+			t.Fatalf("Query Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(query, qDecoded) {
+			t.Errorf("Query mismatch: got %+v, want %+v", qDecoded, query)
+		}
+
+		qResp := QueryOwnershipResponsePayload{
+			ObjectHandle:    777,
+			AttributeHandle: 2,
+			OwnerHandle:     42,
+			IsOwned:         true,
+		}
+		qrData, err := qResp.MarshalBinary()
+		if err != nil {
+			t.Fatalf("QueryResp Marshal failed: %v", err)
+		}
+		var qrDecoded QueryOwnershipResponsePayload
+		if err := qrDecoded.UnmarshalBinary(qrData); err != nil {
+			t.Fatalf("QueryResp Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(qResp, qrDecoded) {
+			t.Errorf("QueryResp mismatch: got %+v, want %+v", qrDecoded, qResp)
+		}
+	})
+
+	t.Run("DDMPayloads", func(t *testing.T) {
+		cReg := CreateRegionPayload{
+			Dimensions: []uint32{1, 2, 3},
+		}
+		crData, err := cReg.MarshalBinary()
+		if err != nil {
+			t.Fatalf("CreateRegion Marshal failed: %v", err)
+		}
+		var crDecoded CreateRegionPayload
+		if err := crDecoded.UnmarshalBinary(crData); err != nil {
+			t.Fatalf("CreateRegion Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(cReg, crDecoded) {
+			t.Errorf("CreateRegion mismatch: got %+v, want %+v", crDecoded, cReg)
+		}
+
+		crResp := CreateRegionResponsePayload{
+			RegionHandle: 99,
+		}
+		crrData, err := crResp.MarshalBinary()
+		if err != nil {
+			t.Fatalf("CreateRegionResp Marshal failed: %v", err)
+		}
+		var crrDecoded CreateRegionResponsePayload
+		if err := crrDecoded.UnmarshalBinary(crrData); err != nil {
+			t.Fatalf("CreateRegionResp Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(crResp, crrDecoded) {
+			t.Errorf("CreateRegionResp mismatch: got %+v, want %+v", crrDecoded, crResp)
+		}
+
+		sBounds := SetRangeBoundsPayload{
+			RegionHandle:    99,
+			DimensionHandle: 1,
+			LowerBound:      1000,
+			UpperBound:      5000,
+		}
+		sbData, err := sBounds.MarshalBinary()
+		if err != nil {
+			t.Fatalf("SetRangeBounds Marshal failed: %v", err)
+		}
+		var sbDecoded SetRangeBoundsPayload
+		if err := sbDecoded.UnmarshalBinary(sbData); err != nil {
+			t.Fatalf("SetRangeBounds Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(sBounds, sbDecoded) {
+			t.Errorf("SetRangeBounds mismatch: got %+v, want %+v", sbDecoded, sBounds)
+		}
+
+		mBounds := SetMetricBoundsPayload{
+			RegionHandle: 99,
+			MinX:         -1000.5,
+			MaxX:         1000.5,
+			MinY:         -2000.25,
+			MaxY:         2000.25,
+			MinZ:         0.0,
+			MaxZ:         500.0,
+		}
+		mbData, err := mBounds.MarshalBinary()
+		if err != nil {
+			t.Fatalf("SetMetricBounds Marshal failed: %v", err)
+		}
+		var mbDecoded SetMetricBoundsPayload
+		if err := mbDecoded.UnmarshalBinary(mbData); err != nil {
+			t.Fatalf("SetMetricBounds Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(mBounds, mbDecoded) {
+			t.Errorf("SetMetricBounds mismatch: got %+v, want %+v", mbDecoded, mBounds)
+		}
+
+		subReg := SubscribeWithRegionPayload{
+			ObjectClass:  200,
+			Attributes:   []uint32{10, 11, 12},
+			RegionHandle: 99,
+		}
+		srData, err := subReg.MarshalBinary()
+		if err != nil {
+			t.Fatalf("SubWithRegion Marshal failed: %v", err)
+		}
+		var srDecoded SubscribeWithRegionPayload
+		if err := srDecoded.UnmarshalBinary(srData); err != nil {
+			t.Fatalf("SubWithRegion Unmarshal failed: %v", err)
+		}
+		if !reflect.DeepEqual(subReg, srDecoded) {
+			t.Errorf("SubWithRegion mismatch: got %+v, want %+v", srDecoded, subReg)
+		}
+
+		spatialUp := UpdateAttributesSpatialPayload{
+			ObjectHandle: 777,
+			Attributes: map[AttributeHandle][]byte{
+				1: []byte("val1"),
+				2: []byte("val2"),
+			},
+			Tag: []byte("spatial-tag"),
+			X:   12345.67,
+			Y:   -9876.54,
+			Z:   321.0,
+		}
+		suData, err := spatialUp.MarshalBinary()
+		if err != nil {
+			t.Fatalf("UpdateSpatial Marshal failed: %v", err)
+		}
+		var suDecoded UpdateAttributesSpatialPayload
+		if err := suDecoded.UnmarshalBinary(suData); err != nil {
+			t.Fatalf("UpdateSpatial Unmarshal failed: %v", err)
+		}
+		if suDecoded.ObjectHandle != spatialUp.ObjectHandle ||
+			math.Abs(suDecoded.X-spatialUp.X) > 1e-5 ||
+			math.Abs(suDecoded.Y-spatialUp.Y) > 1e-5 ||
+			math.Abs(suDecoded.Z-spatialUp.Z) > 1e-5 ||
+			!bytes.Equal(suDecoded.Tag, spatialUp.Tag) {
+			t.Errorf("UpdateSpatial mismatch: got %+v, want %+v", suDecoded, spatialUp)
+		}
+		for k, v := range spatialUp.Attributes {
+			if !bytes.Equal(suDecoded.Attributes[k], v) {
+				t.Errorf("Attribute %d mismatch: got %v, want %v", k, suDecoded.Attributes[k], v)
+			}
+		}
+	})
 }
 
 func BenchmarkPayload_UpdateAttributes(b *testing.B) {

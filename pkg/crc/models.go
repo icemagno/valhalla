@@ -1,6 +1,7 @@
 package crc
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -90,6 +91,8 @@ type FederationExecution struct {
 
 	nextFederateHandle int32
 	nextObjectHandle   int32
+	nextRegionHandle   uint32
+	regions            map[uint32]*core.SpatialRegion
 
 	omt          *core.OMTRegistry
 	router       *core.InterestMatcher
@@ -116,6 +119,8 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		nameToObjID:        make(map[string]int32),
 		nextFederateHandle: 1, // Handles começam em 1
 		nextObjectHandle:   1,
+		nextRegionHandle:   1,
+		regions:            make(map[uint32]*core.SpatialRegion),
 		omt:                omt,
 		router:             router,
 		stateTree:          stateTree,
@@ -398,5 +403,71 @@ func (f *FederationExecution) GetObjectInstance(handle int32) (*ObjectInstance, 
 	defer f.mu.RUnlock()
 	obj, exists := f.objects[handle]
 	return obj, exists
+}
+
+// CreateRegion aloca um handle único para uma região espacial DDM
+func (f *FederationExecution) CreateRegion() uint32 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	handle := f.nextRegionHandle
+	f.nextRegionHandle++
+	f.regions[handle] = &core.SpatialRegion{
+		MinX: 0, MaxX: core.MaxCoordinateValue,
+		MinY: 0, MaxY: core.MaxCoordinateValue,
+		MinZ: 0, MaxZ: core.MaxCoordinateValue,
+	}
+	return handle
+}
+
+// SetRegionRangeBounds define limites de faixa discretos em uma dimensão da região
+func (f *FederationExecution) SetRegionRangeBounds(handle uint32, dim uint32, lower, upper uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	r, exists := f.regions[handle]
+	if !exists {
+		return errors.New("region not found")
+	}
+
+	switch dim {
+	case 1, 0:
+		r.MinX, r.MaxX = lower, upper
+	case 2:
+		r.MinY, r.MaxY = lower, upper
+	case 3:
+		r.MinZ, r.MaxZ = lower, upper
+	}
+	return nil
+}
+
+// SetRegionMetricBounds define limites contínuos ECEF em metros para uma região
+func (f *FederationExecution) SetRegionMetricBounds(handle uint32, minX, maxX, minY, maxY, minZ, maxZ float64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	r, exists := f.regions[handle]
+	if !exists {
+		return errors.New("region not found")
+	}
+
+	reg, err := core.NewSpatialRegionFromMetric(minX, maxX, minY, maxY, minZ, maxZ)
+	if err != nil {
+		return err
+	}
+	*r = reg
+	return nil
+}
+
+// GetRegion retorna uma cópia de valor da região espacial DDM
+func (f *FederationExecution) GetRegion(handle uint32) (core.SpatialRegion, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	r, exists := f.regions[handle]
+	if !exists {
+		return core.SpatialRegion{}, false
+	}
+	return *r, true
 }
 

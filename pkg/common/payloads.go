@@ -771,3 +771,385 @@ func (p *SuccessOKPayload) UnmarshalBinary(data []byte) error {
 	p.Message = string(data[2 : 2+msgLen])
 	return nil
 }
+
+// ============================================================================
+// 6. OWNERSHIP MANAGEMENT PAYLOADS
+// ============================================================================
+
+// DivestOwnershipPayload carries the object handle and attribute set to divest
+type DivestOwnershipPayload struct {
+	ObjectHandle uint32
+	Attributes   []uint32
+}
+
+func (p DivestOwnershipPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4+2+len(p.Attributes)*4)
+	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
+	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Attributes)))
+	offset := 6
+	for _, attr := range p.Attributes {
+		binary.BigEndian.PutUint32(buf[offset:offset+4], attr)
+		offset += 4
+	}
+	return buf, nil
+}
+
+func (p *DivestOwnershipPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 6 {
+		return ErrPayloadTooShort
+	}
+	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
+	count := int(binary.BigEndian.Uint16(data[4:6]))
+	if 6+count*4 > len(data) {
+		return ErrPayloadDataOverflow
+	}
+	p.Attributes = make([]uint32, count)
+	offset := 6
+	for i := 0; i < count; i++ {
+		p.Attributes[i] = binary.BigEndian.Uint32(data[offset : offset+4])
+		offset += 4
+	}
+	return nil
+}
+
+// AcquireOwnershipPayload carries the object handle and attributes to acquire
+type AcquireOwnershipPayload struct {
+	ObjectHandle uint32
+	Attributes   []uint32
+}
+
+func (p AcquireOwnershipPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4+2+len(p.Attributes)*4)
+	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
+	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Attributes)))
+	offset := 6
+	for _, attr := range p.Attributes {
+		binary.BigEndian.PutUint32(buf[offset:offset+4], attr)
+		offset += 4
+	}
+	return buf, nil
+}
+
+func (p *AcquireOwnershipPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 6 {
+		return ErrPayloadTooShort
+	}
+	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
+	count := int(binary.BigEndian.Uint16(data[4:6]))
+	if 6+count*4 > len(data) {
+		return ErrPayloadDataOverflow
+	}
+	p.Attributes = make([]uint32, count)
+	offset := 6
+	for i := 0; i < count; i++ {
+		p.Attributes[i] = binary.BigEndian.Uint32(data[offset : offset+4])
+		offset += 4
+	}
+	return nil
+}
+
+// QueryOwnershipPayload carries the object handle and attribute handle to query
+type QueryOwnershipPayload struct {
+	ObjectHandle    uint32
+	AttributeHandle uint32
+}
+
+func (p QueryOwnershipPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
+	binary.BigEndian.PutUint32(buf[4:8], p.AttributeHandle)
+	return buf, nil
+}
+
+func (p *QueryOwnershipPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 8 {
+		return ErrPayloadTooShort
+	}
+	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
+	p.AttributeHandle = binary.BigEndian.Uint32(data[4:8])
+	return nil
+}
+
+// QueryOwnershipResponsePayload returns ownership status
+type QueryOwnershipResponsePayload struct {
+	ObjectHandle    uint32
+	AttributeHandle uint32
+	OwnerHandle     uint32
+	IsOwned         bool
+}
+
+func (p QueryOwnershipResponsePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 13)
+	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
+	binary.BigEndian.PutUint32(buf[4:8], p.AttributeHandle)
+	binary.BigEndian.PutUint32(buf[8:12], p.OwnerHandle)
+	if p.IsOwned {
+		buf[12] = 1
+	} else {
+		buf[12] = 0
+	}
+	return buf, nil
+}
+
+func (p *QueryOwnershipResponsePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 13 {
+		return ErrPayloadTooShort
+	}
+	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
+	p.AttributeHandle = binary.BigEndian.Uint32(data[4:8])
+	p.OwnerHandle = binary.BigEndian.Uint32(data[8:12])
+	p.IsOwned = data[12] == 1
+	return nil
+}
+
+// ============================================================================
+// 7. DATA DISTRIBUTION MANAGEMENT (DDM) PAYLOADS
+// ============================================================================
+
+// CreateRegionPayload carries dimensions for region creation
+type CreateRegionPayload struct {
+	Dimensions []uint32
+}
+
+func (p CreateRegionPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 2+len(p.Dimensions)*4)
+	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.Dimensions)))
+	offset := 2
+	for _, dim := range p.Dimensions {
+		binary.BigEndian.PutUint32(buf[offset:offset+4], dim)
+		offset += 4
+	}
+	return buf, nil
+}
+
+func (p *CreateRegionPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 2 {
+		return ErrPayloadTooShort
+	}
+	count := int(binary.BigEndian.Uint16(data[0:2]))
+	if 2+count*4 > len(data) {
+		return ErrPayloadDataOverflow
+	}
+	p.Dimensions = make([]uint32, count)
+	offset := 2
+	for i := 0; i < count; i++ {
+		p.Dimensions[i] = binary.BigEndian.Uint32(data[offset : offset+4])
+		offset += 4
+	}
+	return nil
+}
+
+// CreateRegionResponsePayload returns the assigned region handle
+type CreateRegionResponsePayload struct {
+	RegionHandle uint32
+}
+
+func (p CreateRegionResponsePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf[0:4], p.RegionHandle)
+	return buf, nil
+}
+
+func (p *CreateRegionResponsePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 4 {
+		return ErrPayloadTooShort
+	}
+	p.RegionHandle = binary.BigEndian.Uint32(data[0:4])
+	return nil
+}
+
+// SetRangeBoundsPayload defines discrete grid bounds [lower, upper] for a dimension
+type SetRangeBoundsPayload struct {
+	RegionHandle    uint32
+	DimensionHandle uint32
+	LowerBound      uint32
+	UpperBound      uint32
+}
+
+func (p SetRangeBoundsPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 16)
+	binary.BigEndian.PutUint32(buf[0:4], p.RegionHandle)
+	binary.BigEndian.PutUint32(buf[4:8], p.DimensionHandle)
+	binary.BigEndian.PutUint32(buf[8:12], p.LowerBound)
+	binary.BigEndian.PutUint32(buf[12:16], p.UpperBound)
+	return buf, nil
+}
+
+func (p *SetRangeBoundsPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 16 {
+		return ErrPayloadTooShort
+	}
+	p.RegionHandle = binary.BigEndian.Uint32(data[0:4])
+	p.DimensionHandle = binary.BigEndian.Uint32(data[4:8])
+	p.LowerBound = binary.BigEndian.Uint32(data[8:12])
+	p.UpperBound = binary.BigEndian.Uint32(data[12:16])
+	return nil
+}
+
+// SetMetricBoundsPayload sets continuous ECEF metric bounds for a region
+type SetMetricBoundsPayload struct {
+	RegionHandle uint32
+	MinX, MaxX   float64
+	MinY, MaxY   float64
+	MinZ, MaxZ   float64
+}
+
+func (p SetMetricBoundsPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4+6*8)
+	binary.BigEndian.PutUint32(buf[0:4], p.RegionHandle)
+	binary.BigEndian.PutUint64(buf[4:12], math.Float64bits(p.MinX))
+	binary.BigEndian.PutUint64(buf[12:20], math.Float64bits(p.MaxX))
+	binary.BigEndian.PutUint64(buf[20:28], math.Float64bits(p.MinY))
+	binary.BigEndian.PutUint64(buf[28:36], math.Float64bits(p.MaxY))
+	binary.BigEndian.PutUint64(buf[36:44], math.Float64bits(p.MinZ))
+	binary.BigEndian.PutUint64(buf[44:52], math.Float64bits(p.MaxZ))
+	return buf, nil
+}
+
+func (p *SetMetricBoundsPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 52 {
+		return ErrPayloadTooShort
+	}
+	p.RegionHandle = binary.BigEndian.Uint32(data[0:4])
+	p.MinX = math.Float64frombits(binary.BigEndian.Uint64(data[4:12]))
+	p.MaxX = math.Float64frombits(binary.BigEndian.Uint64(data[12:20]))
+	p.MinY = math.Float64frombits(binary.BigEndian.Uint64(data[20:28]))
+	p.MaxY = math.Float64frombits(binary.BigEndian.Uint64(data[28:36]))
+	p.MinZ = math.Float64frombits(binary.BigEndian.Uint64(data[36:44]))
+	p.MaxZ = math.Float64frombits(binary.BigEndian.Uint64(data[44:52]))
+	return nil
+}
+
+// SubscribeWithRegionPayload associates a subscription with a spatial region
+type SubscribeWithRegionPayload struct {
+	ObjectClass  uint32
+	Attributes   []uint32
+	RegionHandle uint32
+}
+
+func (p SubscribeWithRegionPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4+4+2+len(p.Attributes)*4)
+	binary.BigEndian.PutUint32(buf[0:4], p.ObjectClass)
+	binary.BigEndian.PutUint32(buf[4:8], p.RegionHandle)
+	binary.BigEndian.PutUint16(buf[8:10], uint16(len(p.Attributes)))
+	offset := 10
+	for _, attr := range p.Attributes {
+		binary.BigEndian.PutUint32(buf[offset:offset+4], attr)
+		offset += 4
+	}
+	return buf, nil
+}
+
+func (p *SubscribeWithRegionPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 10 {
+		return ErrPayloadTooShort
+	}
+	p.ObjectClass = binary.BigEndian.Uint32(data[0:4])
+	p.RegionHandle = binary.BigEndian.Uint32(data[4:8])
+	count := int(binary.BigEndian.Uint16(data[8:10]))
+	if 10+count*4 > len(data) {
+		return ErrPayloadDataOverflow
+	}
+	p.Attributes = make([]uint32, count)
+	offset := 10
+	for i := 0; i < count; i++ {
+		p.Attributes[i] = binary.BigEndian.Uint32(data[offset : offset+4])
+		offset += 4
+	}
+	return nil
+}
+
+// UpdateAttributesSpatialPayload transmits attribute updates tagged with metric ECEF (X, Y, Z) coordinates
+type UpdateAttributesSpatialPayload struct {
+	ObjectHandle ObjectInstanceHandle
+	X, Y, Z      float64
+	Attributes   map[AttributeHandle][]byte
+	Tag          []byte
+}
+
+func (p UpdateAttributesSpatialPayload) MarshalBinary() ([]byte, error) {
+	totalLen := 4 + 3*8 + 2 + 2 + len(p.Tag)
+	for _, val := range p.Attributes {
+		totalLen += 4 + 2 + len(val)
+	}
+
+	buf := make([]byte, totalLen)
+	offset := 0
+
+	binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(p.ObjectHandle))
+	offset += 4
+	binary.BigEndian.PutUint64(buf[offset:offset+8], math.Float64bits(p.X))
+	offset += 8
+	binary.BigEndian.PutUint64(buf[offset:offset+8], math.Float64bits(p.Y))
+	offset += 8
+	binary.BigEndian.PutUint64(buf[offset:offset+8], math.Float64bits(p.Z))
+	offset += 8
+
+	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(p.Tag)))
+	offset += 2
+	copy(buf[offset:], p.Tag)
+	offset += len(p.Tag)
+
+	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(p.Attributes)))
+	offset += 2
+
+	for attrHandle, val := range p.Attributes {
+		binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(attrHandle))
+		offset += 4
+		binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(val)))
+		offset += 2
+		copy(buf[offset:], val)
+		offset += len(val)
+	}
+
+	return buf, nil
+}
+
+func (p *UpdateAttributesSpatialPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 32 {
+		return ErrPayloadTooShort
+	}
+	offset := 0
+	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[offset : offset+4]))
+	offset += 4
+	p.X = math.Float64frombits(binary.BigEndian.Uint64(data[offset : offset+8]))
+	offset += 8
+	p.Y = math.Float64frombits(binary.BigEndian.Uint64(data[offset : offset+8]))
+	offset += 8
+	p.Z = math.Float64frombits(binary.BigEndian.Uint64(data[offset : offset+8]))
+	offset += 8
+
+	tagLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
+	offset += 2
+	if offset+tagLen > len(data) {
+		return ErrPayloadDataOverflow
+	}
+	p.Tag = make([]byte, tagLen)
+	copy(p.Tag, data[offset:offset+tagLen])
+	offset += tagLen
+
+	if offset+2 > len(data) {
+		return ErrPayloadTooShort
+	}
+	attrCount := int(binary.BigEndian.Uint16(data[offset : offset+2]))
+	offset += 2
+
+	p.Attributes = make(map[AttributeHandle][]byte, attrCount)
+	for i := 0; i < attrCount; i++ {
+		if offset+6 > len(data) {
+			return ErrPayloadTooShort
+		}
+		handle := AttributeHandle(binary.BigEndian.Uint32(data[offset : offset+4]))
+		offset += 4
+		vLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
+		offset += 2
+		if offset+vLen > len(data) {
+			return ErrPayloadDataOverflow
+		}
+		val := make([]byte, vLen)
+		copy(val, data[offset:offset+vLen])
+		offset += vLen
+		p.Attributes[handle] = val
+	}
+	return nil
+}

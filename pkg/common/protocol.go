@@ -63,8 +63,18 @@ const (
 	NativeMsgFlushQueueRequest       uint8 = 69
 
 	// 80-89: Ownership Management
-	NativeMsgQueryAttributeOwnership uint8 = 80
-	NativeMsgAttributeIsOwned        uint8 = 81
+	NativeMsgQueryAttributeOwnership    uint8 = 80
+	NativeMsgAttributeOwnershipResponse uint8 = 81
+	NativeMsgDivestOwnership            uint8 = 82
+	NativeMsgAcquireOwnership           uint8 = 83
+
+	// 100-119: Data Distribution Management (DDM)
+	NativeMsgCreateRegion            uint8 = 100
+	NativeMsgRegionCreated           uint8 = 101
+	NativeMsgSetRangeBounds          uint8 = 102
+	NativeMsgSetMetricBounds         uint8 = 103
+	NativeMsgSubscribeWithRegion     uint8 = 104
+	NativeMsgUpdateAttributesSpatial uint8 = 105
 
 	// 90-99: Generic Control Responses
 	NativeMsgSuccessOK uint8 = 90

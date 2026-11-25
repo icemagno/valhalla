@@ -964,4 +964,34 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack, Portico Object Management JOS, Sintetizador de ObjectModel, Parser Modular XML IEEE 1516-2010, Ingestão Dinâmica de FOMs Portico, Resolução Multi-Plataforma, Homologação Definitiva de Interoperabilidade Portico IEEE 1516e, Federação Mista Portico (Java) & Federado Nativo Valhalla (Go VAL4) em Tempo Real, Suíte de Testes Avançados `portico-3.0-homolog`, Data Distribution Management com Curvas Morton 3D em < 4 ns, Ownership Management Normativo, Congelamento da Compatibilidade Portico 3.0 (100% Wire-Compatible), Alinhamento Estratégico com NATO/SISO IVCT e Suíte de Testes 100% Race-Free.*
+### 48. Integração E2E de DDM Espacial 3D (Morton Curves), Ownership Handover Normativo e C-ABI Export (Sprint 6 e Sprint 9)
+
+1. **Protocolo Nativo Wire VAL4 Estendido ([`pkg/common/protocol.go`](pkg/common/protocol.go), [`pkg/common/payloads.go`](pkg/common/payloads.go)):**
+   - Adicionadas mensagens e codificadores/decodificadores lineares binários de alta vazão para DDM e Gerenciamento de Posse:
+     - DDM: `NativeMsgCreateRegion` (100), `NativeMsgRegionCreated` (101), `NativeMsgSetRangeBounds` (102), `NativeMsgSetMetricBounds` (103), `NativeMsgSubscribeWithRegion` (104) e `NativeMsgUpdateAttributesSpatial` (105).
+     - Ownership: `NativeMsgQueryAttributeOwnership` (80), `NativeMsgAttributeOwnershipResponse` (81), `NativeMsgDivestOwnership` (82) e `NativeMsgAcquireOwnership` (83).
+   - Testes unitários exaustivos de round-trip implementados e validados em [`pkg/common/payloads_test.go`](pkg/common/payloads_test.go).
+
+2. **Implementação de DDM e Ownership no Executivo Central CRC ([`pkg/crc/models.go`](pkg/crc/models.go), [`pkg/crc/native_handler.go`](pkg/crc/native_handler.go)):**
+   - **Gestão de Regiões:** Adicionados contadores atômicos e armazenamento thread-safe de regiões espaciais em `FederationExecution` (`CreateRegion`, `SetRegionRangeBounds`, `SetRegionMetricBounds`, `GetRegion`).
+   - **Roteamento Espacial Z-Order:** Ao receber `NativeMsgUpdateAttributesSpatial`, o CRC codifica as coordenadas contínuas ECEF em código Morton de 63 bits via `core.EncodeECEF(x, y, z)` e roteia reflexões exclusivamente para federados que possuem assinaturas que interceptam a região (`GetAttributeSubscribersInRegion`).
+   - **Governança de Propriedade:** Integração do `core.OwnershipManager` com verificação de titularidade pré-atualização e tratamento de renúncia incondicional e aquisição.
+
+3. **Implementação no Cliente Local LRC Nativo ([`pkg/lrc/interfaces.go`](pkg/lrc/interfaces.go), [`pkg/lrc/rti_ambassador.go`](pkg/lrc/rti_ambassador.go)):**
+   - Estendida a interface pública `RTIambassador` com métodos canônicos da norma IEEE 1516-2025:
+     - `UnconditionalAttributeOwnershipDivestiture`, `AcquireAttributeOwnership`, `QueryAttributeOwnership`.
+     - `CreateRegion`, `SetRangeBounds`, `SetMetricBounds`, `SubscribeObjectClassAttributesWithRegion`, `UpdateAttributeValuesWithSpatial`.
+
+4. **Exportação C-ABI e Biblioteca Compartilhada Soberana (Sprint 9 Dependência para Sprint 6) ([`pkg/cabi/`](pkg/cabi/), [`include/valhalla_lrc.h`](include/valhalla_lrc.h), `bin/valhalla_lrc.dll`):**
+   - Criado o binding C-ABI padrão com CGo para conectar o núcleo Go a qualquer ambiente externo (C, C++, C#, Java JNI, Rust, NATO/SISO IVCT).
+   - Mapeamento seguro de pontuação sem vazamento de ponteiros de memória Go para o ambiente hospedeiro via tabela de handles opacos (`uintptr`).
+   - Criada a suíte de teste de ligação C pura ([`test/c_test/main.c`](test/c_test/main.c)), compilada com `gcc` (MinGW-W64 15.2.0) e linkada com sucesso em tempo de execução contra `valhalla_lrc.dll`.
+
+5. **Validação Rigorosa de Homologação e Concorrência ([`pkg/lrc/ddm_and_ownership_test.go`](pkg/lrc/ddm_and_ownership_test.go)):**
+   - `TestSprint6_OwnershipHandover`: Valida o ciclo de posse inicial por federado registrador, desincorporação incondicional, aquisição atômica por segundo federado, consulta de status e rejeição imediata a tentativas de desincorporação por não-proprietários.
+   - `TestSprint6_DDM_Morton3DSpatialFiltering`: Valida o isolamento espacial 3D em coordenadas métricas reais. Atualização interna ao setor é refletida com sucesso; atualização externa ao setor é interceptada e descartada sem vazamento de mensagens para o assinante regional.
+   - A suíte integral de testes passou com **100% PASS** e **ZERO data races** via `go test -race -count=1 ./...`.
+
+---
+
+*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack, Portico Object Management JOS, Sintetizador de ObjectModel, Parser Modular XML IEEE 1516-2010, Ingestão Dinâmica de FOMs Portico, Resolução Multi-Plataforma, Homologação Definitiva de Interoperabilidade Portico IEEE 1516e, Federação Mista Portico (Java) & Federado Nativo Valhalla (Go VAL4) em Tempo Real, Suíte de Testes Avançados `portico-3.0-homolog`, Data Distribution Management com Curvas Morton 3D em < 4 ns, Ownership Management Normativo, Congelamento da Compatibilidade Portico 3.0 (100% Wire-Compatible), Alinhamento Estratégico com NATO/SISO IVCT, C-ABI Export (`valhalla_lrc.dll`) e Suíte de Testes 100% Race-Free.*

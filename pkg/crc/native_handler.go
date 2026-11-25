@@ -48,9 +48,19 @@ const (
 	NativeMsgTimeAdvanceGrant        = common.NativeMsgTimeAdvanceGrant
 	NativeMsgNextMessageRequest      = common.NativeMsgNextMessageRequest
 	NativeMsgFlushQueueRequest       = common.NativeMsgFlushQueueRequest
-	NativeMsgResign                 = common.NativeMsgResign
-	NativeMsgSuccessOK              = common.NativeMsgSuccessOK
-	NativeMsgError                  = common.NativeMsgError
+	NativeMsgDivestOwnership         = common.NativeMsgDivestOwnership
+	NativeMsgAcquireOwnership        = common.NativeMsgAcquireOwnership
+	NativeMsgQueryAttributeOwnership = common.NativeMsgQueryAttributeOwnership
+	NativeMsgAttributeOwnershipResponse = common.NativeMsgAttributeOwnershipResponse
+	NativeMsgCreateRegion            = common.NativeMsgCreateRegion
+	NativeMsgRegionCreated           = common.NativeMsgRegionCreated
+	NativeMsgSetRangeBounds          = common.NativeMsgSetRangeBounds
+	NativeMsgSetMetricBounds         = common.NativeMsgSetMetricBounds
+	NativeMsgSubscribeWithRegion     = common.NativeMsgSubscribeWithRegion
+	NativeMsgUpdateAttributesSpatial = common.NativeMsgUpdateAttributesSpatial
+	NativeMsgResign                  = common.NativeMsgResign
+	NativeMsgSuccessOK               = common.NativeMsgSuccessOK
+	NativeMsgError                   = common.NativeMsgError
 )
 
 func sendNativeError(session *NativeSession, reqID uint16, code uint16, err error) error {
@@ -83,6 +93,14 @@ func dispatchTimeGrants(currentFed *FederationExecution, grants []core.TimeGrant
 		grantPayload, _ := common.TimeFloat64Payload{Time: grant.Time}.MarshalBinary()
 		_ = fed.Session.SendNotification(NativeMsgTimeAdvanceGrant, grantPayload)
 	}
+}
+
+func convertToAttrHandles(attrs []uint32) []common.AttributeHandle {
+	res := make([]common.AttributeHandle, len(attrs))
+	for i, a := range attrs {
+		res[i] = common.AttributeHandle(a)
+	}
+	return res
 }
 
 // HandleNativeConnection gerencia um cliente nativo conectado usando o protocolo Valhalla
@@ -904,6 +922,271 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 			dispatchTimeGrants(currentFed, grants)
+
+		case NativeMsgDivestOwnership:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.DivestOwnershipPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid divest ownership payload"))
+				continue
+			}
+			attrs := convertToAttrHandles(req.Attributes)
+			if err := currentFed.OwnershipManager().UnconditionalDivestiture(common.ObjectInstanceHandle(req.ObjectHandle), attrs, common.FederateHandle(federateID)); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgAcquireOwnership:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.AcquireOwnershipPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid acquire ownership payload"))
+				continue
+			}
+			attrs := convertToAttrHandles(req.Attributes)
+			if err := currentFed.OwnershipManager().AcquireAttributeOwnership(common.ObjectInstanceHandle(req.ObjectHandle), attrs, common.FederateHandle(federateID)); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgQueryAttributeOwnership:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.QueryOwnershipPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid query ownership payload"))
+				continue
+			}
+			owner, isOwned := currentFed.OwnershipManager().QueryAttributeOwnership(common.ObjectInstanceHandle(req.ObjectHandle), common.AttributeHandle(req.AttributeHandle))
+			respPayload, _ := common.QueryOwnershipResponsePayload{
+				ObjectHandle:    req.ObjectHandle,
+				AttributeHandle: req.AttributeHandle,
+				OwnerHandle:     uint32(owner),
+				IsOwned:         isOwned,
+			}.MarshalBinary()
+
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				PayloadLen: uint32(len(respPayload)),
+				MsgType:    NativeMsgAttributeOwnershipResponse,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, respPayload)
+
+		case NativeMsgCreateRegion:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.CreateRegionPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid create region payload"))
+				continue
+			}
+			regionHandle := currentFed.CreateRegion()
+			respData, _ := common.CreateRegionResponsePayload{
+				RegionHandle: regionHandle,
+			}.MarshalBinary()
+
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				PayloadLen: uint32(len(respData)),
+				MsgType:    NativeMsgRegionCreated,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, respData)
+
+		case NativeMsgSetRangeBounds:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.SetRangeBoundsPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid set range bounds payload"))
+				continue
+			}
+			if err := currentFed.SetRegionRangeBounds(req.RegionHandle, req.DimensionHandle, req.LowerBound, req.UpperBound); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgSetMetricBounds:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.SetMetricBoundsPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid set metric bounds payload"))
+				continue
+			}
+			if err := currentFed.SetRegionMetricBounds(req.RegionHandle, req.MinX, req.MaxX, req.MinY, req.MaxY, req.MinZ, req.MaxZ); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgSubscribeWithRegion:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.SubscribeWithRegionPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid subscribe with region payload"))
+				continue
+			}
+			region, exists := currentFed.GetRegion(req.RegionHandle)
+			if !exists {
+				_ = sendNativeError(session, hdr.ReqID, 404, errors.New("region handle not found"))
+				continue
+			}
+			attrs := convertToAttrHandles(req.Attributes)
+			if err := currentFed.Router().SubscribeObjectClassWithRegion(common.FederateHandle(federateID), common.ObjectClassHandle(req.ObjectClass), attrs, region); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgUpdateAttributesSpatial:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var req common.UpdateAttributesSpatialPayload
+			if err := req.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid spatial update attributes payload"))
+				continue
+			}
+			obj, exists := currentFed.GetObjectInstance(int32(req.ObjectHandle))
+			if !exists {
+				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrObjectInstanceNotKnown)
+				continue
+			}
+
+			// Validate attribute ownership if ownership is held by another federate
+			ownershipViolation := false
+			for attrHandle := range req.Attributes {
+				if owner, isOwned := currentFed.OwnershipManager().QueryAttributeOwnership(req.ObjectHandle, attrHandle); isOwned && owner != common.FederateHandle(federateID) {
+					ownershipViolation = true
+					break
+				}
+			}
+			if ownershipViolation {
+				_ = sendNativeError(session, hdr.ReqID, 403, core.ErrNotAttributeOwner)
+				continue
+			}
+
+			attrsToStore := make(map[int32][]byte, len(req.Attributes))
+			for k, v := range req.Attributes {
+				attrsToStore[int32(k)] = v
+			}
+			_ = currentFed.UpdateObjectAttributes(int32(req.ObjectHandle), attrsToStore, hdr.MerkleRoot)
+
+			globalRoot := currentFed.StateTree().GetGlobalRoot()
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      common.FlagNativeSSZ | common.FlagNativeMerkle,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+				MerkleRoot: globalRoot,
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+			// Compute 3D Morton code from metric coordinates
+			mortonCode := core.EncodeECEF(req.X, req.Y, req.Z)
+
+			// Route spatial reflections using Morton 3D spatial containment
+			targetSubs := make(map[common.FederateHandle]bool)
+			for attrHandle := range req.Attributes {
+				subs := currentFed.Router().GetAttributeSubscribersInRegion(common.ObjectClassHandle(obj.ClassHandle), attrHandle, mortonCode)
+				for _, sub := range subs {
+					if sub != common.FederateHandle(federateID) {
+						targetSubs[sub] = true
+					}
+				}
+			}
+
+			// Prepare standard RAV payload for all matched subscribers
+			ravPayload, _ := common.UpdateAttributesPayload{
+				ObjectHandle: req.ObjectHandle,
+				Attributes:   req.Attributes,
+				Tag:          req.Tag,
+			}.MarshalBinary()
+
+			for subID := range targetSubs {
+				if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
+					_ = f.Session.SendNotification(NativeMsgReflectAttributes, ravPayload)
+				}
+			}
 
 		case NativeMsgResign:
 			if currentFed != nil && federateID > 0 {

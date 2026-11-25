@@ -941,3 +941,294 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 		}
 	}
 }
+
+// UnconditionalAttributeOwnershipDivestiture abre mão incondicionalmente da posse dos atributos especificados
+func (a *RTIambassadorImpl) UnconditionalAttributeOwnershipDivestiture(objectHandle int32, attributes []int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	attrs := make([]uint32, len(attributes))
+	for i, h := range attributes {
+		attrs[i] = uint32(h)
+	}
+
+	req := common.DivestOwnershipPayload{
+		ObjectHandle: uint32(objectHandle),
+		Attributes:   attrs,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgDivestOwnership, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
+// AcquireAttributeOwnership adquire a posse de atributos não possuídos ou renunciados
+func (a *RTIambassadorImpl) AcquireAttributeOwnership(objectHandle int32, attributes []int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	attrs := make([]uint32, len(attributes))
+	for i, h := range attributes {
+		attrs[i] = uint32(h)
+	}
+
+	req := common.AcquireOwnershipPayload{
+		ObjectHandle: uint32(objectHandle),
+		Attributes:   attrs,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgAcquireOwnership, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
+// QueryAttributeOwnership consulta o proprietário atual de um atributo de instância
+func (a *RTIambassadorImpl) QueryAttributeOwnership(objectHandle int32, attributeHandle int32) (int32, bool, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return 0, false, ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return 0, false, ErrFederateNotExecutionMember
+	}
+
+	req := common.QueryOwnershipPayload{
+		ObjectHandle:    uint32(objectHandle),
+		AttributeHandle: uint32(attributeHandle),
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return 0, false, err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgQueryAttributeOwnership, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return 0, false, err
+	}
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return 0, false, errors.New(errPayload.Message)
+		}
+		return 0, false, ErrInvalidResponse
+	}
+	if resp.Header.MsgType != common.NativeMsgAttributeOwnershipResponse {
+		return 0, false, ErrInvalidResponse
+	}
+
+	var respPayload common.QueryOwnershipResponsePayload
+	if err := respPayload.UnmarshalBinary(resp.Payload); err != nil {
+		return 0, false, err
+	}
+	return int32(respPayload.OwnerHandle), respPayload.IsOwned, nil
+}
+
+// CreateRegion cria uma região espacial para gerenciamento de distribuição de dados (DDM)
+func (a *RTIambassadorImpl) CreateRegion(dimensions []int32) (uint32, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return 0, ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return 0, ErrFederateNotExecutionMember
+	}
+
+	dims := make([]uint32, len(dimensions))
+	for i, d := range dimensions {
+		dims[i] = uint32(d)
+	}
+
+	req := common.CreateRegionPayload{
+		Dimensions: dims,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgCreateRegion, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return 0, errors.New(errPayload.Message)
+		}
+		return 0, ErrInvalidResponse
+	}
+	if resp.Header.MsgType != common.NativeMsgRegionCreated {
+		return 0, ErrInvalidResponse
+	}
+
+	var respPayload common.CreateRegionResponsePayload
+	if err := respPayload.UnmarshalBinary(resp.Payload); err != nil {
+		return 0, err
+	}
+	return respPayload.RegionHandle, nil
+}
+
+// SetRangeBounds define limites de faixa discretos em uma dimensão da região
+func (a *RTIambassadorImpl) SetRangeBounds(regionHandle uint32, dimension int32, lowerBound, upperBound uint32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.SetRangeBoundsPayload{
+		RegionHandle:    regionHandle,
+		DimensionHandle: uint32(dimension),
+		LowerBound:      lowerBound,
+		UpperBound:      upperBound,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgSetRangeBounds, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
+// SetMetricBounds define limites contínuos métricos ECEF em metros para uma região espacial DDM
+func (a *RTIambassadorImpl) SetMetricBounds(regionHandle uint32, minX, maxX, minY, maxY, minZ, maxZ float64) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.SetMetricBoundsPayload{
+		RegionHandle: regionHandle,
+		MinX:         minX,
+		MaxX:         maxX,
+		MinY:         minY,
+		MaxY:         maxY,
+		MinZ:         minZ,
+		MaxZ:         maxZ,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgSetMetricBounds, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
+// SubscribeObjectClassAttributesWithRegion assina atributos de classe vinculados a uma região DDM espacial
+func (a *RTIambassadorImpl) SubscribeObjectClassAttributesWithRegion(objectClass int32, attributes []int32, regionHandle uint32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	attrs := make([]uint32, len(attributes))
+	for i, h := range attributes {
+		attrs[i] = uint32(h)
+	}
+
+	req := common.SubscribeWithRegionPayload{
+		ObjectClass:  uint32(objectClass),
+		Attributes:   attrs,
+		RegionHandle: regionHandle,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgSubscribeWithRegion, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
+// UpdateAttributeValuesWithSpatial despacha valores de atributos atualizados com coordenadas espaciais métricas (ECEF)
+func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32, attributes map[int32][]byte, x, y, z float64, tag []byte) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	attrMap := make(map[common.AttributeHandle][]byte, len(attributes))
+	for k, v := range attributes {
+		attrMap[common.AttributeHandle(k)] = v
+	}
+
+	req := common.UpdateAttributesSpatialPayload{
+		ObjectHandle: common.ObjectInstanceHandle(objectHandle),
+		Attributes:   attrMap,
+		Tag:          tag,
+		X:            x,
+		Y:            y,
+		Z:            z,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgUpdateAttributesSpatial, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
