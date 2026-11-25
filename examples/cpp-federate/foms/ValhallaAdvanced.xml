@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<objectModel xsi:schemaLocation="http://standards.ieee.org/IEEE1516-2010 http://standards.ieee.org/downloads/1516/1516.2-2010/IEEE1516-DIF-2010.xsd" xmlns="http://standards.ieee.org/IEEE1516-2010" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <modelIdentification>
+        <name>Valhalla Advanced Features &amp; Telemetry FOM</name>
+        <type>FOM</type>
+        <version>4.0</version>
+        <modificationDate>2026-11-25</modificationDate>
+        <securityClassification>Unclassified</securityClassification>
+        <purpose>To test advanced IEEE 1516e services including DDM, Ownership, Save/Restore, and Event-Driven Time</purpose>
+        <applicationDomain>Military &amp; Aerospace Simulation</applicationDomain>
+        <description>Advanced FOM module for Project Valhalla sovereign RTI verification</description>
+        <useLimitation>Project Valhalla Validation</useLimitation>
+    </modelIdentification>
+    <objects>
+        <objectClass>
+            <name>HLAobjectRoot</name>
+            <objectClass>
+                <name>TacticalEntity</name>
+                <sharing>PublishSubscribe</sharing>
+                <semantics>Base entity representing dynamic spatial assets</semantics>
+                <attribute>
+                    <name>Position</name>
+                    <dataType>HLAASCIIstring</dataType>
+                    <updateType>Conditional</updateType>
+                    <ownership>DivestAcquire</ownership>
+                    <sharing>PublishSubscribe</sharing>
+                    <transportation>HLAreliable</transportation>
+                    <order>TimeStamp</order>
+                    <semantics>Spatial coordinates (X, Y, Z)</semantics>
+                </attribute>
+                <attribute>
+                    <name>Velocity</name>
+                    <dataType>HLAinteger32BE</dataType>
+                    <updateType>Conditional</updateType>
+                    <ownership>DivestAcquire</ownership>
+                    <sharing>PublishSubscribe</sharing>
+                    <transportation>HLAreliable</transportation>
+                    <order>TimeStamp</order>
+                    <semantics>Current speed</semantics>
+                </attribute>
+                <attribute>
+                    <name>PayloadStatus</name>
+                    <dataType>HLAASCIIstring</dataType>
+                    <updateType>Conditional</updateType>
+                    <ownership>DivestAcquire</ownership>
+                    <sharing>PublishSubscribe</sharing>
+                    <transportation>HLAreliable</transportation>
+                    <order>TimeStamp</order>
+                    <semantics>Status of tactical sensors or effector payload</semantics>
+                </attribute>
+                <attribute>
+                    <name>BatteryLevel</name>
+                    <dataType>HLAinteger16BE</dataType>
+                    <updateType>Periodic</updateType>
+                    <ownership>DivestAcquire</ownership>
+                    <sharing>PublishSubscribe</sharing>
+                    <transportation>HLAreliable</transportation>
+                    <order>TimeStamp</order>
+                    <semantics>Remaining energy reserve percentage</semantics>
+                </attribute>
+            </objectClass>
+        </objectClass>
+    </objects>
+    <interactions>
+        <interactionClass>
+            <name>HLAinteractionRoot</name>
+            <interactionClass>
+                <name>SensorTrack</name>
+                <sharing>PublishSubscribe</sharing>
+                <transportation>HLAreliable</transportation>
+                <order>TimeStamp</order>
+                <semantics>High-frequency target tracking message</semantics>
+                <parameter>
+                    <name>TrackID</name>
+                    <dataType>HLAinteger32BE</dataType>
+                    <semantics>Unique track identifier</semantics>
+                </parameter>
+                <parameter>
+                    <name>SensorData</name>
+                    <dataType>HLAASCIIstring</dataType>
+                    <semantics>Telemetry observations</semantics>
+                </parameter>
+            </interactionClass>
+            <interactionClass>
+                <name>MissionControl</name>
+                <sharing>PublishSubscribe</sharing>
+                <transportation>HLAreliable</transportation>
+                <order>Receive</order>
+                <semantics>Tactical command directive</semantics>
+                <parameter>
+                    <name>CommandCode</name>
+                    <dataType>HLAinteger16BE</dataType>
+                    <semantics>Directive action code</semantics>
+                </parameter>
+                <parameter>
+                    <name>TargetLocation</name>
+                    <dataType>HLAASCIIstring</dataType>
+                    <semantics>Target waypoint coordinates</semantics>
+                </parameter>
+            </interactionClass>
+        </interactionClass>
+    </interactions>
+    <dimensions>
+        <dimension>
+            <name>DimensionX</name>
+            <dataType>HLAinteger32BE</dataType>
+            <upperBound>100000</upperBound>
+            <normalization>linear</normalization>
+        </dimension>
+        <dimension>
+            <name>DimensionY</name>
+            <dataType>HLAinteger32BE</dataType>
+            <upperBound>100000</upperBound>
+            <normalization>linear</normalization>
+        </dimension>
+        <dimension>
+            <name>DimensionZ</name>
+            <dataType>HLAinteger32BE</dataType>
+            <upperBound>50000</upperBound>
+            <normalization>linear</normalization>
+        </dimension>
+    </dimensions>
+</objectModel>
