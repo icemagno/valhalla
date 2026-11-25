@@ -57,9 +57,14 @@ public interface IValhallaLrc extends Library {
     int valhalla_connect(Pointer amb, String address);
     int valhalla_disconnect(Pointer amb);
     int valhalla_create_federation(Pointer amb, String fedName);
+    int valhalla_create_federation_with_fom(Pointer amb, String fedName, String[] fomModules, int fomCount);
     int valhalla_destroy_federation(Pointer amb, String fedName);
     int valhalla_join_federation(Pointer amb, String federateName, String fedName, IntByReference outFederateHandle);
     int valhalla_resign_federation(Pointer amb);
+
+    int valhalla_get_object_class_handle(Pointer amb, String className, IntByReference outHandle);
+    int valhalla_get_attribute_handle(Pointer amb, int classHandle, String attrName, IntByReference outHandle);
+    int valhalla_get_dimension_handle(Pointer amb, String dimName, IntByReference outHandle);
 
     int valhalla_publish_object_class(Pointer amb, int classHandle, int[] attrHandles, int attrCount);
     int valhalla_subscribe_object_class(Pointer amb, int classHandle, int[] attrHandles, int attrCount);

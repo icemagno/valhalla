@@ -138,7 +138,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid federation name"))
 				continue
 			}
-			_, err := fedManager.CreateFederation(req.FederationName)
+			_, err := fedManager.CreateFederationWithFOMs(req.FederationName, req.FOMModules)
 			if err != nil {
 				_ = sendNativeError(session, hdr.ReqID, 409, err)
 				continue
@@ -151,7 +151,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				ReqID:   hdr.ReqID,
 			}
 			_ = session.SendMessage(respHdr, nil)
-			logCRCNative.Info("Federation [%s] created successfully", req.FederationName)
+			logCRCNative.Info("Federation [%s] created successfully (foms=%v)", req.FederationName, req.FOMModules)
 
 		case NativeMsgDestroyFederation:
 			var req common.FederationExecutionPayload
@@ -1187,6 +1187,90 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 					_ = f.Session.SendNotification(NativeMsgReflectAttributes, ravPayload)
 				}
 			}
+
+		case common.NativeMsgGetObjectClassHandle:
+			if currentFed == nil {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var qReq common.GetObjectClassHandlePayload
+			if err := qReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid get object class handle payload"))
+				continue
+			}
+			cls, ok := currentFed.OMT().GetObjectClassByName(qReq.ClassName)
+			if !ok {
+				_ = sendNativeError(session, hdr.ReqID, 404, core.ErrClassNotFound)
+				continue
+			}
+			respPayload, _ := common.HandleResponsePayload{Handle: int32(cls.Handle)}.MarshalBinary()
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    common.NativeMsgGetObjectClassHandleResp,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+				PayloadLen: uint32(len(respPayload)),
+			}
+			_ = session.SendMessage(respHdr, respPayload)
+
+		case common.NativeMsgGetAttributeHandle:
+			if currentFed == nil {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var qReq common.GetAttributeHandlePayload
+			if err := qReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid get attribute handle payload"))
+				continue
+			}
+			attr, err := currentFed.OMT().ResolveAttributeByName(common.ObjectClassHandle(qReq.ClassHandle), qReq.AttributeName)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 404, err)
+				continue
+			}
+			respPayload, _ := common.HandleResponsePayload{Handle: int32(attr.Handle)}.MarshalBinary()
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    common.NativeMsgGetAttributeHandleResp,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+				PayloadLen: uint32(len(respPayload)),
+			}
+			_ = session.SendMessage(respHdr, respPayload)
+
+		case common.NativeMsgGetDimensionHandle:
+			if currentFed == nil {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var qReq common.GetDimensionHandlePayload
+			if err := qReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid get dimension handle payload"))
+				continue
+			}
+			dim, ok := currentFed.OMT().GetDimensionByName(qReq.DimensionName)
+			if !ok {
+				_ = sendNativeError(session, hdr.ReqID, 404, errors.New("dimension not found"))
+				continue
+			}
+			respPayload, _ := common.HandleResponsePayload{Handle: int32(dim.Handle)}.MarshalBinary()
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    common.NativeMsgGetDimensionHandleResp,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+				PayloadLen: uint32(len(respPayload)),
+			}
+			_ = session.SendMessage(respHdr, respPayload)
 
 		case NativeMsgResign:
 			if currentFed != nil && federateID > 0 {

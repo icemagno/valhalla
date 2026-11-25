@@ -12,12 +12,23 @@ public interface RTIambassador {
 
     void createFederationExecution(String federationExecutionName) throws RTIexception;
 
+    void createFederationExecution(String federationExecutionName, java.net.URL fomModule) throws RTIexception;
+
+    void createFederationExecution(String federationExecutionName, java.net.URL[] fomModules) throws RTIexception;
+
     void destroyFederationExecution(String federationExecutionName) throws RTIexception;
 
     FederateHandle joinFederationExecution(String federateType,
                                           String federationExecutionName) throws RTIexception;
 
     void resignFederationExecution(ResignAction resignAction) throws RTIexception;
+
+    // FOM / OMT Introspection
+    ObjectClassHandle getObjectClassHandle(String theName) throws RTIexception;
+
+    AttributeHandle getAttributeHandle(ObjectClassHandle whichClass, String theName) throws RTIexception;
+
+    DimensionHandle getDimensionHandle(String theName) throws RTIexception;
 
     void publishObjectClassAttributes(ObjectClassHandle theClass,
                                       AttributeHandleSet attributeList) throws RTIexception;

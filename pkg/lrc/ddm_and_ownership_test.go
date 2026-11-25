@@ -270,3 +270,67 @@ func TestSprint6_DDM_Morton3DSpatialFiltering(t *testing.T) {
 	_ = ambAlpha.ResignFederationExecution()
 	_ = ambBravo.ResignFederationExecution()
 }
+
+func TestSprint6_DynamicFOMResolution(t *testing.T) {
+	server := crc.NewServer("127.0.0.1:0")
+	if err := server.Start(); err != nil {
+		t.Fatalf("Failed to start CRC server: %v", err)
+	}
+	defer server.Stop()
+	addr := server.Addr().String()
+
+	fedName := "FOMHomologFed"
+
+	amb := lrc.NewRTIambassador()
+	if err := amb.Connect(&lrc.NullFederateAmbassador{}, addr); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	defer amb.Disconnect()
+
+	// Create with ValhallaAdvanced.xml FOM module
+	if err := amb.CreateFederationExecutionWithFOM(fedName, []string{"ValhallaAdvanced.xml"}); err != nil {
+		t.Fatalf("CreateFederationExecutionWithFOM failed: %v", err)
+	}
+
+	if _, err := amb.JoinFederationExecution("FOMTester", fedName); err != nil {
+		t.Fatalf("Join failed: %v", err)
+	}
+
+	// Dynamic FOM lookups
+	clsHandle, err := amb.GetObjectClassHandle("TacticalEntity")
+	if err != nil {
+		t.Fatalf("GetObjectClassHandle('TacticalEntity') failed: %v", err)
+	}
+	if clsHandle <= 0 {
+		t.Fatalf("Expected valid class handle, got %d", clsHandle)
+	}
+
+	posHandle, err := amb.GetAttributeHandle(clsHandle, "Position")
+	if err != nil {
+		t.Fatalf("GetAttributeHandle('Position') failed: %v", err)
+	}
+	if posHandle <= 0 {
+		t.Fatalf("Expected valid attribute handle, got %d", posHandle)
+	}
+
+	velHandle, err := amb.GetAttributeHandle(clsHandle, "Velocity")
+	if err != nil {
+		t.Fatalf("GetAttributeHandle('Velocity') failed: %v", err)
+	}
+	if velHandle <= 0 {
+		t.Fatalf("Expected valid attribute handle, got %d", velHandle)
+	}
+
+	dimXHandle, err := amb.GetDimensionHandle("DimensionX")
+	if err != nil {
+		t.Fatalf("GetDimensionHandle('DimensionX') failed: %v", err)
+	}
+	if dimXHandle <= 0 {
+		t.Fatalf("Expected valid dimension handle, got %d", dimXHandle)
+	}
+
+	t.Logf("Dynamic FOM Resolution Succeeded: TacticalEntity=%d, Position=%d, Velocity=%d, DimensionX=%d",
+		clsHandle, posHandle, velHandle, dimXHandle)
+
+	_ = amb.ResignFederationExecution()
+}

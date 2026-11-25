@@ -40,9 +40,15 @@ int32_t valhalla_set_callbacks(ValhallaAmbassador amb, ValhallaCallbacks callbac
 int32_t valhalla_connect(ValhallaAmbassador amb, char* address);
 int32_t valhalla_disconnect(ValhallaAmbassador amb);
 int32_t valhalla_create_federation(ValhallaAmbassador amb, char* fedName);
+int32_t valhalla_create_federation_with_fom(ValhallaAmbassador amb, char* fedName, char** fomModules, int32_t fomCount);
 int32_t valhalla_destroy_federation(ValhallaAmbassador amb, char* fedName);
 int32_t valhalla_join_federation(ValhallaAmbassador amb, char* federateName, char* fedName, int32_t* outFederateHandle);
 int32_t valhalla_resign_federation(ValhallaAmbassador amb);
+
+// FOM / OMT Introspection
+int32_t valhalla_get_object_class_handle(ValhallaAmbassador amb, char* className, int32_t* outHandle);
+int32_t valhalla_get_attribute_handle(ValhallaAmbassador amb, int32_t classHandle, char* attrName, int32_t* outHandle);
+int32_t valhalla_get_dimension_handle(ValhallaAmbassador amb, char* dimName, int32_t* outHandle);
 
 // Declaration Management
 int32_t valhalla_publish_object_class(ValhallaAmbassador amb, int32_t classHandle, int32_t* attrHandles, int32_t attrCount);

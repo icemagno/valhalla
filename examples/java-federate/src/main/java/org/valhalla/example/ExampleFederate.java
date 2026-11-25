@@ -3,19 +3,21 @@ package org.valhalla.example;
 import hla.rti1516e.*;
 import hla.rti1516e.exceptions.*;
 
+import java.io.File;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Valhalla Standalone Example Federate (IEEE 1516e / HLA-4 Official Homologation Test)
+ * Valhalla Standalone Example Federate (Official IEEE 1516e / HLA-4 Homologation Test)
  *
- * Demonstrates a complete end-to-end HLA-4 simulation lifecycle:
+ * Demonstrates a complete end-to-end FOM-driven HLA-4 simulation lifecycle:
  *  1. Discovery & Connection to Central RTI Component (CRC)
- *  2. Federation Execution Creation & Join
- *  3. Object Class Declaration & Publication (HLAobjectRoot / HLAprivilegeToDeleteObject)
- *  4. Data Distribution Management (DDM) 3D Morton Spatial Region Subscription
- *  5. Object Instance Registration
+ *  2. Federation Execution Creation with Official FOM XML Module & Join
+ *  3. Dynamic Declaration Management (Resolving Object Classes & Attributes from FOM by Name)
+ *  4. Dynamic Data Distribution Management (Resolving 3D DDM Dimensions from FOM by Name)
+ *  5. Object Instance Registration of FOM-Declared Class
  *  6. 3D Spatial Attribute Updates & Asynchronous Reflection Evocation
- *  7. Attribute Ownership Management (Query, Divestiture, Acquisition)
+ *  7. Attribute Ownership Management (Query, Divestiture, Acquisition) on FOM Attributes
  *  8. Object Instance Deletion & Lifecycle Verification
  *  9. Clean Resign Action
  * 10. Federation Execution Destruction
@@ -29,12 +31,13 @@ public class ExampleFederate {
         String federateType = (args.length > 2 && !args[2].isEmpty()) ? args[2] : "JavaHomologFederate";
 
         System.out.println("====================================================================");
-        System.out.println("    PROJECT VALHALLA - STANDALONE IEEE 1516e HOMOLOGATION TEST");
+        System.out.println("    PROJECT VALHALLA - OFFICIAL IEEE 1516e HOMOLOGATION TEST");
         System.out.println("====================================================================");
         System.out.println(" CRC Endpoint:        " + crcAddress);
         System.out.println(" Federation Name:     " + fedName);
         System.out.println(" Federate Type:       " + federateType);
         System.out.println(" Architecture:        Sovereign Native LRC (libvalhalla_lrc)");
+        System.out.println(" FOM Model:           ValhallaAdvanced.xml (Tactical Aerospace Entities)");
         System.out.println("====================================================================\n");
 
         ExampleFederateAmbassador fedAmb = new ExampleFederateAmbassador();
@@ -53,12 +56,23 @@ public class ExampleFederate {
             System.out.println("  [+] Connected successfully to Valhalla CRC!\n");
 
             // -------------------------------------------------------------
-            // Stage 2: Create & Join Federation Execution
+            // Stage 2: Create Federation with Official FOM Module & Join
             // -------------------------------------------------------------
-            System.out.println("[Stage 2/11] Creating federation execution '" + fedName + "'...");
+            File fomFile = new File("foms/ValhallaAdvanced.xml");
+            if (!fomFile.exists()) {
+                fomFile = new File("examples/java-federate/foms/ValhallaAdvanced.xml");
+            }
+
+            URL fomUrl = fomFile.exists() ? fomFile.toURI().toURL() : null;
+            System.out.println("[Stage 2/11] Creating federation execution '" + fedName + "' with FOM module...");
             try {
-                rtiAmb.createFederationExecution(fedName);
-                System.out.println("  [+] Federation execution created.");
+                if (fomUrl != null) {
+                    rtiAmb.createFederationExecution(fedName, fomUrl);
+                    System.out.println("  [+] Federation execution created with FOM: " + fomFile.getPath());
+                } else {
+                    rtiAmb.createFederationExecution(fedName);
+                    System.out.println("  [+] Federation execution created with canonical defaults.");
+                }
             } catch (FederationExecutionAlreadyExists e) {
                 System.out.println("  [*] Federation execution already exists (proceeding to join).");
             }
@@ -68,55 +82,68 @@ public class ExampleFederate {
             System.out.println("  [+] Joined federation successfully! FederateHandle: " + fedHandle + "\n");
 
             // -------------------------------------------------------------
-            // Stage 3: Publish Object Class Attributes
+            // Stage 3: Dynamic FOM Resolution (No hardcoded handles!)
             // -------------------------------------------------------------
-            System.out.println("[Stage 3/11] Publishing Object Class (HLAobjectRoot = 1)...");
-            ObjectClassHandle objClass = new ObjectClassHandle(1);
-            AttributeHandle privilegeAttr = new AttributeHandle(1); // Standard MIM: HLAprivilegeToDeleteObject
+            System.out.println("[Stage 3/11] Dynamically Resolving Object Class & Attributes from FOM...");
+            ObjectClassHandle entityClass = rtiAmb.getObjectClassHandle("TacticalEntity");
+            System.out.println("  [+] Resolved Class 'TacticalEntity' => " + entityClass);
+
+            AttributeHandle posAttr = rtiAmb.getAttributeHandle(entityClass, "Position");
+            System.out.println("  [+] Resolved Attribute 'Position' => " + posAttr);
+
+            AttributeHandle velAttr = rtiAmb.getAttributeHandle(entityClass, "Velocity");
+            System.out.println("  [+] Resolved Attribute 'Velocity' => " + velAttr);
+
+            AttributeHandle payloadAttr = rtiAmb.getAttributeHandle(entityClass, "PayloadStatus");
+            System.out.println("  [+] Resolved Attribute 'PayloadStatus' => " + payloadAttr);
 
             AttributeHandleSet pubAttrs = new AttributeHandleSet();
-            pubAttrs.add(privilegeAttr);
+            pubAttrs.add(posAttr);
+            pubAttrs.add(velAttr);
+            pubAttrs.add(payloadAttr);
 
-            rtiAmb.publishObjectClassAttributes(objClass, pubAttrs);
-            System.out.println("  [+] Published privilegeToDeleteObject attribute for class " + objClass + "\n");
+            rtiAmb.publishObjectClassAttributes(entityClass, pubAttrs);
+            System.out.println("  [+] Published FOM attributes for class " + entityClass + "\n");
 
             // -------------------------------------------------------------
-            // Stage 4: DDM 3D Morton Spatial Region Subscription
+            // Stage 4: Dynamic DDM 3D Spatial Region from FOM Dimensions
             // -------------------------------------------------------------
-            System.out.println("[Stage 4/11] Configuring DDM 3D Spatial Region...");
-            DimensionHandle[] spatialDims = new DimensionHandle[]{
-                    new DimensionHandle(1), // X
-                    new DimensionHandle(2), // Y
-                    new DimensionHandle(3)  // Z
-            };
-            RegionHandle region = rtiAmb.createRegion(spatialDims);
+            System.out.println("[Stage 4/11] Dynamically Resolving DDM Dimensions from FOM...");
+            DimensionHandle dimX = rtiAmb.getDimensionHandle("DimensionX");
+            DimensionHandle dimY = rtiAmb.getDimensionHandle("DimensionY");
+            DimensionHandle dimZ = rtiAmb.getDimensionHandle("DimensionZ");
+            System.out.println("  [+] Resolved Dimensions: X=" + dimX + ", Y=" + dimY + ", Z=" + dimZ);
+
+            RegionHandle region = rtiAmb.createRegion(new DimensionHandle[]{dimX, dimY, dimZ});
             System.out.println("  [+] Created 3D Spatial Region: " + region);
 
             // Bounding box [0.0, 1000.0] along X, Y, and Z
             rtiAmb.setMetricBounds(region, 0.0, 1000.0, 0.0, 1000.0, 0.0, 1000.0);
             System.out.println("  [+] Bounding box set: [0, 1000] x [0, 1000] x [0, 1000]");
 
-            rtiAmb.subscribeObjectClassAttributesWithRegions(objClass, pubAttrs, region);
-            System.out.println("  [+] Subscribed to class " + objClass + " with 3D Morton region " + region + "\n");
+            rtiAmb.subscribeObjectClassAttributesWithRegions(entityClass, pubAttrs, region);
+            System.out.println("  [+] Subscribed to class " + entityClass + " with 3D Morton region " + region + "\n");
 
             // -------------------------------------------------------------
-            // Stage 5: Register Object Instance
+            // Stage 5: Register Object Instance of FOM Class
             // -------------------------------------------------------------
-            String assetName = "Valhalla_Asset_Alpha";
-            System.out.println("[Stage 5/11] Registering object instance '" + assetName + "'...");
-            ObjectInstanceHandle objHandle = rtiAmb.registerObjectInstance(objClass, assetName);
+            String assetName = "Valhalla_Tactical_Drone_01";
+            System.out.println("[Stage 5/11] Registering object instance '" + assetName + "' of class " + entityClass + "...");
+            ObjectInstanceHandle objHandle = rtiAmb.registerObjectInstance(entityClass, assetName);
             System.out.println("  [+] Object instance registered! ObjectInstanceHandle: " + objHandle + "\n");
 
             // -------------------------------------------------------------
             // Stage 6: Spatial Updates & Callback Evocation
             // -------------------------------------------------------------
-            System.out.println("[Stage 6/11] Performing 3D Spatial Attribute Updates...");
+            System.out.println("[Stage 6/11] Performing 3D Spatial Attribute Updates with FOM Attributes...");
             AttributeHandleValueMap updateMap = new AttributeHandleValueMap();
-            updateMap.put(privilegeAttr, "POS(x=250.0, y=250.0, z=250.0)".getBytes(StandardCharsets.UTF_8));
+            updateMap.put(posAttr, "POS(x=250.0, y=250.0, z=250.0)".getBytes(StandardCharsets.UTF_8));
+            updateMap.put(velAttr, "VEL(mach=1.4)".getBytes(StandardCharsets.UTF_8));
+            updateMap.put(payloadAttr, "RADAR_SEARCH_MODE".getBytes(StandardCharsets.UTF_8));
             byte[] tag = "TelemetryCycle_1".getBytes(StandardCharsets.UTF_8);
 
             rtiAmb.updateAttributeValuesSpatial(objHandle, updateMap, 250.0, 250.0, 250.0, tag);
-            System.out.println("  [+] Sent spatial update at (250.0, 250.0, 250.0) inside bounding box.");
+            System.out.println("  [+] Sent spatial update for 3 FOM attributes at (250.0, 250.0, 250.0) inside bounding box.");
 
             System.out.println("[Stage 6/11] Evoking callbacks to process reflections...");
             boolean callbacksEvoked = rtiAmb.evokeMultipleCallbacks(0.05, 0.3);
@@ -124,26 +151,28 @@ public class ExampleFederate {
                     ", reflectCount: " + fedAmb.getReflectCount() + ")\n");
 
             // -------------------------------------------------------------
-            // Stage 7: Attribute Ownership Management
+            // Stage 7: Attribute Ownership Management on FOM Attribute
             // -------------------------------------------------------------
-            System.out.println("[Stage 7/11] Testing Attribute Ownership Management...");
-            boolean initialOwner = rtiAmb.isAttributeOwnedByFederate(objHandle, privilegeAttr);
-            System.out.println("  [+] Initial Ownership of privilegeToDelete: " + initialOwner + " (expected: true)");
+            System.out.println("[Stage 7/11] Testing Attribute Ownership Management on FOM Attribute 'Position'...");
+            boolean initialOwner = rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
+            System.out.println("  [+] Initial Ownership of 'Position': " + initialOwner + " (expected: true)");
             if (!initialOwner) {
-                throw new RTIinternalError("Homologation Failure: Federate should own privilegeToDelete upon registration");
+                throw new RTIinternalError("Homologation Failure: Federate should own 'Position' upon registration");
             }
 
-            System.out.println("  [*] Divesting attribute ownership unconditionally...");
-            rtiAmb.unconditionalAttributeOwnershipDivestiture(objHandle, pubAttrs);
-            boolean afterDivest = rtiAmb.isAttributeOwnedByFederate(objHandle, privilegeAttr);
+            System.out.println("  [*] Divesting 'Position' ownership unconditionally...");
+            AttributeHandleSet divestSet = new AttributeHandleSet();
+            divestSet.add(posAttr);
+            rtiAmb.unconditionalAttributeOwnershipDivestiture(objHandle, divestSet);
+            boolean afterDivest = rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
             System.out.println("  [+] Ownership after divestiture: " + afterDivest + " (expected: false)");
             if (afterDivest) {
                 throw new RTIinternalError("Homologation Failure: Attribute should be unowned after divestiture");
             }
 
-            System.out.println("  [*] Re-acquiring attribute ownership...");
-            rtiAmb.attributeOwnershipAcquisition(objHandle, pubAttrs, "AcquisitionTag".getBytes(StandardCharsets.UTF_8));
-            boolean afterAcquire = rtiAmb.isAttributeOwnedByFederate(objHandle, privilegeAttr);
+            System.out.println("  [*] Re-acquiring 'Position' ownership...");
+            rtiAmb.attributeOwnershipAcquisition(objHandle, divestSet, "AcquisitionTag".getBytes(StandardCharsets.UTF_8));
+            boolean afterAcquire = rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
             System.out.println("  [+] Ownership after re-acquisition: " + afterAcquire + " (expected: true)\n");
             if (!afterAcquire) {
                 throw new RTIinternalError("Homologation Failure: Attribute should be owned after acquisition");
@@ -183,6 +212,7 @@ public class ExampleFederate {
 
             System.out.println("====================================================================");
             System.out.println("   HOMOLOGATION TEST PASSED: ALL 11 VERIFICATION STAGES SUCCEEDED   ");
+            System.out.println("      (100% Dynamic FOM Resolution - Zero Hardcoded Handles)        ");
             System.out.println("====================================================================");
 
         } catch (RTIexception e) {

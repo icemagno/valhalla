@@ -219,6 +219,80 @@ func valhalla_create_federation(amb C.ValhallaAmbassador, fedName *C.char) C.int
 	return C.VALHALLA_OK
 }
 
+//export valhalla_create_federation_with_fom
+func valhalla_create_federation_with_fom(amb C.ValhallaAmbassador, fedName *C.char, fomModules **C.char, fomCount C.int32_t) C.int32_t {
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	name := C.GoString(fedName)
+	count := int(fomCount)
+	foms := make([]string, 0, count)
+	if count > 0 && fomModules != nil {
+		cSlice := unsafe.Slice(fomModules, count)
+		for i := 0; i < count; i++ {
+			if cSlice[i] != nil {
+				foms = append(foms, C.GoString(cSlice[i]))
+			}
+		}
+	}
+	if err := ctx.amb.CreateFederationExecutionWithFOM(name, foms); err != nil {
+		return C.VALHALLA_ERR_RTI_EXCEPTION
+	}
+	return C.VALHALLA_OK
+}
+
+//export valhalla_get_object_class_handle
+func valhalla_get_object_class_handle(amb C.ValhallaAmbassador, className *C.char, outHandle *C.int32_t) C.int32_t {
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	name := C.GoString(className)
+	handle, err := ctx.amb.GetObjectClassHandle(name)
+	if err != nil {
+		return C.VALHALLA_ERR_RTI_EXCEPTION
+	}
+	if outHandle != nil {
+		*outHandle = C.int32_t(handle)
+	}
+	return C.VALHALLA_OK
+}
+
+//export valhalla_get_attribute_handle
+func valhalla_get_attribute_handle(amb C.ValhallaAmbassador, classHandle C.int32_t, attrName *C.char, outHandle *C.int32_t) C.int32_t {
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	name := C.GoString(attrName)
+	handle, err := ctx.amb.GetAttributeHandle(int32(classHandle), name)
+	if err != nil {
+		return C.VALHALLA_ERR_RTI_EXCEPTION
+	}
+	if outHandle != nil {
+		*outHandle = C.int32_t(handle)
+	}
+	return C.VALHALLA_OK
+}
+
+//export valhalla_get_dimension_handle
+func valhalla_get_dimension_handle(amb C.ValhallaAmbassador, dimName *C.char, outHandle *C.int32_t) C.int32_t {
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	name := C.GoString(dimName)
+	handle, err := ctx.amb.GetDimensionHandle(name)
+	if err != nil {
+		return C.VALHALLA_ERR_RTI_EXCEPTION
+	}
+	if outHandle != nil {
+		*outHandle = C.int32_t(handle)
+	}
+	return C.VALHALLA_OK
+}
+
 //export valhalla_destroy_federation
 func valhalla_destroy_federation(amb C.ValhallaAmbassador, fedName *C.char) C.int32_t {
 	ctx, exists := getContext(amb)

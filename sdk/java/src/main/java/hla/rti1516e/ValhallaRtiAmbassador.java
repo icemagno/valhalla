@@ -151,6 +151,53 @@ public class ValhallaRtiAmbassador implements RTIambassador {
     }
 
     @Override
+    public void createFederationExecution(String federationExecutionName, java.net.URL fomModule) throws RTIexception {
+        if (fomModule == null) {
+            createFederationExecution(federationExecutionName);
+            return;
+        }
+        createFederationExecution(federationExecutionName, new java.net.URL[]{fomModule});
+    }
+
+    @Override
+    public void createFederationExecution(String federationExecutionName, java.net.URL[] fomModules) throws RTIexception {
+        if (fomModules == null || fomModules.length == 0) {
+            createFederationExecution(federationExecutionName);
+            return;
+        }
+        String[] foms = new String[fomModules.length];
+        for (int i = 0; i < fomModules.length; i++) {
+            foms[i] = fomModules[i].toString();
+        }
+        int rc = nativeLrc.valhalla_create_federation_with_fom(amb, federationExecutionName, foms, foms.length);
+        checkStatus(rc, "createFederationExecutionWithFOM");
+    }
+
+    @Override
+    public ObjectClassHandle getObjectClassHandle(String theName) throws RTIexception {
+        IntByReference outHandle = new IntByReference();
+        int rc = nativeLrc.valhalla_get_object_class_handle(amb, theName, outHandle);
+        checkStatus(rc, "getObjectClassHandle");
+        return new ObjectClassHandle(outHandle.getValue());
+    }
+
+    @Override
+    public AttributeHandle getAttributeHandle(ObjectClassHandle whichClass, String theName) throws RTIexception {
+        IntByReference outHandle = new IntByReference();
+        int rc = nativeLrc.valhalla_get_attribute_handle(amb, whichClass.getValue(), theName, outHandle);
+        checkStatus(rc, "getAttributeHandle");
+        return new AttributeHandle(outHandle.getValue());
+    }
+
+    @Override
+    public DimensionHandle getDimensionHandle(String theName) throws RTIexception {
+        IntByReference outHandle = new IntByReference();
+        int rc = nativeLrc.valhalla_get_dimension_handle(amb, theName, outHandle);
+        checkStatus(rc, "getDimensionHandle");
+        return new DimensionHandle(outHandle.getValue());
+    }
+
+    @Override
     public void destroyFederationExecution(String federationExecutionName) throws RTIexception {
         int rc = nativeLrc.valhalla_destroy_federation(amb, federationExecutionName);
         checkStatus(rc, "destroyFederationExecution");

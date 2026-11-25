@@ -37,9 +37,15 @@ type RTIambassador interface {
 	Connect(fedAmb FederateAmbassador, address string) error
 	Disconnect() error
 	CreateFederationExecution(federationName string) error
+	CreateFederationExecutionWithFOM(federationName string, fomModules []string) error
 	DestroyFederationExecution(federationName string) error
 	JoinFederationExecution(federateName, federationName string) (int32, error)
 	ResignFederationExecution() error
+
+	// FOM / OMT Handle Resolution
+	GetObjectClassHandle(className string) (int32, error)
+	GetAttributeHandle(classHandle int32, attributeName string) (int32, error)
+	GetDimensionHandle(dimensionName string) (int32, error)
 
 	// Synchronization Points
 	RegisterFederationSynchronizationPoint(label string, tag []byte) error

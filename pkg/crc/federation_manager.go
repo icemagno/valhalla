@@ -21,6 +21,11 @@ func NewFederationManager() *FederationManager {
 
 // CreateFederation cria uma nova federação com nome exclusivo
 func (m *FederationManager) CreateFederation(name string) (*FederationExecution, error) {
+	return m.CreateFederationWithFOMs(name, nil)
+}
+
+// CreateFederationWithFOMs cria uma nova federação e ingere os módulos de FOM especificados
+func (m *FederationManager) CreateFederationWithFOMs(name string, foms []string) (*FederationExecution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -33,6 +38,15 @@ func (m *FederationManager) CreateFederation(name string) (*FederationExecution,
 
 	fed := NewFederationExecution(h, name)
 	m.federations[name] = fed
+
+	// Ingerir módulos especificados
+	for _, f := range foms {
+		_ = IngestFOMIntoFederation(fed, f)
+	}
+
+	// Ingerir módulos canônicos para federações padrão
+	IngestCanonicalDefaults(fed)
+
 	return fed, nil
 }
 

@@ -76,6 +76,18 @@ const (
 	NativeMsgSubscribeWithRegion     uint8 = 104
 	NativeMsgUpdateAttributesSpatial uint8 = 105
 
+	// 120-139: OMT / FOM Introspection & Handle Resolution
+	NativeMsgGetObjectClassHandle          uint8 = 120
+	NativeMsgGetObjectClassHandleResp      uint8 = 121
+	NativeMsgGetAttributeHandle            uint8 = 122
+	NativeMsgGetAttributeHandleResp        uint8 = 123
+	NativeMsgGetDimensionHandle            uint8 = 124
+	NativeMsgGetDimensionHandleResp        uint8 = 125
+	NativeMsgGetInteractionClassHandle     uint8 = 126
+	NativeMsgGetInteractionClassHandleResp uint8 = 127
+	NativeMsgGetParameterHandle            uint8 = 128
+	NativeMsgGetParameterHandleResp        uint8 = 129
+
 	// 90-99: Generic Control Responses
 	NativeMsgSuccessOK uint8 = 90
 	NativeMsgError     uint8 = 91

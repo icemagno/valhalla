@@ -17,15 +17,35 @@ var (
 // 1. FEDERATION MANAGEMENT PAYLOADS
 // ============================================================================
 
-// FederationExecutionPayload carries the federation name for creation or destruction
+// FederationExecutionPayload carries the federation name and optional FOM modules for creation or destruction
 type FederationExecutionPayload struct {
 	FederationName string
+	FOMModules     []string
 }
 
 func (p FederationExecutionPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+len(p.FederationName))
+	totalLen := 2 + len(p.FederationName)
+	if len(p.FOMModules) > 0 {
+		totalLen += 2 // uint16 module count
+		for _, m := range p.FOMModules {
+			totalLen += 2 + len(m)
+		}
+	}
+	buf := make([]byte, totalLen)
 	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.FederationName)))
 	copy(buf[2:], p.FederationName)
+
+	offset := 2 + len(p.FederationName)
+	if len(p.FOMModules) > 0 {
+		binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(p.FOMModules)))
+		offset += 2
+		for _, m := range p.FOMModules {
+			binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(m)))
+			offset += 2
+			copy(buf[offset:], m)
+			offset += len(m)
+		}
+	}
 	return buf, nil
 }
 
@@ -38,6 +58,26 @@ func (p *FederationExecutionPayload) UnmarshalBinary(data []byte) error {
 		return ErrPayloadStringOverflow
 	}
 	p.FederationName = string(data[2 : 2+fedLen])
+	p.FOMModules = nil
+
+	offset := 2 + fedLen
+	if len(data) >= offset+2 {
+		numMods := int(binary.BigEndian.Uint16(data[offset : offset+2]))
+		offset += 2
+		p.FOMModules = make([]string, 0, numMods)
+		for i := 0; i < numMods; i++ {
+			if len(data) < offset+2 {
+				break
+			}
+			mLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
+			offset += 2
+			if len(data) < offset+mLen {
+				break
+			}
+			p.FOMModules = append(p.FOMModules, string(data[offset:offset+mLen]))
+			offset += mLen
+		}
+	}
 	return nil
 }
 
@@ -1151,5 +1191,154 @@ func (p *UpdateAttributesSpatialPayload) UnmarshalBinary(data []byte) error {
 		offset += vLen
 		p.Attributes[handle] = val
 	}
+	return nil
+}
+
+// ============================================================================
+// 6. OMT / FOM HANDLE RESOLUTION PAYLOADS
+// ============================================================================
+
+// GetObjectClassHandlePayload carries the class name to resolve
+type GetObjectClassHandlePayload struct {
+	ClassName string
+}
+
+func (p GetObjectClassHandlePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 2+len(p.ClassName))
+	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.ClassName)))
+	copy(buf[2:], p.ClassName)
+	return buf, nil
+}
+
+func (p *GetObjectClassHandlePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 2 {
+		return ErrPayloadTooShort
+	}
+	nLen := int(binary.BigEndian.Uint16(data[0:2]))
+	if 2+nLen > len(data) {
+		return ErrPayloadStringOverflow
+	}
+	p.ClassName = string(data[2 : 2+nLen])
+	return nil
+}
+
+// HandleResponsePayload returns an int32 handle
+type HandleResponsePayload struct {
+	Handle int32
+}
+
+func (p HandleResponsePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf[0:4], uint32(p.Handle))
+	return buf, nil
+}
+
+func (p *HandleResponsePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 4 {
+		return ErrPayloadTooShort
+	}
+	p.Handle = int32(binary.BigEndian.Uint32(data[0:4]))
+	return nil
+}
+
+// GetAttributeHandlePayload carries class handle and attribute name to resolve
+type GetAttributeHandlePayload struct {
+	ClassHandle   int32
+	AttributeName string
+}
+
+func (p GetAttributeHandlePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 6+len(p.AttributeName))
+	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ClassHandle))
+	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.AttributeName)))
+	copy(buf[6:], p.AttributeName)
+	return buf, nil
+}
+
+func (p *GetAttributeHandlePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 6 {
+		return ErrPayloadTooShort
+	}
+	p.ClassHandle = int32(binary.BigEndian.Uint32(data[0:4]))
+	nLen := int(binary.BigEndian.Uint16(data[4:6]))
+	if 6+nLen > len(data) {
+		return ErrPayloadStringOverflow
+	}
+	p.AttributeName = string(data[6 : 6+nLen])
+	return nil
+}
+
+// GetDimensionHandlePayload carries dimension name to resolve
+type GetDimensionHandlePayload struct {
+	DimensionName string
+}
+
+func (p GetDimensionHandlePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 2+len(p.DimensionName))
+	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.DimensionName)))
+	copy(buf[2:], p.DimensionName)
+	return buf, nil
+}
+
+func (p *GetDimensionHandlePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 2 {
+		return ErrPayloadTooShort
+	}
+	nLen := int(binary.BigEndian.Uint16(data[0:2]))
+	if 2+nLen > len(data) {
+		return ErrPayloadStringOverflow
+	}
+	p.DimensionName = string(data[2 : 2+nLen])
+	return nil
+}
+
+// GetInteractionClassHandlePayload carries interaction name to resolve
+type GetInteractionClassHandlePayload struct {
+	InteractionName string
+}
+
+func (p GetInteractionClassHandlePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 2+len(p.InteractionName))
+	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.InteractionName)))
+	copy(buf[2:], p.InteractionName)
+	return buf, nil
+}
+
+func (p *GetInteractionClassHandlePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 2 {
+		return ErrPayloadTooShort
+	}
+	nLen := int(binary.BigEndian.Uint16(data[0:2]))
+	if 2+nLen > len(data) {
+		return ErrPayloadStringOverflow
+	}
+	p.InteractionName = string(data[2 : 2+nLen])
+	return nil
+}
+
+// GetParameterHandlePayload carries interaction handle and parameter name to resolve
+type GetParameterHandlePayload struct {
+	InteractionHandle int32
+	ParameterName     string
+}
+
+func (p GetParameterHandlePayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 6+len(p.ParameterName))
+	binary.BigEndian.PutUint32(buf[0:4], uint32(p.InteractionHandle))
+	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.ParameterName)))
+	copy(buf[6:], p.ParameterName)
+	return buf, nil
+}
+
+func (p *GetParameterHandlePayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 6 {
+		return ErrPayloadTooShort
+	}
+	p.InteractionHandle = int32(binary.BigEndian.Uint32(data[0:4]))
+	nLen := int(binary.BigEndian.Uint16(data[4:6]))
+	if 6+nLen > len(data) {
+		return ErrPayloadStringOverflow
+	}
+	p.ParameterName = string(data[6 : 6+nLen])
 	return nil
 }

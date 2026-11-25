@@ -111,6 +111,152 @@ func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) err
 	return checkNativeResponse(resp)
 }
 
+// CreateFederationExecutionWithFOM cria ou assegura a existência de uma federação no CRC com módulos de FOM
+func (a *RTIambassadorImpl) CreateFederationExecutionWithFOM(federationName string, fomModules []string) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if federationName == "" {
+		return errors.New("federation name cannot be empty")
+	}
+
+	req := common.FederationExecutionPayload{
+		FederationName: federationName,
+		FOMModules:     fomModules,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgCreateFederation, 0, 0, payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// GetObjectClassHandle resolve o identificador de uma classe de objeto pelo seu nome no FOM
+func (a *RTIambassadorImpl) GetObjectClassHandle(className string) (int32, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return 0, ErrNotConnected
+	}
+
+	req := common.GetObjectClassHandlePayload{ClassName: className}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgGetObjectClassHandle, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return 0, err
+	}
+
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return 0, errors.New(errPayload.Message)
+		}
+		return 0, ErrInvalidResponse
+	}
+	if resp.Header.MsgType != common.NativeMsgGetObjectClassHandleResp {
+		return 0, ErrInvalidResponse
+	}
+
+	var respPayload common.HandleResponsePayload
+	if err := respPayload.UnmarshalBinary(resp.Payload); err != nil {
+		return 0, err
+	}
+	return respPayload.Handle, nil
+}
+
+// GetAttributeHandle resolve o identificador de um atributo de uma classe pelo seu nome no FOM
+func (a *RTIambassadorImpl) GetAttributeHandle(classHandle int32, attributeName string) (int32, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return 0, ErrNotConnected
+	}
+
+	req := common.GetAttributeHandlePayload{
+		ClassHandle:   classHandle,
+		AttributeName: attributeName,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgGetAttributeHandle, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return 0, err
+	}
+
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return 0, errors.New(errPayload.Message)
+		}
+		return 0, ErrInvalidResponse
+	}
+	if resp.Header.MsgType != common.NativeMsgGetAttributeHandleResp {
+		return 0, ErrInvalidResponse
+	}
+
+	var respPayload common.HandleResponsePayload
+	if err := respPayload.UnmarshalBinary(resp.Payload); err != nil {
+		return 0, err
+	}
+	return respPayload.Handle, nil
+}
+
+// GetDimensionHandle resolve o identificador de uma dimensão DDM pelo seu nome no FOM
+func (a *RTIambassadorImpl) GetDimensionHandle(dimensionName string) (int32, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return 0, ErrNotConnected
+	}
+
+	req := common.GetDimensionHandlePayload{DimensionName: dimensionName}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgGetDimensionHandle, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return 0, err
+	}
+
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return 0, errors.New(errPayload.Message)
+		}
+		return 0, ErrInvalidResponse
+	}
+	if resp.Header.MsgType != common.NativeMsgGetDimensionHandleResp {
+		return 0, ErrInvalidResponse
+	}
+
+	var respPayload common.HandleResponsePayload
+	if err := respPayload.UnmarshalBinary(resp.Payload); err != nil {
+		return 0, err
+	}
+	return respPayload.Handle, nil
+}
+
 // DestroyFederationExecution remove a federação do CRC
 func (a *RTIambassadorImpl) DestroyFederationExecution(federationName string) error {
 	a.mu.RLock()

@@ -25,6 +25,50 @@ func TestPayloads_RoundTrip(t *testing.T) {
 		}
 	})
 
+	t.Run("FederationExecutionPayloadWithFOM", func(t *testing.T) {
+		orig := FederationExecutionPayload{
+			FederationName: "ValhallaWarfare",
+			FOMModules:     []string{"ValhallaAdvanced.xml", "RPR-Physical_v2.0.xml"},
+		}
+		data, err := orig.MarshalBinary()
+		if err != nil {
+			t.Fatalf("MarshalBinary failed: %v", err)
+		}
+		var decoded FederationExecutionPayload
+		if err := decoded.UnmarshalBinary(data); err != nil {
+			t.Fatalf("UnmarshalBinary failed: %v", err)
+		}
+		if !reflect.DeepEqual(orig, decoded) {
+			t.Errorf("Roundtrip mismatch: got %+v, want %+v", decoded, orig)
+		}
+	})
+
+	t.Run("OMTHandleResolutionPayloads", func(t *testing.T) {
+		p1 := GetObjectClassHandlePayload{ClassName: "TacticalEntity"}
+		d1, _ := p1.MarshalBinary()
+		var p1Dec GetObjectClassHandlePayload
+		_ = p1Dec.UnmarshalBinary(d1)
+		if p1 != p1Dec {
+			t.Errorf("Mismatch: %+v vs %+v", p1, p1Dec)
+		}
+
+		p2 := GetAttributeHandlePayload{ClassHandle: 1001, AttributeName: "Position"}
+		d2, _ := p2.MarshalBinary()
+		var p2Dec GetAttributeHandlePayload
+		_ = p2Dec.UnmarshalBinary(d2)
+		if p2 != p2Dec {
+			t.Errorf("Mismatch: %+v vs %+v", p2, p2Dec)
+		}
+
+		p3 := GetDimensionHandlePayload{DimensionName: "DimensionX"}
+		d3, _ := p3.MarshalBinary()
+		var p3Dec GetDimensionHandlePayload
+		_ = p3Dec.UnmarshalBinary(d3)
+		if p3 != p3Dec {
+			t.Errorf("Mismatch: %+v vs %+v", p3, p3Dec)
+		}
+	})
+
 	t.Run("JoinFederationPayload", func(t *testing.T) {
 		orig := JoinFederationPayload{
 			FederateName:   "ThorValhalla",
