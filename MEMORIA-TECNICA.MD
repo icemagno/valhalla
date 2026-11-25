@@ -419,4 +419,27 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Marcos concluídos: CRC Soberano, Multiplexador Monoporta, LRC Nativo IEEE 1516-2025, Metamodelo Modular JOS em Go Puro, Suporte a HashSet/HashMap Polimórfico e Homologação ao Vivo com Portico (Thor).*
+### 22. Decisão Arquitetural Estratégica: Desacoplamento do Core da CRTI e Segregação de Pacotes (CRC vs LRC vs Common)
+
+1. **Reorientação de Foco: O Core Soberano vs Dialetos de Rede:**
+   - Formalizada a diretriz de engenharia: o trato com o Portico é estritamente no nível de protocolo (Inbound Adapter).
+   - O Core executivo da CRTI não deve ser remendado para satisfazer o cliente legado. O Core deve ser implementado de forma independente a partir da norma **IEEE 1516-2025 (HLA-4)**, com alta concorrência e zero-copy.
+   - Plano diretor oficial publicado em [`docs/plano-desenvolvimento-core.md`](docs/plano-desenvolvimento-core.md).
+
+2. **Saneamento e Estruturação Limpa de Diretórios:**
+   - Eliminados diretórios órfãos e vazios (`pkg/crypto`, `pkg/hla4`, `pkg/omt`, `pkg/ssz`) que poluíam a árvore de fontes.
+   - Definida a arquitetura tripartite:
+     - **`pkg/common`:** Tipos primitivos, handles normativos, códigos de erro IEEE 1516 e protocolo binário nativo VAL4. Zero dependências internas.
+     - **`pkg/crc`:** Executável do Servidor Centralizador (`cmd/valhalla-crc`), contendo o Core Engine e os adaptadores de protocolo.
+     - **`pkg/lrc`:** Biblioteca cliente distribuível que o federado incorpora em sua aplicação. **NUNCA importa `pkg/crc`**.
+     - **`pkg/portico`:** Módulo isolado de serialização JOS legado utilizado pelo adaptador Portico do CRC.
+
+3. **Plano de Implementação do Core em 4 Fases:**
+   - **Fase 1:** Extração do `pkg/common` e quebra do acoplamento `lrc -> crc`.
+   - **Fase 2:** Declaration Management e Roteador Pub/Sub com resolução de herança OMT.
+   - **Fase 3:** Object Management, Descoberta Seletiva e Estado Merkleizado (`hash_tree_root`).
+   - **Fase 4:** Time Management Engine (GALT / LITS e filas de prioridade TSO).
+
+---
+
+*Fim da entrada diária de 24/11/2026. Marcos concluídos: CRC Soberano, Multiplexador Monoporta, LRC Nativo IEEE 1516-2025, Metamodelo Modular JOS em Go Puro, Saneamento Estrutural de Pacotes e Plano Diretor do Core da CRTI.*
