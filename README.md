@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Language-Go_1.25+-00ADD8.svg" alt="Language: Go">
   <img src="https://img.shields.io/badge/HLA_Standard-IEEE_1516--2025_(HLA--4)-green.svg" alt="HLA Standard">
   <img src="https://img.shields.io/badge/Portico_3.0-100%25_Wire--Compatible-blue.svg" alt="Portico 3.0 Wire-Compatible">
-  <img src="https://img.shields.io/badge/Conformance-NATO_IVCT_Ready-blueviolet.svg" alt="NATO IVCT Ready">
+  <img src="https://img.shields.io/badge/NATO_IVCT-In_Preparation-lightgrey.svg" alt="NATO IVCT In Preparation">
   <img src="https://img.shields.io/badge/Benchmarks-89.67_µs_Latency-brightgreen.svg" alt="Latency: 89.67 µs">
 </p>
 
