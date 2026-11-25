@@ -695,6 +695,25 @@ func (a *RTIambassadorImpl) EnableTimeRegulation(lookahead float64) error {
 	return nil
 }
 
+// DisableTimeRegulation desabilita a regulação de tempo do federado
+func (a *RTIambassadorImpl) DisableTimeRegulation() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgDisableTimeRegulation, uint32(a.federationID), uint32(a.federateID), nil, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
 // EnableTimeConstrained habilita a restrição de tempo do federado
 func (a *RTIambassadorImpl) EnableTimeConstrained() error {
 	a.mu.Lock()
@@ -727,6 +746,25 @@ func (a *RTIambassadorImpl) EnableTimeConstrained() error {
 	return nil
 }
 
+// DisableTimeConstrained desabilita a restrição temporal do federado
+func (a *RTIambassadorImpl) DisableTimeConstrained() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgDisableTimeConstrained, uint32(a.federationID), uint32(a.federateID), nil, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
 // TimeAdvanceRequest solicita avanço no tempo lógico da simulação
 func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 	a.mu.RLock()
@@ -746,6 +784,56 @@ func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 	}
 
 	resp, err := a.client.SendRequest(common.NativeMsgTimeAdvanceRequest, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
+// NextMessageRequest solicita avanço até o próximo timestamp de mensagem ou targetTime
+func (a *RTIambassadorImpl) NextMessageRequest(targetTime float64) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	nmrReq := common.TimeFloat64Payload{Time: targetTime}
+	payload, err := nmrReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgNextMessageRequest, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
+// FlushQueueRequest solicita avanço com descarga de todas as mensagens TSO
+func (a *RTIambassadorImpl) FlushQueueRequest(targetTime float64) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	flushReq := common.TimeFloat64Payload{Time: targetTime}
+	payload, err := flushReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgFlushQueueRequest, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}

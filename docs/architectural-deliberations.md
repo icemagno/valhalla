@@ -195,6 +195,30 @@ HLA 4 incorporates JSON in two distinct domains:
 * **Mandatory Baseline:** Full parsing and merging of modular XML FOMs (including RPR-FOM v2.0).
 * **Next-Gen Advantage:** Native JSON Schema OMT ingestion and WebSockets/JSON real-time streaming interfaces.
 
+### 8.4. Data Contract Lifecycle: FOM vs. SOM and the DSEEP Process (IEEE 1730)
+
+A fundamental architectural question in distributed simulation is: **How do two independent simulators (e.g., a radar from Vendor A and a vessel from Vendor B) interoperate if neither vendor possessed the other's source code at compile time?**
+
+1. **Pre-Simulation Contract Harmonization (DSEEP):**
+   * Under the **Distributed Simulation Engineering and Execution Process (IEEE 1730 / DSEEP)**, developers never code against unknown or ad-hoc runtime schemas.
+   * **Simulation Object Model (SOM):** Each vendor documents the precise subset of data their simulator can publish or subscribe (e.g., `Radar-SOM.xml` publishes radar tracks and subscribes to mobile physical entities; `Ship-SOM.xml` publishes vessel kinematics).
+   * **Federation Object Model (FOM):** Prior to simulation execution, systems architects harmonize individual SOMs into a unified federation data contract. Both vendors compile their software against this shared schema (or standard industry schemas such as **RPR-FOM v2.0**).
+2. **Polymorphic Interoperability through Inheritance:**
+   * The radar does not need to know the proprietary attributes of an experimental vessel.
+   * Because RPR-FOM establishes canonical class hierarchies (`HLAobjectRoot` $\to$ `BaseEntity` $\to$ `PhysicalEntity` $\to$ `Platform` $\to$ `SurfacePlatform`), the radar subscribes to `BaseEntity` (receiving standard coordinates and velocities).
+   * When the vessel registers as an instance of `SurfacePlatform`, the RTI's **InterestMatcher** automatically routes updates to the radar via polymorphic subsumption.
+
+### 8.5. Runtime Handle Resolution: Portico "Eager Push" vs. Pitch "Lazy Pull"
+
+The IEEE 1516 specification standardizes the API call `getObjectClassHandle("Class.Name")`, but **deliberately omits the underlying network wire protocol for handle resolution**. This led to divergent architectural implementations:
+
+| Dimension | Portico Strategy ("Eager Push") | Pitch Strategy ("Lazy Pull + Cache") | Valhalla Sovereign Strategy |
+| :--- | :--- | :--- | :--- |
+| **Join Handshake** | **Heavyweight (33 KB to MBs):** Serializes the entire in-memory Java `ObjectModel` into the `WelcomePack` byte payload. | **Ultra-lightweight (< 100 bytes):** Handshake exchanges only identity, handle tokens, and authentication tickets. | **Dual-Dialect Adaptive:** Synthesizes `WelcomePack` for Portico nodes; uses 56-byte linear headers for modern VAL4 nodes. |
+| **Name-to-Handle Resolution** | Evaluated purely in client-side memory via Java HashMap lookups with 0 additional network calls. | Resolved against local XML cache in 0 ns; if missing, issues a lightweight binary query to CRC and caches the result. | Local cache in 0 ns; CRC server evaluates class inheritance in $< 1.2\ \text{ns}$ via **Euler Tour Interval Encoding** ($O(1)$). |
+| **Coupling & Fragility** | Fragile: tightly coupled to Java `ObjectInputStream` and JVM class `serialVersionUID`s. | Language-agnostic: clean binary wire protocol for C++, Java, C#, and web clients. | Zero JVM dependency: pure Go/C-ABI wire protocol with backward-compatible JOS translation. |
+| **Scalability** | Struggles on constrained WAN links during simultaneous federate joins due to massive XML/Object serialization. | Scales seamlessly to thousands of federates across distributed wide-area networks. | Maximum scalability: zero-copy SSZ layouts, zero-allocation buffers, and instant bitset interest matching. |
+
 ---
 
 ## 9. Global HLA 4 Adoption Status

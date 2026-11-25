@@ -65,8 +65,12 @@ type RTIambassador interface {
 
 	// Time Management
 	EnableTimeRegulation(lookahead float64) error
+	DisableTimeRegulation() error
 	EnableTimeConstrained() error
+	DisableTimeConstrained() error
 	TimeAdvanceRequest(targetTime float64) error
+	NextMessageRequest(targetTime float64) error
+	FlushQueueRequest(targetTime float64) error
 
 	// Callback Evocation
 	EvokeCallback(timeout time.Duration) (bool, error)

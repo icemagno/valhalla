@@ -94,6 +94,7 @@ type FederationExecution struct {
 	omt       *core.OMTRegistry
 	router    *core.InterestMatcher
 	stateTree *core.FederationStateTree
+	timeMgr   *core.TimeManager
 }
 
 // NewFederationExecution cria uma nova federação com contadores e mapas inicializados
@@ -101,6 +102,7 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 	omt := core.NewOMTRegistry()
 	router := core.NewInterestMatcher(omt)
 	stateTree := core.NewFederationStateTree()
+	timeMgr := core.NewTimeManager()
 
 	return &FederationExecution{
 		Handle:             handle,
@@ -115,6 +117,7 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		omt:                omt,
 		router:             router,
 		stateTree:          stateTree,
+		timeMgr:            timeMgr,
 	}
 }
 
@@ -131,6 +134,11 @@ func (f *FederationExecution) Router() *core.InterestMatcher {
 // StateTree retorna a árvore de estado criptográfico Merkle da federação
 func (f *FederationExecution) StateTree() *core.FederationStateTree {
 	return f.stateTree
+}
+
+// TimeManager retorna o coordenador de avanço temporal determinístico da federação
+func (f *FederationExecution) TimeManager() *core.TimeManager {
+	return f.timeMgr
 }
 
 // Join registra um federado na federação e atribui seu handle sequencial exclusivo
@@ -158,6 +166,10 @@ func (f *FederationExecution) Join(name, fedType string, proto ProtocolType, ses
 	f.federates[id] = fed
 	f.nameToID[name] = id
 
+	if f.timeMgr != nil {
+		f.timeMgr.RegisterFederate(common.FederateHandle(id))
+	}
+
 	return fed, nil
 }
 
@@ -182,6 +194,11 @@ func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 	// Limpar interesses e publicações do federado no roteador
 	if f.router != nil {
 		f.router.RemoveFederate(common.FederateHandle(id))
+	}
+
+	// Remover federado do motor temporal
+	if f.timeMgr != nil {
+		f.timeMgr.UnregisterFederate(common.FederateHandle(id))
 	}
 
 	return fed, nil

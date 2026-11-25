@@ -142,3 +142,22 @@ Client (Federate)                                   Server (CRTI / Valhalla)
 ```
 
 Project Valhalla implements this exact protocol flow, ensuring 100% binary drop-in compatibility with legacy Portico clients and tools.
+
+---
+
+## 6. The WelcomePack Anatomy: Eager ObjectModel Serialization
+
+### 6.1. Why the WelcomePack is 33 KB+
+When a federate joins an active federation (`MsgJoinFederation`), Portico does not simply acknowledge the connection. It responds with a massive `WelcomePack` packet (SUID `0x03CC42B0DA8025D4` / `org.portico2.common.services.federation.msg.WelcomePack`):
+1. **Federation & Federate Handles:** 32-bit integers allocated by the CRTI.
+2. **Federation, Federate, and Type Names:** UTF-8 encoded strings.
+3. **The Embedded `ObjectModel`:** A fully serialized Java representation of the entire Federation Object Model (`org.portico.shared.model.ObjectModel`), containing:
+   * Every object class in the hierarchy and its parent link.
+   * Every attribute definition, datatype, and assigned 32-bit integer handle.
+   * Every interaction class, parameter definition, and assigned handle.
+4. **Federation Keys and Sync Point States:** Tables tracking current collective barrier checkpoints.
+
+### 6.2. Eager Push (Portico) vs. Lazy Pull (Pitch / MÄK / Valhalla Native)
+* **Portico Design Rationale:** By serializing the complete `ObjectModel` into the `WelcomePack`, Portico allows joining Java federates to perform all subsequent `getObjectClassHandle` and `getAttributeHandle` queries in local RAM as simple HashMap lookups with 0 network latency.
+* **The Downside:** The join handshake is heavy ($\ge 33\ \text{KB}$ even for modest models), tightly couples both ends to Java `ObjectInputStream` binary layouts, and causes client-side `NullPointerException`s if the RTI returns a null or partial FOM.
+* **Valhalla Sovereign Handling:** Project Valhalla dynamically synthesizes the canonical `WelcomePack` with pre-populated handles for legacy Portico nodes, while offering modern native nodes (Go, Rust, Unreal Engine 5) a lightweight, sub-microsecond pull-and-cache protocol using **Euler Tour Interval Encoding** ($< 1.2\ \text{ns}$ per check).

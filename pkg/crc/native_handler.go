@@ -9,6 +9,7 @@ import (
 	"net"
 
 	"github.com/icemagno/valhalla/pkg/common"
+	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
 // Tipos de Mensagem do Protocolo Nativo Valhalla (HLA-4)
@@ -38,12 +39,16 @@ const (
 	NativeMsgReflectAttributes      = common.NativeMsgReflectAttributes
 	NativeMsgSendInteraction        = common.NativeMsgSendInteraction
 	NativeMsgReceiveInteraction     = common.NativeMsgReceiveInteraction
-	NativeMsgEnableTimeRegulation   = common.NativeMsgEnableTimeRegulation
-	NativeMsgTimeRegulationEnabled  = common.NativeMsgTimeRegulationEnabled
-	NativeMsgEnableTimeConstrained  = common.NativeMsgEnableTimeConstrained
-	NativeMsgTimeConstrainedEnabled = common.NativeMsgTimeConstrainedEnabled
-	NativeMsgTimeAdvanceRequest     = common.NativeMsgTimeAdvanceRequest
-	NativeMsgTimeAdvanceGrant       = common.NativeMsgTimeAdvanceGrant
+	NativeMsgEnableTimeRegulation    = common.NativeMsgEnableTimeRegulation
+	NativeMsgTimeRegulationEnabled   = common.NativeMsgTimeRegulationEnabled
+	NativeMsgDisableTimeRegulation   = common.NativeMsgDisableTimeRegulation
+	NativeMsgEnableTimeConstrained   = common.NativeMsgEnableTimeConstrained
+	NativeMsgTimeConstrainedEnabled  = common.NativeMsgTimeConstrainedEnabled
+	NativeMsgDisableTimeConstrained  = common.NativeMsgDisableTimeConstrained
+	NativeMsgTimeAdvanceRequest      = common.NativeMsgTimeAdvanceRequest
+	NativeMsgTimeAdvanceGrant        = common.NativeMsgTimeAdvanceGrant
+	NativeMsgNextMessageRequest      = common.NativeMsgNextMessageRequest
+	NativeMsgFlushQueueRequest       = common.NativeMsgFlushQueueRequest
 	NativeMsgResign                 = common.NativeMsgResign
 	NativeMsgSuccessOK              = common.NativeMsgSuccessOK
 	NativeMsgError                  = common.NativeMsgError
@@ -63,6 +68,22 @@ func sendNativeError(session *NativeSession, reqID uint16, code uint16, err erro
 		ReqID:      reqID,
 	}
 	return session.SendMessage(respHdr, errPayload)
+}
+
+func dispatchTimeGrants(currentFed *FederationExecution, grants []core.TimeGrantEvent) {
+	for _, grant := range grants {
+		fed, ok := currentFed.GetFederate(int32(grant.Federate))
+		if !ok || fed.Session == nil {
+			continue
+		}
+		// Deliver any queued TSO messages first in strictly non-decreasing time order
+		for _, msg := range grant.Messages {
+			_ = fed.Session.SendNotification(msg.MsgType, msg.Payload)
+		}
+		// Deliver TimeAdvanceGrant notification
+		grantPayload, _ := common.TimeFloat64Payload{Time: grant.Time}.MarshalBinary()
+		_ = fed.Session.SendNotification(NativeMsgTimeAdvanceGrant, grantPayload)
+	}
 }
 
 // HandleNativeConnection gerencia um cliente nativo conectado usando o protocolo Valhalla
@@ -597,10 +618,23 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				}
 			}
 
-			// Despacha reflexões apenas para federados com assinatura ativa
+			// Despacha reflexões para federados com assinatura ativa (TSO ou RO)
 			for subID := range targetSubs {
 				if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
-					_ = f.Session.SendNotification(NativeMsgReflectAttributes, payload)
+					if uavReq.HasTime && f.IsConstrained {
+						grants, err := currentFed.TimeManager().EnqueueTSOMessage(core.TSOMessage{
+							Sender:    common.FederateHandle(federateID),
+							Receiver:  subID,
+							Timestamp: uavReq.Time,
+							MsgType:   NativeMsgReflectAttributes,
+							Payload:   payload,
+						})
+						if err == nil && len(grants) > 0 {
+							dispatchTimeGrants(currentFed, grants)
+						}
+					} else {
+						_ = f.Session.SendNotification(NativeMsgReflectAttributes, payload)
+					}
 				}
 			}
 
@@ -630,12 +664,25 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 
-			// Roteamento polimórfico de interações via Router
+			// Roteamento polimórfico de interações via Router (TSO ou RO)
 			subs := currentFed.Router().GetInteractionSubscribers(interReq.ClassHandle)
 			for _, subID := range subs {
 				if subID != common.FederateHandle(federateID) {
 					if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
-						_ = f.Session.SendNotification(NativeMsgReceiveInteraction, payload)
+						if interReq.HasTime && f.IsConstrained {
+							grants, err := currentFed.TimeManager().EnqueueTSOMessage(core.TSOMessage{
+								Sender:    common.FederateHandle(federateID),
+								Receiver:  subID,
+								Timestamp: interReq.Time,
+								MsgType:   NativeMsgReceiveInteraction,
+								Payload:   payload,
+							})
+							if err == nil && len(grants) > 0 {
+								dispatchTimeGrants(currentFed, grants)
+							}
+						} else {
+							_ = f.Session.SendNotification(NativeMsgReceiveInteraction, payload)
+						}
 					}
 				}
 			}
@@ -655,14 +702,19 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrFederateNotFound)
 				continue
 			}
-			if fed.IsRegulating {
-				_ = sendNativeError(session, hdr.ReqID, 409, common.ErrTimeRegulationAlreadyEnabled)
+			if err := currentFed.TimeManager().EnableTimeRegulation(common.FederateHandle(federateID), timeReq.Time); err != nil {
+				if errors.Is(err, common.ErrTimeRegulationAlreadyEnabled) {
+					_ = sendNativeError(session, hdr.ReqID, 409, err)
+				} else {
+					_ = sendNativeError(session, hdr.ReqID, 400, err)
+				}
 				continue
 			}
 			fed.IsRegulating = true
 			fed.Lookahead = timeReq.Time
 
-			respData, _ := common.TimeFloat64Payload{Time: fed.CurrentTime}.MarshalBinary()
+			status, _ := currentFed.TimeManager().GetStatus(common.FederateHandle(federateID))
+			respData, _ := common.TimeFloat64Payload{Time: status.CurrentTime}.MarshalBinary()
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
@@ -676,6 +728,31 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			_ = session.SendMessage(respHdr, respData)
 			log.Printf("[CRC-Native] Time regulation enabled for federate [%d], lookahead=%f", federateID, fed.Lookahead)
 
+		case NativeMsgDisableTimeRegulation:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			grants, err := currentFed.TimeManager().DisableTimeRegulation(common.FederateHandle(federateID))
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			if fed, exists := currentFed.GetFederate(federateID); exists {
+				fed.IsRegulating = false
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+			dispatchTimeGrants(currentFed, grants)
+
 		case NativeMsgEnableTimeConstrained:
 			if currentFed == nil || federateID <= 0 {
 				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
@@ -686,13 +763,18 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrFederateNotFound)
 				continue
 			}
-			if fed.IsConstrained {
-				_ = sendNativeError(session, hdr.ReqID, 409, common.ErrTimeConstrainedAlreadyEnabled)
+			if err := currentFed.TimeManager().EnableTimeConstrained(common.FederateHandle(federateID)); err != nil {
+				if errors.Is(err, common.ErrTimeConstrainedAlreadyEnabled) {
+					_ = sendNativeError(session, hdr.ReqID, 409, err)
+				} else {
+					_ = sendNativeError(session, hdr.ReqID, 400, err)
+				}
 				continue
 			}
 			fed.IsConstrained = true
 
-			respData, _ := common.TimeFloat64Payload{Time: fed.CurrentTime}.MarshalBinary()
+			status, _ := currentFed.TimeManager().GetStatus(common.FederateHandle(federateID))
+			respData, _ := common.TimeFloat64Payload{Time: status.CurrentTime}.MarshalBinary()
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
@@ -706,6 +788,31 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			_ = session.SendMessage(respHdr, respData)
 			log.Printf("[CRC-Native] Time constrained enabled for federate [%d]", federateID)
 
+		case NativeMsgDisableTimeConstrained:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			grants, err := currentFed.TimeManager().DisableTimeConstrained(common.FederateHandle(federateID))
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			if fed, exists := currentFed.GetFederate(federateID); exists {
+				fed.IsConstrained = false
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+			dispatchTimeGrants(currentFed, grants)
+
 		case NativeMsgTimeAdvanceRequest:
 			if currentFed == nil || federateID <= 0 {
 				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
@@ -716,17 +823,11 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid time advance request"))
 				continue
 			}
-			fed, exists := currentFed.GetFederate(federateID)
-			if !exists {
-				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrFederateNotFound)
+			grants, err := currentFed.TimeManager().TimeAdvanceRequest(common.FederateHandle(federateID), tarReq.Time)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
 				continue
 			}
-			if tarReq.Time < fed.CurrentTime {
-				_ = sendNativeError(session, hdr.ReqID, 400, common.ErrInvalidLogicalTime)
-				continue
-			}
-			fed.IsAdvancing = true
-			fed.TargetTime = tarReq.Time
 
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
@@ -738,12 +839,63 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FederateID: uint32(federateID),
 			}
 			_ = session.SendMessage(respHdr, nil)
+			dispatchTimeGrants(currentFed, grants)
 
-			// Concede o avanço do federado
-			fed.CurrentTime = fed.TargetTime
-			fed.IsAdvancing = false
-			grantData, _ := common.TimeFloat64Payload{Time: fed.CurrentTime}.MarshalBinary()
-			_ = session.SendNotification(NativeMsgTimeAdvanceGrant, grantData)
+		case NativeMsgNextMessageRequest:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var nmrReq common.TimeFloat64Payload
+			if err := nmrReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid next message request"))
+				continue
+			}
+			grants, err := currentFed.TimeManager().NextMessageRequest(common.FederateHandle(federateID), nmrReq.Time)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+			dispatchTimeGrants(currentFed, grants)
+
+		case NativeMsgFlushQueueRequest:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var flushReq common.TimeFloat64Payload
+			if err := flushReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid flush queue request"))
+				continue
+			}
+			grants, err := currentFed.TimeManager().FlushQueueRequest(common.FederateHandle(federateID), flushReq.Time)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+			dispatchTimeGrants(currentFed, grants)
 
 		case NativeMsgResign:
 			if currentFed != nil && federateID > 0 {

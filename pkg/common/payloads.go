@@ -41,7 +41,7 @@ func (p *FederationExecutionPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// JoinFederationPayload representa a requisição de ingresso do federado
+// JoinFederationPayload represents a federate join request
 type JoinFederationPayload struct {
 	FederateName   string
 	FederateType   string
@@ -133,7 +133,7 @@ func (p *JoinFederationResponsePayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// ResignFederationPayload desassociação do federado
+// ResignFederationPayload represents federate resignation
 type ResignFederationPayload struct {
 	ResignAction uint8 // 1=UnconditionallyDivest, 2=DeleteObjects, etc.
 }
@@ -150,7 +150,7 @@ func (p *ResignFederationPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// RegisterSyncPointPayload registro de ponto de sincronização
+// RegisterSyncPointPayload represents synchronization point registration
 type RegisterSyncPointPayload struct {
 	Label string
 	Tag   []byte
@@ -305,7 +305,7 @@ func (p *SubscribeObjectClassPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// InteractionClassPayload publica ou despublica uma classe de interação
+// InteractionClassPayload publishes or unpublishes an interaction class
 type InteractionClassPayload struct {
 	ClassHandle InteractionClassHandle
 }
@@ -324,7 +324,7 @@ func (p *InteractionClassPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// SubscribeInteractionClassPayload subscreve uma classe de interação
+// SubscribeInteractionClassPayload subscribes to an interaction class
 type SubscribeInteractionClassPayload struct {
 	ClassHandle InteractionClassHandle
 	Active      bool
@@ -354,7 +354,7 @@ func (p *SubscribeInteractionClassPayload) UnmarshalBinary(data []byte) error {
 // 3. OBJECT MANAGEMENT PAYLOADS
 // ============================================================================
 
-// RegisterObjectInstancePayload registra uma nova instância
+// RegisterObjectInstancePayload registers a new object instance
 type RegisterObjectInstancePayload struct {
 	ClassHandle ObjectClassHandle
 	ObjectName  string
@@ -381,7 +381,7 @@ func (p *RegisterObjectInstancePayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// DiscoverObjectInstancePayload descobre uma instância remota
+// DiscoverObjectInstancePayload conveys a discovered remote object instance
 type DiscoverObjectInstancePayload struct {
 	ObjectHandle ObjectInstanceHandle
 	ClassHandle  ObjectClassHandle
@@ -411,7 +411,7 @@ func (p *DiscoverObjectInstancePayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// DeleteObjectInstancePayload solicitação de exclusão de instância de objeto
+// DeleteObjectInstancePayload represents an object instance deletion request
 type DeleteObjectInstancePayload struct {
 	ObjectHandle ObjectInstanceHandle
 	Tag          []byte
@@ -439,7 +439,7 @@ func (p *DeleteObjectInstancePayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// RemoveObjectInstancePayload notificação de remoção de instância de objeto para federados
+// RemoveObjectInstancePayload notifies federates of object instance removal
 type RemoveObjectInstancePayload struct {
 	ObjectHandle ObjectInstanceHandle
 	Tag          []byte
@@ -467,7 +467,7 @@ func (p *RemoveObjectInstancePayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// UpdateAttributesPayload atualização de atributos (UAV) ou reflexão (RAV)
+// UpdateAttributesPayload carries attribute updates (UAV) or reflections (RAV)
 type UpdateAttributesPayload struct {
 	ObjectHandle ObjectInstanceHandle
 	Attributes   map[AttributeHandle][]byte
@@ -581,7 +581,7 @@ func (p *UpdateAttributesPayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// SendInteractionPayload envio ou recebimento de interação
+// SendInteractionPayload carries interaction sending or reception
 type SendInteractionPayload struct {
 	ClassHandle InteractionClassHandle
 	Parameters  map[ParameterHandle][]byte
@@ -698,7 +698,7 @@ func (p *SendInteractionPayload) UnmarshalBinary(data []byte) error {
 // 4. TIME MANAGEMENT PAYLOADS
 // ============================================================================
 
-// TimeFloat64Payload payload comum que transporta um valor float64 (ex: Lookahead, LogicalTime, GrantTime)
+// TimeFloat64Payload common payload conveying a single float64 value (e.g., Lookahead, LogicalTime, GrantTime)
 type TimeFloat64Payload struct {
 	Time float64
 }
@@ -721,7 +721,7 @@ func (p *TimeFloat64Payload) UnmarshalBinary(data []byte) error {
 // 5. GENERIC CONTROL & ERROR PAYLOADS
 // ============================================================================
 
-// ErrorResponsePayload representa uma resposta de erro formal do RTI
+// ErrorResponsePayload represents a formal RTI error response
 type ErrorResponsePayload struct {
 	ErrorCode uint16
 	Message   string
@@ -748,7 +748,7 @@ func (p *ErrorResponsePayload) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// SuccessOKPayload confirmação com mensagem opcional
+// SuccessOKPayload carries confirmation with an optional message
 type SuccessOKPayload struct {
 	Message string
 }

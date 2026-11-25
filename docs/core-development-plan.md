@@ -116,11 +116,13 @@ The Core Engine is transport-agnostic and thread-safe:
 └──────────────────────────────────┬─────────────────────────────────────┘
                                    │
 ┌──────────────────────────────────▼─────────────────────────────────────┐
-│ PHASE 4: Time Management Engine (GALT / LITS & TSO)    [IN PROGRESS]   │
-│  - Distributed time advance coordinator (LITS and GALT).               │
+│ PHASE 4: Time Management Engine (GALT / LITS & TSO)    [COMPLETED]     │
+│  - Distributed time advance coordinator (LBTS, LITS, and GALT).        │
 │  - Lookahead resolution across regulating and constrained federates.   │
 │  - Min-heap priority queues for strict Time-Stamp Order (TSO) delivery.│
-│  - Full TAR, TAG, NMR (NextMessageRequest), and FlushQueue services.   │
+│  - Full TAR, TARA, NMR, NMRA, and FlushQueue services.                 │
+│  - Anti-deadlock heartbeat monitor and stalled federate auto-eviction. │
+│  - 423.8 ns LBTS calculation benchmark with 0 heap allocations.        │
 └──────────────────────────────────┬─────────────────────────────────────┘
                                    │
 ┌──────────────────────────────────▼─────────────────────────────────────┐

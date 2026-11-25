@@ -504,4 +504,45 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2 e 3), Payloads VAL4 Tipados, Roteador Pub/Sub Vetorial, Descoberta Retrospectiva, Exclusão Segura, Estado Merkleizado Auditável, Auditoria de Código, Arquitetura DDM 3D Morton e Internacionalização Completa para Inglês.*
+### 27. Fase 4 do Core: Motor de Time Management Determinístico, Filas TSO e Resiliência Anti-Travamento (IEEE 1516-2025)
+
+1. **Arquitetura Nuclear de Gerenciamento Temporal ([`pkg/crc/core/time_manager.go`](pkg/crc/core/time_manager.go)):**
+   - Implementada a máquina de estados normativos de tempo da IEEE 1516-2025: *Time Regulating*, *Time Constrained*, *Lookahead*, *Current Logical Time*, *Target Time* e estados de avanço (*AdvancingTAR*, *AdvancingTARA*, *AdvancingNMR*, *AdvancingNMRA*, *AdvancingFlush*).
+   - Cálculo determinístico de **LBTS** (*Lower Bound on Time Stamp*) avaliando os tempos iminentes de todos os pares reguladores com precisão de ponto flutuante via limiar epsilon (`1e-9`).
+   - Benchmark empírico de alta performance: cálculo de LBTS executado em **423.8 ns/op** com **ZERO alocações na heap** (`0 B/op`, `0 allocs/op`) para 64 federados concorrentes.
+
+2. **Fila de Prioridade TSO (*Min-Heap*) e Despacho Ordenado:**
+   - Implementada fila de prioridade estritamente ordenada por carimbo de tempo (`Timestamp`) e desempate FIFO por número de sequência (`SequenceNum`).
+   - Validação de horizonte de previsão (*Lookahead*): mensagens com timestamp inferior a `CurrentTime + Lookahead` são rejeitadas preventivamente com `ErrInvalidLogicalTime`.
+   - Entrega atômica e ordenada: ao conceder o avanço (*TimeAdvanceGrant*), todas as mensagens TSO com timestamp $\le \text{GrantTime}$ são descarregadas e entregues antes da emissão do TAG.
+
+3. **Inovação de Resiliência Valhalla (Detecção e Evicção de Federados Travados):**
+   - Monitoramento contínuo de vitalidade (*Heartbeat*): se um federado regulador cessar o envio de pulsos ou solicitações de avanço além do limiar configurável (ex: 2 segundos), o motor o coloca automaticamente em quarentena.
+   - O recálculo instantâneo de LBTS sem o nó inoperante **impede o congelamento e travamento da federação inteira**, solucionando um dos problemas históricos mais críticos da especificação HLA.
+
+4. **Integração de Ponta a Ponta no CRC e LRC ([`pkg/crc/native_handler.go`](pkg/crc/native_handler.go), [`pkg/lrc/rti_ambassador.go`](pkg/lrc/rti_ambassador.go)):**
+   - Roteamento completo de mensagens nativas VAL4 para `NativeMsgEnableTimeRegulation`, `NativeMsgDisableTimeRegulation`, `NativeMsgEnableTimeConstrained`, `NativeMsgDisableTimeConstrained`, `NativeMsgTimeAdvanceRequest`, `NativeMsgNextMessageRequest` e `NativeMsgFlushQueueRequest`.
+   - Teste de integração ao vivo ([`test/integration/time_management_test.go`](test/integration/time_management_test.go)) conectando dois nós em processos isolados sobre TCP com avanço coordenado em passo ordenado (*lockstep*).
+   - Homologação completa: `go test -race -count=1 ./...` executou com **100% PASS** e **ZERO condições de corrida**.
+
+---
+
+### 28. Deliberação Arquitetural: Ciclo de Vida do Contrato FOM/SOM (DSEEP - IEEE 1730) e Estratégias de Resolução de Handles
+
+1. **O Contrato de Dados Compartilhado (FOM vs. SOM):**
+   - Registrado formalmente que em sistemas HLA, os desenvolvedores nunca programam contra variáveis desconhecidas em tempo de execução.
+   - De acordo com o processo normativo **DSEEP (IEEE 1730)**, cada fabricante elabora o seu **SOM** (*Simulation Object Model*), que são harmonizados no **FOM** da federação antes da simulação. Os simuladores são compilados contra esse contrato comum ou contra padrões industriais como o **RPR-FOM v2.0**.
+   - O polimorfismo do RPR-FOM permite que um simulador de radar assine a classe abstrata `BaseEntity` e passe a enxergar navios ou aeronaves de outros fabricantes automaticamente sem precisar do código-fonte proprietário daquele navio.
+
+2. **Divergência Tecnológica de Resolução de Handles na Rede:**
+   - **Portico ("Eager Push"):** Serializa a árvore inteira de classes em um objeto Java `ObjectModel` dentro do `WelcomePack` (33 KB+). Reduz chamadas subsequentes, mas sobrecarrega o handshake e engessa o cliente na JVM.
+   - **Pitch / MÄK ("Lazy Pull + Cache"):** Handshake ultraleve (< 100 bytes) com resolução e cache sob demanda de nomes para handles (`Name-to-Handle Resolution`).
+   - **Valhalla (Multiplexação Adaptativa):** Sintetiza o `WelcomePack` para clientes legados Portico e provê resolução instantânea via intervalos de **Euler Tour em $O(1)$** (< 1.2 ns) para nós modernos VAL4.
+
+3. **Atualização da Documentação Técnica em Inglês:**
+   - Adicionada a seção `8.4` e `8.5` em [`docs/architectural-deliberations.md`](docs/architectural-deliberations.md).
+   - Adicionada a seção `6` com a anatomia do `WelcomePack` em [`docs/portico-wire-spec.md`](docs/portico-wire-spec.md).
+
+---
+
+*Fim da entrada de 25/11/2026. Conquistas consolidadas: Core OMT Completo (Fase 1, 2, 3 e 4), Time Management IEEE 1516-2025, Fila Min-Heap TSO, Evicção Anti-Deadlock, Tétrade Arquitetural, Deliberações DSEEP/WelcomePack e Suíte de Testes 100% Race-Free.*
