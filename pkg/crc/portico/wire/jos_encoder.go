@@ -93,6 +93,12 @@ func (e *JOSEncoder) WriteObject(obj any) error {
 		return e.writeJavaObject(v)
 	case *JavaEnum:
 		return e.writeJavaEnum(v)
+	case []byte:
+		if v == nil {
+			e.w.WriteByte(TC_NULL)
+			return nil
+		}
+		return e.writeByteArray(v)
 	default:
 		return fmt.Errorf("jos encoder: tipo nao suportado para serializacao direta: %T", obj)
 	}
@@ -301,6 +307,24 @@ func getClassHierarchy(cls *ClassDesc) []*ClassDesc {
 		list = append([]*ClassDesc{c}, list...) // Insere no início para inverter (base primeiro)
 	}
 	return list
+}
+
+func (e *JOSEncoder) writeByteArray(data []byte) error {
+	e.w.WriteByte(TC_ARRAY)
+	byteArrDesc := &ClassDesc{
+		Name:             "[B",
+		SerialVersionUID: 0,
+		Flags:            SC_SERIALIZABLE,
+		Fields:           nil,
+		Super:            nil,
+	}
+	if err := e.writeClassDesc(byteArrDesc); err != nil {
+		return err
+	}
+	e.assignHandle(fmt.Sprintf("arr:%p", data))
+	binary.Write(e.w, binary.BigEndian, int32(len(data)))
+	e.w.Write(data)
+	return nil
 }
 
 // Bytes retorna o slice de bytes completo gerado

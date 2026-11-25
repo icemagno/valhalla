@@ -91,7 +91,11 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 		t.Errorf("esperava que Valhalla tivesse handle 2 (apos o Thor ter 1), obteve %d", valHandle)
 	}
 
-	// 4. Sincronização mista: Thor e Valhalla conquistam ReadyToRun
+	// 4. Sincronização mista: Valhalla registra o ponto ReadyToRun
+	if err := ambValhalla.RegisterFederationSynchronizationPoint("ReadyToRun", nil); err != nil {
+		t.Fatalf("Valhalla RegisterFederationSynchronizationPoint falhou: %v", err)
+	}
+
 	// Thor conquista ReadyToRun
 	syncObj := wire.NewSyncPointAchievedObject("ReadyToRun", wpInfo.FederateHandle)
 	syncPayload, err := wire.SerializePorticoControlMessage(syncObj)

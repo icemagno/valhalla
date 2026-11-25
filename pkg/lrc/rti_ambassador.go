@@ -2,6 +2,7 @@ package lrc
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -70,6 +71,20 @@ func (a *RTIambassadorImpl) Disconnect() error {
 	return err
 }
 
+func checkNativeResponse(resp nativeResponse) error {
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return errors.New(errPayload.Message)
+		}
+		return ErrInvalidResponse
+	}
+	if resp.Header.MsgType != common.NativeMsgSuccessOK {
+		return ErrInvalidResponse
+	}
+	return nil
+}
+
 // CreateFederationExecution cria ou assegura a existência de uma federação no CRC
 func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) error {
 	a.mu.RLock()
@@ -78,8 +93,22 @@ func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) err
 	if a.client == nil || a.client.IsClosed() {
 		return ErrNotConnected
 	}
-	// O Valhalla CRC assegura e instancia federações sob demanda de forma concorrente
-	return nil
+	if federationName == "" {
+		return errors.New("federation name cannot be empty")
+	}
+
+	req := common.FederationExecutionPayload{FederationName: federationName}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgCreateFederation, 0, 0, payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
 }
 
 // DestroyFederationExecution remove a federação do CRC
@@ -90,7 +119,22 @@ func (a *RTIambassadorImpl) DestroyFederationExecution(federationName string) er
 	if a.client == nil || a.client.IsClosed() {
 		return ErrNotConnected
 	}
-	return nil
+	if federationName == "" {
+		return errors.New("federation name cannot be empty")
+	}
+
+	req := common.FederationExecutionPayload{FederationName: federationName}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgDestroyFederation, 0, 0, payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
 }
 
 // JoinFederationExecution ingressa o federado em uma federação com atribuição de handle
@@ -118,6 +162,14 @@ func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName
 	resp, err := a.client.SendRequest(common.NativeMsgJoin, 0, 0, payload, 5*time.Second)
 	if err != nil {
 		return 0, err
+	}
+
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return 0, errors.New(errPayload.Message)
+		}
+		return 0, ErrInvalidResponse
 	}
 
 	if resp.Header.MsgType != common.NativeMsgJoinSuccess {
@@ -152,8 +204,12 @@ func (a *RTIambassadorImpl) ResignFederationExecution() error {
 	resignReq := common.ResignFederationPayload{ResignAction: 1}
 	payload, _ := resignReq.MarshalBinary()
 
-	_, err := a.client.SendRequest(common.NativeMsgResign, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := a.client.SendRequest(common.NativeMsgResign, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	if err != nil {
+		return err
+	}
+
+	if err := checkNativeResponse(resp); err != nil {
 		return err
 	}
 
@@ -182,8 +238,12 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 		return err
 	}
 
-	_, err = a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
-	return err
+	resp, err := a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
 }
 
 // SynchronizationPointAchieved notifica o CRC que este federado conquistou o ponto
@@ -204,8 +264,12 @@ func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
 		return err
 	}
 
-	_, err = a.client.SendRequest(common.NativeMsgAchieveSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
-	return err
+	resp, err := a.client.SendRequest(common.NativeMsgAchieveSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
 }
 
 // RegisterObjectInstance registra uma nova instância de objeto no modelo de simulação
@@ -234,7 +298,15 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 		return 0, err
 	}
 
-	if len(resp.Payload) < 4 {
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return 0, errors.New(errPayload.Message)
+		}
+		return 0, ErrInvalidResponse
+	}
+
+	if resp.Header.MsgType != common.NativeMsgSuccessOK || len(resp.Payload) < 4 {
 		return 0, ErrInvalidResponse
 	}
 
@@ -270,8 +342,12 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 		return err
 	}
 
-	_, err = a.client.SendRequest(common.NativeMsgUpdateAttributes, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
-	return err
+	resp, err := a.client.SendRequest(common.NativeMsgUpdateAttributes, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
 }
 
 // SendInteraction despacha uma interação com parâmetros para a federação
@@ -302,8 +378,12 @@ func (a *RTIambassadorImpl) SendInteraction(interactionClass int32, parameters m
 		return err
 	}
 
-	_, err = a.client.SendRequest(common.NativeMsgSendInteraction, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
-	return err
+	resp, err := a.client.SendRequest(common.NativeMsgSendInteraction, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
 }
 
 // EnableTimeRegulation habilita a regulação de tempo com lookahead
@@ -311,12 +391,72 @@ func (a *RTIambassadorImpl) EnableTimeRegulation(lookahead float64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+	if lookahead < 0 {
+		return common.ErrInvalidLookahead
+	}
+
+	timeReq := common.TimeFloat64Payload{Time: lookahead}
+	payload, err := timeReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgEnableTimeRegulation, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return errors.New(errPayload.Message)
+		}
+		return ErrInvalidResponse
+	}
+
+	if resp.Header.MsgType != common.NativeMsgTimeRegulationEnabled {
+		return ErrInvalidResponse
+	}
+
 	a.lookahead = lookahead
 	return nil
 }
 
 // EnableTimeConstrained habilita a restrição de tempo do federado
 func (a *RTIambassadorImpl) EnableTimeConstrained() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgEnableTimeConstrained, uint32(a.federationID), uint32(a.federateID), nil, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return errors.New(errPayload.Message)
+		}
+		return ErrInvalidResponse
+	}
+
+	if resp.Header.MsgType != common.NativeMsgTimeConstrainedEnabled {
+		return ErrInvalidResponse
+	}
+
 	return nil
 }
 
@@ -338,8 +478,11 @@ func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 		return err
 	}
 
-	_, err = a.client.SendRequest(common.NativeMsgTimeAdvanceRequest, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
-	return err
+	resp, err := a.client.SendRequest(common.NativeMsgTimeAdvanceRequest, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
 }
 
 // EvokeCallback entrega um callback pendente à FederateAmbassador se houver

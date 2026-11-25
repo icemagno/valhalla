@@ -41,6 +41,7 @@ var (
 	NewJoinFederationObject    = metamodel.NewJoinFederation
 	NewCreateFederationObject  = metamodel.NewCreateFederation
 	NewResignFederationObject  = metamodel.NewResignFederation
+	NewRegisterSyncPointObject = metamodel.NewRegisterSyncPoint
 	NewSyncPointAchievedObject = metamodel.NewSyncPointAchieved
 	NewRtiProbeObject          = metamodel.NewRtiProbe
 )

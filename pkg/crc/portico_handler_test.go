@@ -9,21 +9,48 @@ import (
 )
 
 func TestPorticoHandler_FullLifecycle(t *testing.T) {
-	serverConn, clientConn := net.Pipe()
-	defer serverConn.Close()
-	defer clientConn.Close()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("falha ao criar listener: %v", err)
+	}
+	defer ln.Close()
 
 	fedManager := NewFederationManager()
 
-	// Iniciar handler do servidor em goroutine
+	// Iniciar handler do servidor em goroutine aceitando conexão TCP real
 	serverErrChan := make(chan error, 1)
 	go func() {
-		err := HandlePorticoConnection(serverConn, serverConn, fedManager)
+		serverConn, err := ln.Accept()
+		if err != nil {
+			serverErrChan <- err
+			return
+		}
+		defer serverConn.Close()
+		err = HandlePorticoConnection(serverConn, serverConn, fedManager)
 		serverErrChan <- err
 	}()
 
+	clientConn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("falha ao conectar cliente: %v", err)
+	}
+	defer clientConn.Close()
+
 	// Simular cliente Portico (ex: Thor)
 	clientSession := NewPorticoSession(clientConn)
+
+	readControlResponse := func() (wire.Header, []byte, error) {
+		for {
+			hdr, payload, err := clientSession.ReadPacket(clientConn)
+			if err != nil {
+				return hdr, nil, err
+			}
+			if hdr.CallType == wire.CallTypeControlResponseOK || hdr.CallType == wire.CallTypeControlResponseErr {
+				return hdr, payload, nil
+			}
+			// Notificações assíncronas (ex: AnnounceSyncPoint, FederationSynchronized) são consumidas
+		}
+	}
 
 	// 1. Handshake do cliente: ler 0xBEEF, enviar 0xFEED
 	var welcomeMagic int32
@@ -58,20 +85,38 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 		t.Fatalf("falha enviando 0xFEED: %v", err)
 	}
 
-	// 2. Enviar JoinFederation
+	// 2. Enviar CreateFederation
+	createObj := wire.NewCreateFederationObject("ExampleFederation")
+	createPayload, err := wire.SerializePorticoControlMessage(createObj)
+	if err != nil {
+		t.Fatalf("falha serializando CreateFederation: %v", err)
+	}
+	createHdr := wire.NewControlRequest(wire.MsgCreateFederation, 1, 0, 0, uint32(len(createPayload)))
+	if err := clientSession.SendPacket(createHdr, createPayload); err != nil {
+		t.Fatalf("falha enviando CreateFederation: %v", err)
+	}
+	cfHdr, cfPayload, err := readControlResponse()
+	if err != nil {
+		t.Fatalf("falha lendo resposta CreateFederation: %v", err)
+	}
+	if cfHdr.CallType != wire.CallTypeControlResponseOK || len(cfPayload) == 0 {
+		t.Fatalf("esperado ControlResponseOK para CreateFederation, obtido %s", cfHdr.CallType)
+	}
+
+	// 3. Enviar JoinFederation
 	joinObj := wire.NewJoinFederationObject("ExampleFederation", "Thor", "ieee1516e")
 	joinPayload, err := wire.SerializePorticoControlMessage(joinObj)
 	if err != nil {
 		t.Fatalf("falha serializando Join: %v", err)
 	}
 
-	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 1, 0, 0, uint32(len(joinPayload)))
+	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 2, 0, 0, uint32(len(joinPayload)))
 	if err := clientSession.SendPacket(joinHdr, joinPayload); err != nil {
 		t.Fatalf("falha enviando Join: %v", err)
 	}
 
 	// Ler resposta do Join (WelcomePack)
-	resHdr, resPayload, err := clientSession.ReadPacket(clientConn)
+	resHdr, resPayload, err := readControlResponse()
 	if err != nil {
 		t.Fatalf("falha lendo resposta do Join: %v", err)
 	}
@@ -92,19 +137,37 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 		t.Errorf("FederationName esperado ExampleFederation, obtido %s", wpInfo.FederationName)
 	}
 
-	// 3. Enviar SyncPointAchieved
+	// 4. Registrar SyncPoint antes de conquistá-lo
+	regSyncObj := wire.NewRegisterSyncPointObject("ReadyToRun", 1)
+	regSyncPayload, err := wire.SerializePorticoControlMessage(regSyncObj)
+	if err != nil {
+		t.Fatalf("falha serializando RegisterSyncPoint: %v", err)
+	}
+	regSyncHdr := wire.NewControlRequest(wire.MsgRegisterSyncPoint, 3, 1, 0, uint32(len(regSyncPayload)))
+	if err := clientSession.SendPacket(regSyncHdr, regSyncPayload); err != nil {
+		t.Fatalf("falha enviando RegisterSyncPoint: %v", err)
+	}
+	regSyncResHdr, _, err := readControlResponse()
+	if err != nil {
+		t.Fatalf("falha lendo resposta RegisterSyncPoint: %v", err)
+	}
+	if regSyncResHdr.CallType != wire.CallTypeControlResponseOK {
+		t.Fatalf("esperado ControlResponseOK para RegisterSyncPoint, obtido %s", regSyncResHdr.CallType)
+	}
+
+	// 5. Enviar SyncPointAchieved
 	syncObj := wire.NewSyncPointAchievedObject("ReadyToRun", 1)
 	syncPayload, err := wire.SerializePorticoControlMessage(syncObj)
 	if err != nil {
 		t.Fatalf("falha serializando SyncPointAchieved: %v", err)
 	}
 
-	syncHdr := wire.NewControlRequest(wire.MsgAchieveSyncPoint, 2, 1, 0, uint32(len(syncPayload)))
+	syncHdr := wire.NewControlRequest(wire.MsgAchieveSyncPoint, 4, 1, 0, uint32(len(syncPayload)))
 	if err := clientSession.SendPacket(syncHdr, syncPayload); err != nil {
 		t.Fatalf("falha enviando SyncPointAchieved: %v", err)
 	}
 
-	syncResHdr, _, err := clientSession.ReadPacket(clientConn)
+	syncResHdr, _, err := readControlResponse()
 	if err != nil {
 		t.Fatalf("falha lendo resposta Sync: %v", err)
 	}
@@ -112,19 +175,19 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 		t.Errorf("esperado ControlResponseOK no Sync, obtido %s", syncResHdr.CallType)
 	}
 
-	// 4. Enviar ResignFederation
+	// 6. Enviar ResignFederation
 	resignObj := wire.NewResignFederationObject("ExampleFederation", "Thor", "ieee1516e", "NO_ACTION")
 	resignPayload, err := wire.SerializePorticoControlMessage(resignObj)
 	if err != nil {
 		t.Fatalf("falha serializando Resign: %v", err)
 	}
 
-	resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 3, 1, 0, uint32(len(resignPayload)))
+	resignHdr := wire.NewControlRequest(wire.MsgResignFederation, 5, 1, 0, uint32(len(resignPayload)))
 	if err := clientSession.SendPacket(resignHdr, resignPayload); err != nil {
 		t.Fatalf("falha enviando Resign: %v", err)
 	}
 
-	resignResHdr, _, err := clientSession.ReadPacket(clientConn)
+	resignResHdr, _, err := readControlResponse()
 	if err != nil {
 		t.Fatalf("falha lendo resposta Resign: %v", err)
 	}

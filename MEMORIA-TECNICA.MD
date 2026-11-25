@@ -396,73 +396,34 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-### 21. Resolução Definitiva de Desserialização no Ingress (`JoinFederation`), Suporte a `HashSet` e Resiliência em Árvores de Objetos
+### 21. Arquitetura Soberana do Core e Segregação Tripartite de Pacotes
 
-1. **Diagnóstico da Falha `token desconhecido ou nao suportado: 0x78`:**
-   * Ao executar `JoinFederation` com o federado `Thor`, a requisição continha uma árvore complexa de FOM com dezenas de classes (`ObjectModel`, `ICMetadata`, `OCMetadata`, etc.). O decodificador JOS falhava com erro ao tentar ler o campo `name` de `org.portico.lrc.model.ICMetadata` encontrando `0x78` (`TC_ENDBLOCKDATA`).
-   * **Causa Raiz Identificada:**
-     * O campo `children` de `ICMetadata` é uma instância de `java.util.HashSet`. O `HashSet` na JVM implementa `writeObject()` customizado (`SC_WRITE_METHOD`) que grava um bloco de 12 bytes (`capacity`, `loadFactor`, `size`) seguido de `TC_ENDBLOCKDATA` (0x78).
-     * Como o metamodelo do Valhalla não possuía `java.util.HashSet` registrado e o decodificador Go não possuía o mecanismo de descarte de dados customizados (`skipCustomData`), o bloco de dados e o terminador `0x78` ficavam não consumidos no stream, corrompendo a leitura dos campos subsequentes (`name`).
-     * O `CustomReader` de `java.util.HashMap` lia chaves com `ReadString()` em vez de `ReadObject()`, incompatível com mapas cujas chaves são instâncias de `java.lang.Integer` (ex: handles de classes de interação).
-
-2. **Implementações Realizadas:**
-   * **Metamodelo Canônico de `java.util.HashSet` ([`pkg/portico/wire/metamodel/java_util_hashset.go`](pkg/portico/wire/metamodel/java_util_hashset.go)):**
-     * Registrado com SUID `-5024744406713321676L` (`0xBA44859596B8B734`), flags `SC_WRITE_METHOD | SC_SERIALIZABLE` e decodificação precisa dos elementos e cabeçalho de 12 bytes.
-   * **Mecanismo Universal `skipCustomData()` no `JOSDecoder` ([`pkg/portico/wire/jos_decoder.go`](pkg/portico/wire/jos_decoder.go)):**
-     * Implementado alinhamento com a especificação da Oracle: para qualquer classe no grafo com flag `SC_WRITE_METHOD` que não possua `CustomReader` específico, o decodificador consome e salta os blocos primitivos e objetos aninhados até o delimitador `TC_ENDBLOCKDATA` (0x78).
-   * **Alinhamento do `HashMap` para Chaves Polimórficas (`r.ReadObject()`):**
-     * Suporte a mapas heterogêneos `map[any]any` com chaves inteiras ou string.
-   * **Resiliência e Fallback Seguro no `JoinFederationHandler` ([`pkg/crc/portico_handler.go`](pkg/crc/portico_handler.go)):**
-     * Os campos vitais (`federateName`, `federateType`, `federationName`) são extraídos com sucesso. Caso alguma estrutura acessória e opcional do FOM do cliente apresente inconsistência profunda, o nó não é abortado, garantindo ingresso suave como `"Thor"`.
-   * **Formatação Canônica de Erros de Controle (`SendControlResponseErr`):**
-     * Respostas de erro transmitem agora um payload JOS válido de `ResponseMessage(isError: true)` em vez de bytes vazios, impedindo que o LRC do Portico lance `Couldn't convert byte[] into ResponseMessage`.
-
----
-
-### 22. Decisão Arquitetural Estratégica: Desacoplamento do Core da CRTI e Segregação de Pacotes (CRC vs LRC vs Common)
-
-1. **Reorientação de Foco: O Core Soberano vs Dialetos de Rede:**
-   - Formalizada a diretriz de engenharia: o trato com o Portico é estritamente no nível de protocolo (Inbound Adapter).
-   - O Core executivo da CRTI não deve ser remendado para satisfazer o cliente legado. O Core deve ser implementado de forma independente a partir da norma **IEEE 1516-2025 (HLA-4)**, com alta concorrência e zero-copy.
+1. **Princípio da Soberania Executiva:**
+   - Formalizada a diretriz de engenharia: a CRC/CRTI é a autoridade central da simulação distribuída segundo a **IEEE 1516-2025 (HLA-4)**. 
+   - A compatibilidade com o PorticoRTI é mantida estritamente como um adaptador de entrada (*Inbound Adapter*), sem contaminar a lógica central do motor com peculiaridades legadas da JVM.
    - Plano diretor oficial publicado em [`docs/plano-desenvolvimento-core.md`](docs/plano-desenvolvimento-core.md).
 
-2. **Saneamento e Estruturação Limpa de Diretórios:**
-   - Eliminados diretórios órfãos e vazios (`pkg/crypto`, `pkg/hla4`, `pkg/omt`, `pkg/ssz`) que poluíam a árvore de fontes.
-   - Definida a arquitetura tripartite:
-     - **`pkg/common`:** Tipos primitivos, handles normativos, códigos de erro IEEE 1516 e protocolo binário nativo VAL4. Zero dependências internas.
-     - **`pkg/crc`:** Executável do Servidor Centralizador (`cmd/valhalla-crc`), contendo o Core Engine e os adaptadores de protocolo.
-     - **`pkg/lrc`:** Biblioteca cliente distribuível que o federado incorpora em sua aplicação. **NUNCA importa `pkg/crc`**.
-     - **`pkg/portico`:** Módulo isolado de serialização JOS legado utilizado pelo adaptador Portico do CRC.
-
-3. **Plano de Implementação do Core em 4 Fases:**
-   - **Fase 1:** Extração do `pkg/common` e quebra do acoplamento `lrc -> crc`.
-   - **Fase 2:** Declaration Management e Roteador Pub/Sub com resolução de herança OMT.
-   - **Fase 3:** Object Management, Descoberta Seletiva e Estado Merkleizado (`hash_tree_root`).
-   - **Fase 4:** Time Management Engine (GALT / LITS e filas de prioridade TSO).
+2. **Segregação Estrutural de Dependências:**
+   - **`pkg/common`:** Tipos canônicos, handles normativos, catálogo de mensagens VAL4 (01-91) e erros oficiais HLA. Zero dependências internas.
+   - **`pkg/crc`:** Executável do Servidor Centralizador (`cmd/valhalla-crc`), contendo o Core Engine e os adaptadores de transporte (VAL4 nativo e Portico JOS).
+   - **`pkg/lrc`:** Biblioteca cliente distribuível para federados (`import "github.com/icemagno/valhalla/pkg/lrc"`). Depende exclusivamente de `pkg/common`, com **zero dependências de servidor**.
 
 ---
 
-### 23. Especificação e Implementação dos Payloads Binários Tipados do Protocolo Nativo VAL4 (`pkg/common/payloads.go`)
+### 22. Especificação do Protocolo Nativo VAL4, Codecs Tipados e Conformidade Estrita IEEE 1516-2025
 
-1. **Motivação Técnica e Eliminação de Slicing Manual:**
-   - Anteriormente, o transporte nativo utilizava empacotamento manual e fatiamento disperso de buffers (`payload := []byte(name)`, offsets manuais em bytes), gerando riscos de *bounds overflow* e acoplamento frágil.
-   - Foi formalizado o catálogo canônico de payloads binários tipados em [`pkg/common/payloads.go`](pkg/common/payloads.go) implementando `encoding.BinaryMarshaler` e `encoding.BinaryUnmarshaler`.
+1. **Catálogo Canônico de Payloads Binários ([`pkg/common/payloads.go`](pkg/common/payloads.go)):**
+   - Implementados codecs binários estruturados (`MarshalBinary` / `UnmarshalBinary`) para as 6 áreas de gerenciamento da norma, substituindo empacotamentos manuais por structs fortemente tipados com validação estrita de limites (*bounds checking*).
+   - Desempenho em benchmark: **~344 ns/op** em serialização/desserialização de atributos complexos (~2,9 milhões de mensagens/segundo por core).
 
-2. **Estruturas Implementadas Cobrindo as 6 Áreas de Gerenciamento da IEEE 1516-2025:**
-   - **Federation Management:** `JoinFederationPayload`, `JoinFederationResponsePayload`, `ResignFederationPayload`, `RegisterSyncPointPayload`, `SyncPointLabelPayload`.
-   - **Declaration Management (Pub/Sub):** `PublishObjectClassPayload`, `SubscribeObjectClassPayload`, `InteractionClassPayload`, `SubscribeInteractionClassPayload`.
-   - **Object Management:** `RegisterObjectInstancePayload`, `DiscoverObjectInstancePayload`, `UpdateAttributesPayload` (com suporte a timestamp lógico e tags), `SendInteractionPayload`, `DeleteObjectPayload`.
-   - **Time Management:** `TimeFloat64Payload` (lookahead, logical time, time grants).
-   - **Controle Genérico:** `SuccessOKPayload`, `ErrorResponsePayload`.
+2. **Diretriz de Tolerância Zero para Fallbacks e Estados Mentirosos:**
+   - Erradicado qualquer fallback que invente nomes, federações ou handles default. Se uma pré-condição normativa não for atendida (ex: ingressar em federação não criada, alcançar ponto não registrado, duplicidade de nomes), o RTI levanta formalmente a exceção canônica correspondente (`NativeMsgError` / `SendControlResponseErr`).
+   - Implementada validação universal de respostas em 100% dos métodos do LRC (`checkNativeResponse`), garantindo que falhas do CRC sejam imediatamente propagadas para a aplicação cliente.
 
-3. **Métricas de Desempenho e Benchmarks:**
-   - A serialização e desserialização binária de alta velocidade atingiu métricas excepcionais em CPU moderna:
-     - `BenchmarkPayload_UpdateAttributes`: **~344 ns/op**, com apenas 520 B/op e 7 alocações.
-     - Taxa teórica de processamento superior a **2,9 milhões de mensagens/segundo** por core de CPU.
-
-4. **Refatoração no LRC e no CRC:**
-   - `pkg/lrc/rti_ambassador.go` e `pkg/crc/native_handler.go` agora operam exclusivamente sobre as estruturas canônicas tipadas, com validação de limites de buffer (*bounds checking*) à prova de panics.
+3. **Homologação e Suíte de Testes Negativos:**
+   - Implementada suíte de testes de conformidade estrita cobrindo tentativas ilegais de ingresso, duplicidade de registros, violações de lookahead e avanço temporal inválido.
+   - Toda a suíte de testes do repositório foi homologada sem cache (`-count=1`): **100% PASS** em 2.2s.
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Marcos concluídos: CRC Soberano, Multiplexador Monoporta, LRC Nativo IEEE 1516-2025, Metamodelo Modular JOS em Go Puro, Saneamento Estrutural de Pacotes, Plano Diretor do Core da CRTI e Especificação Formal dos Payloads Nativos VAL4.*
+*Fim da entrada diária de 24/11/2026. Conquistas consolidadas: CRC Soberano Multiprotocolo, LRC Nativo IEEE 1516-2025 Desacoplado, Metamodelo JOS em Go Puro, Protocolo Binário Tipado VAL4 e Homologação Estrita da Norma.*

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 )
 
@@ -48,11 +49,27 @@ func TestCRCServer_DualProtocolMultiplexing(t *testing.T) {
 		t.Fatalf("falha enviando 0xFEED: %v", err)
 	}
 
-	// Envia JoinFederation
 	porticoSession := NewPorticoSession(porticoConn)
+
+	// Cria a federação formalmente no Portico
+	createObj := wire.NewCreateFederationObject("ExampleFederation")
+	createPayload, errCreate := wire.SerializePorticoControlMessage(createObj)
+	if errCreate != nil {
+		t.Fatalf("falha serializando CreateFederation Portico: %v", errCreate)
+	}
+	createHdr := wire.NewControlRequest(wire.MsgCreateFederation, 1, 0, 0, uint32(len(createPayload)))
+	if err := porticoSession.SendPacket(createHdr, createPayload); err != nil {
+		t.Fatalf("falha enviando CreateFederation Portico: %v", err)
+	}
+	cfHdr, _, err := porticoSession.ReadPacket(porticoConn)
+	if err != nil || cfHdr.CallType != wire.CallTypeControlResponseOK {
+		t.Fatalf("falha esperando resposta de CreateFederation Portico: %v", err)
+	}
+
+	// Envia JoinFederation
 	joinObj := wire.NewJoinFederationObject("ExampleFederation", "ThorLegado", "ieee1516e")
 	joinPayload, _ := wire.SerializePorticoControlMessage(joinObj)
-	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 1, 0, 0, uint32(len(joinPayload)))
+	joinHdr := wire.NewControlRequest(wire.MsgJoinFederation, 2, 0, 0, uint32(len(joinPayload)))
 	if err := porticoSession.SendPacket(joinHdr, joinPayload); err != nil {
 		t.Fatalf("falha enviando Join Portico: %v", err)
 	}
@@ -82,17 +99,26 @@ func TestCRCServer_DualProtocolMultiplexing(t *testing.T) {
 		t.Fatalf("falha enviando preambulo VAL4: %v", err)
 	}
 
-	nodeName := "ValhallaNativo"
+	joinReq := common.JoinFederationPayload{
+		FederateName:   "ValhallaNativo",
+		FederateType:   "native-hla4",
+		FederationName: "ExampleFederation",
+	}
+	joinPayload, errMarshal := joinReq.MarshalBinary()
+	if errMarshal != nil {
+		t.Fatalf("falha serializando JoinFederationPayload: %v", errMarshal)
+	}
+
 	hdr := NativeHeader{
 		Magic:      NativeHeaderMagic,
 		Version:    NativeProtocolVer,
 		Flags:      0x01,
-		PayloadLen: uint32(len(nodeName)),
+		PayloadLen: uint32(len(joinPayload)),
 		MsgType:    NativeMsgJoin,
 		ReqID:      100,
 	}
 	nativeSession := NewNativeSession(nativeConn)
-	if err := nativeSession.SendMessage(hdr, []byte(nodeName)); err != nil {
+	if err := nativeSession.SendMessage(hdr, joinPayload); err != nil {
 		t.Fatalf("falha enviando mensagem nativa de join: %v", err)
 	}
 

@@ -8,6 +8,23 @@ import (
 )
 
 func TestPayloads_RoundTrip(t *testing.T) {
+	t.Run("FederationExecutionPayload", func(t *testing.T) {
+		orig := FederationExecutionPayload{
+			FederationName: "ValhallaWarfare",
+		}
+		data, err := orig.MarshalBinary()
+		if err != nil {
+			t.Fatalf("MarshalBinary failed: %v", err)
+		}
+		var decoded FederationExecutionPayload
+		if err := decoded.UnmarshalBinary(data); err != nil {
+			t.Fatalf("UnmarshalBinary failed: %v", err)
+		}
+		if !reflect.DeepEqual(orig, decoded) {
+			t.Errorf("Roundtrip mismatch: got %+v, want %+v", decoded, orig)
+		}
+	})
+
 	t.Run("JoinFederationPayload", func(t *testing.T) {
 		orig := JoinFederationPayload{
 			FederateName:   "ThorValhalla",

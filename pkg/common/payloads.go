@@ -17,6 +17,30 @@ var (
 // 1. FEDERATION MANAGEMENT PAYLOADS
 // ============================================================================
 
+// FederationExecutionPayload transporta o nome da federação para criação ou destruição
+type FederationExecutionPayload struct {
+	FederationName string
+}
+
+func (p FederationExecutionPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 2+len(p.FederationName))
+	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.FederationName)))
+	copy(buf[2:], p.FederationName)
+	return buf, nil
+}
+
+func (p *FederationExecutionPayload) UnmarshalBinary(data []byte) error {
+	if len(data) < 2 {
+		return ErrPayloadTooShort
+	}
+	fedLen := int(binary.BigEndian.Uint16(data[0:2]))
+	if 2+fedLen > len(data) {
+		return ErrPayloadStringOverflow
+	}
+	p.FederationName = string(data[2 : 2+fedLen])
+	return nil
+}
+
 // JoinFederationPayload representa a requisição de ingresso do federado
 type JoinFederationPayload struct {
 	FederateName   string
