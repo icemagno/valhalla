@@ -22,6 +22,14 @@ const (
 	NativeMsgAchieveSyncPoint       = common.NativeMsgAchieveSyncPoint
 	NativeMsgSyncPointAchieved      = common.NativeMsgSyncPointAchieved
 	NativeMsgFederationSynchronized = common.NativeMsgFederationSynchronized
+	NativeMsgPublishObjectClass          = common.NativeMsgPublishObjectClass
+	NativeMsgUnpublishObjectClass        = common.NativeMsgUnpublishObjectClass
+	NativeMsgPublishInteractionClass     = common.NativeMsgPublishInteractionClass
+	NativeMsgUnpublishInteractionClass   = common.NativeMsgUnpublishInteractionClass
+	NativeMsgSubscribeObjectClassAttrs   = common.NativeMsgSubscribeObjectClassAttrs
+	NativeMsgUnsubscribeObjectClass      = common.NativeMsgUnsubscribeObjectClass
+	NativeMsgSubscribeInteractionClass   = common.NativeMsgSubscribeInteractionClass
+	NativeMsgUnsubscribeInteractionClass = common.NativeMsgUnsubscribeInteractionClass
 	NativeMsgRegisterObject         = common.NativeMsgRegisterObject
 	NativeMsgDiscoverObject         = common.NativeMsgDiscoverObject
 	NativeMsgUpdateAttributes       = common.NativeMsgUpdateAttributes
@@ -240,6 +248,198 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				}
 			}
 
+		case NativeMsgPublishObjectClass:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var pubReq common.PublishObjectClassPayload
+			if err := pubReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid publish object class payload"))
+				continue
+			}
+			err := currentFed.Router().PublishObjectClass(common.FederateHandle(federateID), pubReq.ClassHandle, pubReq.AttributeHandles)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgUnpublishObjectClass:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var unpubReq common.PublishObjectClassPayload
+			if err := unpubReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid unpublish object class payload"))
+				continue
+			}
+			_ = currentFed.Router().UnpublishObjectClass(common.FederateHandle(federateID), unpubReq.ClassHandle)
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgSubscribeObjectClassAttrs:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var subReq common.SubscribeObjectClassPayload
+			if err := subReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid subscribe object class payload"))
+				continue
+			}
+			err := currentFed.Router().SubscribeObjectClass(common.FederateHandle(federateID), subReq.ClassHandle, subReq.AttributeHandles, subReq.Active)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgUnsubscribeObjectClass:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var unsubReq common.PublishObjectClassPayload
+			if err := unsubReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid unsubscribe object class payload"))
+				continue
+			}
+			_ = currentFed.Router().UnsubscribeObjectClass(common.FederateHandle(federateID), unsubReq.ClassHandle)
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgPublishInteractionClass:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var pubReq common.InteractionClassPayload
+			if err := pubReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid publish interaction class payload"))
+				continue
+			}
+			err := currentFed.Router().PublishInteractionClass(common.FederateHandle(federateID), pubReq.ClassHandle)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgUnpublishInteractionClass:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var unpubReq common.InteractionClassPayload
+			if err := unpubReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid unpublish interaction class payload"))
+				continue
+			}
+			_ = currentFed.Router().UnpublishInteractionClass(common.FederateHandle(federateID), unpubReq.ClassHandle)
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgSubscribeInteractionClass:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var subReq common.SubscribeInteractionClassPayload
+			if err := subReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid subscribe interaction class payload"))
+				continue
+			}
+			err := currentFed.Router().SubscribeInteractionClass(common.FederateHandle(federateID), subReq.ClassHandle, subReq.Active)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
+		case NativeMsgUnsubscribeInteractionClass:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var unsubReq common.InteractionClassPayload
+			if err := unsubReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid unsubscribe interaction class payload"))
+				continue
+			}
+			_ = currentFed.Router().UnsubscribeInteractionClass(common.FederateHandle(federateID), unsubReq.ClassHandle)
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
+
 		case NativeMsgRegisterObject:
 			if currentFed == nil || federateID <= 0 {
 				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
@@ -248,6 +448,10 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			var regReq common.RegisterObjectInstancePayload
 			if err := regReq.UnmarshalBinary(payload); err != nil || regReq.ClassHandle == 0 {
 				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid register object request"))
+				continue
+			}
+			if _, exists := currentFed.OMT().GetObjectClass(regReq.ClassHandle); !exists {
+				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrObjectClassNotDefined)
 				continue
 			}
 			obj, err := currentFed.RegisterObjectInstance(int32(regReq.ClassHandle), regReq.ObjectName, federateID)
@@ -289,6 +493,23 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
 				continue
 			}
+			var uavReq common.UpdateAttributesPayload
+			if err := uavReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid update attributes payload"))
+				continue
+			}
+			obj, exists := currentFed.GetObjectInstance(int32(uavReq.ObjectHandle))
+			if !exists {
+				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrObjectInstanceNotKnown)
+				continue
+			}
+
+			attrsToStore := make(map[int32][]byte, len(uavReq.Attributes))
+			for k, v := range uavReq.Attributes {
+				attrsToStore[int32(k)] = v
+			}
+			_ = currentFed.UpdateObjectAttributes(int32(uavReq.ObjectHandle), attrsToStore, hdr.MerkleRoot)
+
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
@@ -300,8 +521,20 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 
-			for _, f := range currentFed.GetAllFederates() {
-				if f.ID != federateID && f.Session != nil {
+			// Roteamento inteligente de assinantes via Router (InterestMatcher)
+			targetSubs := make(map[common.FederateHandle]bool)
+			for attrHandle := range uavReq.Attributes {
+				subs := currentFed.Router().GetAttributeSubscribers(common.ObjectClassHandle(obj.ClassHandle), attrHandle)
+				for _, sub := range subs {
+					if sub != common.FederateHandle(federateID) {
+						targetSubs[sub] = true
+					}
+				}
+			}
+
+			// Despacha reflexões apenas para federados com assinatura ativa
+			for subID := range targetSubs {
+				if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
 					_ = f.Session.SendNotification(NativeMsgReflectAttributes, payload)
 				}
 			}
@@ -311,6 +544,16 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
 				continue
 			}
+			var interReq common.SendInteractionPayload
+			if err := interReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid send interaction payload"))
+				continue
+			}
+			if _, exists := currentFed.OMT().GetInteractionClass(interReq.ClassHandle); !exists {
+				_ = sendNativeError(session, hdr.ReqID, 404, common.ErrInteractionClassNotDefined)
+				continue
+			}
+
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
@@ -322,9 +565,13 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 
-			for _, f := range currentFed.GetAllFederates() {
-				if f.ID != federateID && f.Session != nil {
-					_ = f.Session.SendNotification(NativeMsgReceiveInteraction, payload)
+			// Roteamento polimórfico de interações via Router
+			subs := currentFed.Router().GetInteractionSubscribers(interReq.ClassHandle)
+			for _, subID := range subs {
+				if subID != common.FederateHandle(federateID) {
+					if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
+						_ = f.Session.SendNotification(NativeMsgReceiveInteraction, payload)
+					}
 				}
 			}
 

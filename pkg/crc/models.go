@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/icemagno/valhalla/pkg/common"
+	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
 // ProtocolType identifica o dialeto de transporte e serialização usado pelo federado
@@ -98,10 +101,16 @@ type FederationExecution struct {
 
 	nextFederateHandle int32
 	nextObjectHandle   int32
+
+	omt    *core.OMTRegistry
+	router *core.InterestMatcher
 }
 
 // NewFederationExecution cria uma nova federação com contadores e mapas inicializados
 func NewFederationExecution(handle int32, name string) *FederationExecution {
+	omt := core.NewOMTRegistry()
+	router := core.NewInterestMatcher(omt)
+
 	return &FederationExecution{
 		Handle:             handle,
 		Name:               name,
@@ -112,7 +121,19 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		nameToObjID:        make(map[string]int32),
 		nextFederateHandle: 1, // Handles começam em 1
 		nextObjectHandle:   1,
+		omt:                omt,
+		router:             router,
 	}
+}
+
+// OMT retorna o registro de modelo de objetos (OMT) da federação
+func (f *FederationExecution) OMT() *core.OMTRegistry {
+	return f.omt
+}
+
+// Router retorna o roteador de pub/sub (InterestMatcher) da federação
+func (f *FederationExecution) Router() *core.InterestMatcher {
+	return f.router
 }
 
 // Join registra um federado na federação e atribui seu handle sequencial exclusivo
@@ -159,6 +180,11 @@ func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 	// Remover de pontos de sincronização pendentes
 	for _, sp := range f.syncPoints {
 		delete(sp.AchievedFederates, id)
+	}
+
+	// Limpar interesses e publicações do federado no roteador
+	if f.router != nil {
+		f.router.RemoveFederate(common.FederateHandle(id))
 	}
 
 	return fed, nil

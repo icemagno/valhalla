@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc"
 	"github.com/icemagno/valhalla/pkg/lrc"
 	"github.com/icemagno/valhalla/pkg/crc/portico/transport"
@@ -114,7 +115,7 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 	}
 
 	// 5. Valhalla registra objeto e atualiza atributos
-	objHandle, err := ambValhalla.RegisterObjectInstance(561, "ValhallaUAV_01")
+	objHandle, err := ambValhalla.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "ValhallaUAV_01")
 	if err != nil {
 		t.Fatalf("Valhalla RegisterObjectInstance falhou: %v", err)
 	}

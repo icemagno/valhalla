@@ -272,6 +272,244 @@ func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
 	return checkNativeResponse(resp)
 }
 
+// PublishObjectClassAttributes publica atributos de uma classe de objeto
+func (a *RTIambassadorImpl) PublishObjectClassAttributes(objectClass int32, attributes []int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	attrs := make([]common.AttributeHandle, len(attributes))
+	for i, h := range attributes {
+		attrs[i] = common.AttributeHandle(h)
+	}
+
+	req := common.PublishObjectClassPayload{
+		ClassHandle:      common.ObjectClassHandle(objectClass),
+		AttributeHandles: attrs,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgPublishObjectClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// UnpublishObjectClass cancela a publicação de uma classe de objeto
+func (a *RTIambassadorImpl) UnpublishObjectClass(objectClass int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.PublishObjectClassPayload{
+		ClassHandle: common.ObjectClassHandle(objectClass),
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgUnpublishObjectClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// PublishInteractionClass publica uma classe de interação
+func (a *RTIambassadorImpl) PublishInteractionClass(interactionClass int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.InteractionClassPayload{
+		ClassHandle: common.InteractionClassHandle(interactionClass),
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgPublishInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// UnpublishInteractionClass cancela a publicação de uma classe de interação
+func (a *RTIambassadorImpl) UnpublishInteractionClass(interactionClass int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.InteractionClassPayload{
+		ClassHandle: common.InteractionClassHandle(interactionClass),
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgUnpublishInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// SubscribeObjectClassAttributes assina atributos de uma classe de objeto
+func (a *RTIambassadorImpl) SubscribeObjectClassAttributes(objectClass int32, attributes []int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	attrs := make([]common.AttributeHandle, len(attributes))
+	for i, h := range attributes {
+		attrs[i] = common.AttributeHandle(h)
+	}
+
+	req := common.SubscribeObjectClassPayload{
+		ClassHandle:      common.ObjectClassHandle(objectClass),
+		AttributeHandles: attrs,
+		Active:           true,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgSubscribeObjectClassAttrs, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// UnsubscribeObjectClass cancela a assinatura de uma classe de objeto
+func (a *RTIambassadorImpl) UnsubscribeObjectClass(objectClass int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.PublishObjectClassPayload{
+		ClassHandle: common.ObjectClassHandle(objectClass),
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgUnsubscribeObjectClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// SubscribeInteractionClass assina uma classe de interação
+func (a *RTIambassadorImpl) SubscribeInteractionClass(interactionClass int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.SubscribeInteractionClassPayload{
+		ClassHandle: common.InteractionClassHandle(interactionClass),
+		Active:      true,
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgSubscribeInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
+// UnsubscribeInteractionClass cancela a assinatura de uma classe de interação
+func (a *RTIambassadorImpl) UnsubscribeInteractionClass(interactionClass int32) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	req := common.InteractionClassPayload{
+		ClassHandle: common.InteractionClassHandle(interactionClass),
+	}
+	payload, err := req.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgUnsubscribeInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	return checkNativeResponse(resp)
+}
+
 // RegisterObjectInstance registra uma nova instância de objeto no modelo de simulação
 func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName string) (int32, error) {
 	a.mu.RLock()

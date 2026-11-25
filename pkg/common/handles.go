@@ -26,6 +26,17 @@ type DimensionHandle int32
 // RegionHandle identifica uma região de roteamento DDM
 type RegionHandle int32
 
+// Constantes normativas do Standard MIM (IEEE 1516-2025)
+const (
+	HLAobjectRootHandle              ObjectClassHandle      = 1
+	HLAprivilegeToDeleteObjectHandle AttributeHandle        = 1
+	HLAinteractionRootHandle         InteractionClassHandle = 1
+
+	HLAobjectRootName              = "HLAobjectRoot"
+	HLAprivilegeToDeleteObjectName = "HLAprivilegeToDeleteObject"
+	HLAinteractionRootName         = "HLAinteractionRoot"
+)
+
 // ProtocolType identifica o dialeto de transporte e serialização usado pelo federado
 type ProtocolType uint8
 

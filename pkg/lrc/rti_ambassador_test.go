@@ -5,17 +5,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc"
 	"github.com/icemagno/valhalla/pkg/lrc"
 )
 
 type mockAmbassador struct {
 	lrc.NullFederateAmbassador
-	mu         sync.Mutex
-	synchronized bool
-	syncedLabel  string
-	discoveredObj int32
-	timeGranted  float64
+	mu                  sync.Mutex
+	synchronized        bool
+	syncedLabel         string
+	discoveredObj       int32
+	timeGranted         float64
+	reflectedAttrs      map[int32][]byte
+	receivedInteraction int32
+}
+
+func (m *mockAmbassador) ReflectAttributeValues(theObject int32, theAttributes map[int32][]byte, tag []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reflectedAttrs = theAttributes
+}
+
+func (m *mockAmbassador) ReceiveInteraction(interactionClass int32, theParameters map[int32][]byte, tag []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.receivedInteraction = interactionClass
 }
 
 func (m *mockAmbassador) FederationSynchronized(label string) {
@@ -109,7 +124,7 @@ func TestRTIambassador_FullNativeLifecycle(t *testing.T) {
 	fedAmb.mu.Unlock()
 
 	// 7. Registrar objeto
-	objHandle, err := amb.RegisterObjectInstance(561, "Valkyrie_01")
+	objHandle, err := amb.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "Valkyrie_01")
 	if err != nil {
 		t.Fatalf("RegisterObjectInstance falhou: %v", err)
 	}
@@ -119,8 +134,7 @@ func TestRTIambassador_FullNativeLifecycle(t *testing.T) {
 
 	// 8. Atualizar atributos
 	attrs := map[int32][]byte{
-		562: []byte("PosicaoX:100.5"),
-		551: []byte("PosicaoY:200.8"),
+		int32(common.HLAprivilegeToDeleteObjectHandle): []byte("PrivilegeToken"),
 	}
 	if err := amb.UpdateAttributeValues(objHandle, attrs, nil); err != nil {
 		t.Fatalf("UpdateAttributeValues falhou: %v", err)
@@ -130,7 +144,7 @@ func TestRTIambassador_FullNativeLifecycle(t *testing.T) {
 	params := map[int32][]byte{
 		1: []byte("OrdemDeAtaque"),
 	}
-	if err := amb.SendInteraction(525, params, nil); err != nil {
+	if err := amb.SendInteraction(int32(common.HLAinteractionRootHandle), params, nil); err != nil {
 		t.Fatalf("SendInteraction falhou: %v", err)
 	}
 
@@ -304,14 +318,188 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 		_ = amb.CreateFederationExecution("ObjDupFed")
 		_, _ = amb.JoinFederationExecution("ObjNode", "ObjDupFed")
 
-		_, err := amb.RegisterObjectInstance(100, "VesselAlpha")
+		_, err := amb.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "VesselAlpha")
 		if err != nil {
 			t.Fatalf("primeiro registro de objeto falhou: %v", err)
 		}
 
-		_, err = amb.RegisterObjectInstance(100, "VesselAlpha")
+		_, err = amb.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "VesselAlpha")
 		if err == nil {
 			t.Fatal("esperava erro ao registrar segundo objeto com mesmo nome, obteve nil")
 		}
 	})
+
+	t.Run("UndefinedClassOrAttribute_Fails", func(t *testing.T) {
+		amb := lrc.NewRTIambassador()
+		_ = amb.Connect(nil, addr)
+		defer amb.Disconnect()
+
+		_ = amb.CreateFederationExecution("UndefinedClassFed")
+		_, _ = amb.JoinFederationExecution("DeclNode", "UndefinedClassFed")
+
+		// Publicar classe inexistente (9999)
+		err := amb.PublishObjectClassAttributes(9999, []int32{1})
+		if err == nil {
+			t.Fatal("esperava erro ao publicar classe inexistente, obteve nil")
+		}
+
+		// Publicar atributo inexistente (8888) na classe raiz válida
+		err = amb.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{8888})
+		if err == nil {
+			t.Fatal("esperava erro ao publicar atributo inexistente, obteve nil")
+		}
+
+		// Assinar classe inexistente (9999)
+		err = amb.SubscribeObjectClassAttributes(9999, []int32{1})
+		if err == nil {
+			t.Fatal("esperava erro ao assinar classe inexistente, obteve nil")
+		}
+
+		// Assinar interação inexistente (9999)
+		err = amb.SubscribeInteractionClass(9999)
+		if err == nil {
+			t.Fatal("esperava erro ao assinar interação inexistente, obteve nil")
+		}
+
+		// Registrar objeto com classe inexistente (9999)
+		_, err = amb.RegisterObjectInstance(9999, "FakeObj")
+		if err == nil {
+			t.Fatal("esperava erro ao registrar objeto de classe inexistente, obteve nil")
+		}
+
+		// Enviar interação com classe inexistente (9999)
+		err = amb.SendInteraction(9999, nil, nil)
+		if err == nil {
+			t.Fatal("esperava erro ao enviar interação inexistente, obteve nil")
+		}
+	})
+}
+
+func TestRTIambassador_DeclarationAndPubSubRouting(t *testing.T) {
+	server := crc.NewServer("127.0.0.1:0")
+	if err := server.Start(); err != nil {
+		t.Fatalf("falha ao iniciar servidor CRC: %v", err)
+	}
+	defer server.Stop()
+
+	addr := server.Addr().String()
+
+	// 1. Criar federação
+	ambAdmin := lrc.NewRTIambassador()
+	_ = ambAdmin.Connect(nil, addr)
+	_ = ambAdmin.CreateFederationExecution("PubSubFed")
+	_ = ambAdmin.Disconnect()
+
+	// 2. Conectar Federado Publicador (Publisher)
+	ambPub := lrc.NewRTIambassador()
+	if err := ambPub.Connect(nil, addr); err != nil {
+		t.Fatalf("falha ao conectar Publisher: %v", err)
+	}
+	defer ambPub.Disconnect()
+	_, err := ambPub.JoinFederationExecution("PublisherFed", "PubSubFed")
+	if err != nil {
+		t.Fatalf("Publisher falhou ao ingressar: %v", err)
+	}
+
+	// 3. Conectar Federado Assinante (Subscriber)
+	fedAmbSub := &mockAmbassador{}
+	ambSub := lrc.NewRTIambassador()
+	if err := ambSub.Connect(fedAmbSub, addr); err != nil {
+		t.Fatalf("falha ao conectar Subscriber: %v", err)
+	}
+	defer ambSub.Disconnect()
+	_, err = ambSub.JoinFederationExecution("SubscriberFed", "PubSubFed")
+	if err != nil {
+		t.Fatalf("Subscriber falhou ao ingressar: %v", err)
+	}
+
+	// 4. Subscriber assina HLAobjectRoot com HLAprivilegeToDeleteObject
+	err = ambSub.SubscribeObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)})
+	if err != nil {
+		t.Fatalf("SubscribeObjectClassAttributes falhou: %v", err)
+	}
+
+	// Subscriber assina HLAinteractionRoot
+	err = ambSub.SubscribeInteractionClass(int32(common.HLAinteractionRootHandle))
+	if err != nil {
+		t.Fatalf("SubscribeInteractionClass falhou: %v", err)
+	}
+
+	// 5. Publisher publica HLAobjectRoot com HLAprivilegeToDeleteObject
+	err = ambPub.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)})
+	if err != nil {
+		t.Fatalf("PublishObjectClassAttributes falhou: %v", err)
+	}
+
+	// Publisher publica HLAinteractionRoot
+	err = ambPub.PublishInteractionClass(int32(common.HLAinteractionRootHandle))
+	if err != nil {
+		t.Fatalf("PublishInteractionClass falhou: %v", err)
+	}
+
+	// 6. Publisher registra objeto
+	objHandle, err := ambPub.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "Entity_Alfa")
+	if err != nil {
+		t.Fatalf("Publisher RegisterObjectInstance falhou: %v", err)
+	}
+
+	// 7. Publisher atualiza atributos
+	updatePayload := map[int32][]byte{
+		int32(common.HLAprivilegeToDeleteObjectHandle): []byte("MasterToken_99"),
+	}
+	err = ambPub.UpdateAttributeValues(objHandle, updatePayload, []byte("Tag1"))
+	if err != nil {
+		t.Fatalf("Publisher UpdateAttributeValues falhou: %v", err)
+	}
+
+	// Aguardar entrega de rede e evocar callbacks no Subscriber
+	time.Sleep(50 * time.Millisecond)
+
+	// Callback 1: DiscoverObjectInstance
+	evoked, err := ambSub.EvokeCallback(200 * time.Millisecond)
+	if err != nil || !evoked {
+		t.Fatalf("falha ao evocar DiscoverObjectInstance no Subscriber: %v", err)
+	}
+	fedAmbSub.mu.Lock()
+	discObj := fedAmbSub.discoveredObj
+	fedAmbSub.mu.Unlock()
+	if discObj != objHandle {
+		t.Fatalf("Subscriber não descobriu o objeto correto: esperado %d, obteve %d", objHandle, discObj)
+	}
+
+	// Callback 2: ReflectAttributeValues
+	evoked, err = ambSub.EvokeCallback(200 * time.Millisecond)
+	if err != nil || !evoked {
+		t.Fatalf("falha ao evocar ReflectAttributeValues no Subscriber: %v", err)
+	}
+
+	fedAmbSub.mu.Lock()
+	val, ok := fedAmbSub.reflectedAttrs[int32(common.HLAprivilegeToDeleteObjectHandle)]
+	fedAmbSub.mu.Unlock()
+	if !ok || string(val) != "MasterToken_99" {
+		t.Fatalf("Subscriber não recebeu o valor correto de atributo refletido: %s", string(val))
+	}
+
+	// 8. Publisher envia interação
+	interParams := map[int32][]byte{
+		1: []byte("DisparoMissil"),
+	}
+	err = ambPub.SendInteraction(int32(common.HLAinteractionRootHandle), interParams, []byte("Tag2"))
+	if err != nil {
+		t.Fatalf("Publisher SendInteraction falhou: %v", err)
+	}
+
+	// Aguardar e evocar callback de interação no Subscriber
+	time.Sleep(50 * time.Millisecond)
+	evoked, err = ambSub.EvokeCallback(200 * time.Millisecond)
+	if err != nil || !evoked {
+		t.Fatalf("falha ao evocar callback de interação no Subscriber: %v (evoked=%v)", err, evoked)
+	}
+
+	fedAmbSub.mu.Lock()
+	receivedClass := fedAmbSub.receivedInteraction
+	fedAmbSub.mu.Unlock()
+	if receivedClass != int32(common.HLAinteractionRootHandle) {
+		t.Fatalf("Subscriber não recebeu a classe de interação esperada: %d", receivedClass)
+	}
 }

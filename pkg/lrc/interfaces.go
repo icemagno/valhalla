@@ -43,6 +43,16 @@ type RTIambassador interface {
 	RegisterFederationSynchronizationPoint(label string, tag []byte) error
 	SynchronizationPointAchieved(label string) error
 
+	// Declaration Management (Pub/Sub)
+	PublishObjectClassAttributes(objectClass int32, attributes []int32) error
+	UnpublishObjectClass(objectClass int32) error
+	PublishInteractionClass(interactionClass int32) error
+	UnpublishInteractionClass(interactionClass int32) error
+	SubscribeObjectClassAttributes(objectClass int32, attributes []int32) error
+	UnsubscribeObjectClass(objectClass int32) error
+	SubscribeInteractionClass(interactionClass int32) error
+	UnsubscribeInteractionClass(interactionClass int32) error
+
 	// Object Management
 	RegisterObjectInstance(objectClass int32, objectName string) (int32, error)
 	UpdateAttributeValues(objectHandle int32, attributes map[int32][]byte, tag []byte) error

@@ -426,4 +426,25 @@ Em conformidade com a diretriz do desenvolvedor principal de **rejeitar código 
 
 ---
 
-*Fim da entrada diária de 24/11/2026. Conquistas consolidadas: CRC Soberano Multiprotocolo, LRC Nativo IEEE 1516-2025 Desacoplado, Metamodelo JOS em Go Puro, Protocolo Binário Tipado VAL4 e Homologação Estrita da Norma.*
+### 23. Core de Declaration Management: OMT com Euler Tour e Roteador Pub/Sub Vetorial (Bitsets)
+
+1. **OMT Registry com Interval Encoding (Euler Tour) ([`pkg/crc/core/omt_registry.go`](pkg/crc/core/omt_registry.go)):**
+   - Árvores de classes de objetos e interações indexadas via travessia DFS Euler Tour em intervalos `[Left, Right]`.
+   - Inicialização nativa do Standard MIM da IEEE 1516 (`HLAobjectRoot` handle 1 com `HLAprivilegeToDeleteObject` handle 1, e `HLAinteractionRoot` handle 1).
+   - Verificação de herança polimórfica $O(1)$ sem saltos de ponteiros em heap: **15,4 ns/op**. Resolução de herança de atributos em **23,2 ns/op**.
+
+2. **Roteador Pub/Sub Vetorial com Bitsets Dinâmicos ([`pkg/crc/core/interest_matcher.go`](pkg/crc/core/interest_matcher.go)):**
+   - Mapeamento de assinaturas e publicações de federados em vetores de bits contíguos de 64 bits (`*Bitset`), eliminando o uso de HashSets e alocações de memória temporária.
+   - Extração instantânea de handles via `bits.TrailingZeros64` em $O(k)$.
+   - União booleana de 1.000 federados em **33,7 ns/op**. Cálculo de assinantes polimórficos de atributos em **275,7 ns/op** para 150 federados concorrentes.
+
+3. **Integração no CRC e LRC (Mensagens 20 a 27):**
+   - Integrados ao CRC e expostos na interface `RTIambassador` os serviços completos de Pub/Sub (`PublishObjectClassAttributes`, `UnpublishObjectClass`, `PublishInteractionClass`, `UnpublishInteractionClass`, `SubscribeObjectClassAttributes`, `UnsubscribeObjectClass`, `SubscribeInteractionClass`, `UnsubscribeInteractionClass`).
+   - Roteamento inteligente de `UpdateAttributeValues` e `SendInteraction`: notificações são despachadas exclusivamente para os federados que registraram interesse formal nas classes e atributos.
+   - Erradicação de classes falsas: tentativas de registrar objetos ou publicar atributos de classes não definidas no OMT retornam estritamente `ErrObjectClassNotDefined` e `ErrAttributeNotFound`.
+   - Testes unitários, de conformidade negativa e de integração fim a fim: **100% PASS** em toda a árvore do projeto.
+   - Whitepaper detalhado das tecnologias publicado em [`docs/tecnologias-core-valhalla.md`](docs/tecnologias-core-valhalla.md).
+
+---
+
+*Fim da entrada diária de 24/11/2026. Conquistas consolidadas: CRC Soberano Multiprotocolo, LRC Nativo IEEE 1516-2025 Desacoplado, Metamodelo JOS em Go Puro, Protocolo Binário Tipado VAL4, Core OMT Euler Tour, Roteador Pub/Sub Vetorial (Bitsets) e Homologação Estrita da Norma.*
