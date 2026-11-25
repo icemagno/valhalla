@@ -1,0 +1,15 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Preserve exact line endings for Maven metadata and POMs (prevents SHA-1 checksum mismatches)
+*.xml text eol=lf
+*.pom text eol=lf
+*.sha1 text eol=lf
+*.md5 text eol=lf
+
+# Binary files
+*.jar binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.exe binary
