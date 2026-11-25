@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc"
 	"github.com/icemagno/valhalla/pkg/logger"
 )
@@ -26,7 +27,7 @@ func main() {
 
 	fmt.Println("====================================================================")
 	fmt.Println("               VALHALLA - CENTRAL RTI COMPONENT (CRC)")
-	fmt.Println("       IEEE 1516-2025 (HLA-4) | High-Performance Simulation Executive")
+	fmt.Printf("       Version: %s (%s) | Standard: %s\n", common.Version, common.ReleaseTag, common.StandardVersion)
 	fmt.Println("====================================================================")
 
 	logMain := logger.NewLogger("CRC")

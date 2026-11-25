@@ -113,7 +113,9 @@ func (g *WebGateway) handleStatus(w http.ResponseWriter, r *http.Request) {
 	feds := g.fedManager.ListFederations()
 	resp := map[string]interface{}{
 		"server":      "Valhalla Central RTI Component (CRC)",
-		"standard":    "IEEE 1516-2025 (HLA-4)",
+		"version":     common.Version,
+		"releaseTag":  common.ReleaseTag,
+		"standard":    common.StandardVersion,
 		"protocols":   []string{"VAL4-Native", "Portico-JOS", "HLA4-WebProfile"},
 		"federations": feds,
 		"timestamp":   time.Now().Unix(),

@@ -44,3 +44,8 @@ portico-3.0/
 *.jar
 !portico-3.0-homolog/**/*.jar
 
+# Packaged releases
+releases/
+*.zip
+*.sha256
+
