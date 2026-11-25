@@ -146,9 +146,113 @@ mvn clean package
 
 ---
 
+## 🚀 Running & Quick Start Guide
+
+### 1. Starting the Central RTI Component (CRC)
+Launch the sovereign CRC execution server:
+```powershell
+# Windows
+.\dist\bin\valhalla-crc.exe -port :52295
+
+# Linux
+./dist/bin/valhalla-crc -port :52295
+```
+*The CRC starts listening for dual-dialect multiplexed connections (native VAL4 and legacy Portico JOS) on a unified TCP port.*
+
+### 2. Launching the Real-Time Telemetry Observer
+To inspect active federations, registered objects, and message throughput in real time:
+```powershell
+.\dist\bin\valhalla-observer.exe
+```
+
+---
+
+### 3. Developing and Running a Java Federate (IEEE 1516e)
+
+The Java Client SDK (`dist/java/valhalla-lrc.jar`) is 100% self-contained. It contains the standard IEEE 1516e interfaces, shaded JNA, and embedded native libraries.
+
+#### Example Java Code (`SimpleFederate.java`)
+```java
+import hla.rti1516e.*;
+import hla.rti1516e.exceptions.*;
+
+public class SimpleFederate {
+    public static void main(String[] args) throws RTIexception {
+        // 1. Obtain official standard RTI factory & ambassador
+        RtiFactory factory = RtiFactoryFactory.getRtiFactory();
+        RTIambassador rtiAmb = factory.getRtiAmbassador();
+
+        // 2. Connect to Valhalla CRC
+        FederateAmbassador fedAmb = new NullFederateAmbassador();
+        rtiAmb.connect(fedAmb, CallbackModel.HLA_EVOKED, "127.0.0.1:52295");
+        System.out.println("Connected to Valhalla CRC!");
+
+        // 3. Create and Join Federation Execution
+        String federationName = "DefenseSimulation";
+        try {
+            rtiAmb.createFederationExecution(federationName);
+        } catch (FederationExecutionAlreadyExists ignored) {}
+
+        FederateHandle fedHandle = rtiAmb.joinFederationExecution("TacticalRadar", federationName);
+        System.out.println("Joined federation with handle: " + fedHandle);
+
+        // 4. Publish and Register Object Instance
+        ObjectClassHandle radarClass = new ObjectClassHandle(1);
+        AttributeHandle statusAttr = new AttributeHandle(1);
+        AttributeHandleSet attrs = new AttributeHandleSet();
+        attrs.add(statusAttr);
+
+        rtiAmb.publishObjectClassAttributes(radarClass, attrs);
+        ObjectInstanceHandle radarObj = rtiAmb.registerObjectInstance(radarClass, "AN/MPQ-64");
+        System.out.println("Registered Radar Instance: " + radarObj);
+
+        // 5. Clean teardown
+        rtiAmb.resignFederationExecution(ResignAction.NO_ACTION);
+        rtiAmb.disconnect();
+        System.out.println("Disconnected cleanly.");
+    }
+}
+```
+
+#### Compiling and Running the Java Federate
+```powershell
+# Windows
+javac -cp dist/java/valhalla-lrc.jar -d out SimpleFederate.java
+java -cp "out;dist/java/valhalla-lrc.jar" SimpleFederate
+
+# Linux
+javac -cp dist/java/valhalla-lrc.jar -d out SimpleFederate.java
+java -cp "out:dist/java/valhalla-lrc.jar" SimpleFederate
+```
+
+#### Running the Built-in Java End-to-End Test Suite (DDM + Ownership)
+```powershell
+powershell -File test/java_test/run_test.ps1
+```
+
+---
+
+### 4. Developing and Running a Native C / C++ Federate
+
+Using the native C-ABI shared library (`dist/c/include/valhalla_lrc.h` and `dist/c/lib/valhalla_lrc.dll`):
+
+#### Compiling and Running
+```powershell
+# Windows (MinGW-W64 GCC)
+gcc -I dist/c/include test/c_test/main.c -L dist/c/lib -lvalhalla_lrc -o test/c_test/c_test.exe
+$env:PATH += ";dist/c/lib"
+.\test\c_test\c_test.exe
+
+# Linux
+gcc -I dist/c/include test/c_test/main.c -L dist/c/lib -lvalhalla_lrc -o test/c_test/c_test
+LD_LIBRARY_PATH=dist/c/lib ./test/c_test/c_test
+```
+
+---
+
 ## 📚 Technical Documentation
 
-* 📜 [Technical Memory & Engineering Log](TECHNICAL-MEMORY.md): Continuous chronological engineering log, architectural decisions, empirical benchmarks, and implementation milestones (Milestones 1 to 48).
+* 📜 [Technical Memory & Engineering Log](TECHNICAL-MEMORY.md): Continuous chronological engineering log, architectural decisions, empirical benchmarks, and implementation milestones (Milestones 1 to 49).
 * 🏛️ [Architectural Deliberations](docs/architectural-deliberations.md): Exhaustive analysis of official HLA standards, market landscapes (Pitch, MAK, Portico), licensing frameworks, and cryptographic design principles.
 * 🗺️ [Project Master Plan](docs/project-master-plan.md): Comprehensive 10-sprint TDD roadmap detailing tasks, test cases, and definitions of done.
 * 📐 [Core Technologies Whitepaper](docs/valhalla-core-technologies.md): Deep-dive into Euler Tour numbering, vectorized bitset matching, SSZ Merkle trees, and 3D Morton space-filling curves for DDM.
