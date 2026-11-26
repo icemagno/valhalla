@@ -133,6 +133,11 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 	return s.SendPacket(hdr, payload)
 }
 
+// SendNotificationWithMerkle sends notification (Portico ignores Merkle roots)
+func (s *PorticoSession) SendNotificationWithMerkle(msgType uint8, payload []byte, merkleRoot [32]byte) error {
+	return s.SendNotification(msgType, payload)
+}
+
 // Close terminates the session and underlying socket
 func (s *PorticoSession) Close() error {
 	s.writeMu.Lock()

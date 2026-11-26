@@ -1447,3 +1447,91 @@ func (p *GetParameterHandlePayload) UnmarshalBinary(data []byte) error {
 	p.ParameterName, err = DecodeSSZString(data, off0, totalLen)
 	return err
 }
+
+// GetMerkleProofPayload requests a cryptographic Merkle inclusion proof for an entity
+// Fixed layout: [ObjectHandle:4] = 4 bytes
+type GetMerkleProofPayload struct {
+	ObjectHandle ObjectInstanceHandle
+}
+
+func (p GetMerkleProofPayload) MarshalBinary() ([]byte, error) {
+	buf := make([]byte, 4)
+	PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	return buf, nil
+}
+
+func (p *GetMerkleProofPayload) UnmarshalBinary(data []byte) error {
+	if len(data) != 4 {
+		if len(data) < 4 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
+	}
+	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
+	return nil
+}
+
+// MerkleProofResponsePayload carries cryptographic Merkle inclusion proof
+// Layout: [ObjectHandle:4, LeafIndex:8, GlobalRoot:32, LeafHash:32, Offset0:4 (AuditPath)] = 80 bytes
+// Dynamic part: AuditPath as contiguous 32-byte chunk hashes
+type MerkleProofResponsePayload struct {
+	ObjectHandle ObjectInstanceHandle
+	LeafIndex    uint64
+	GlobalRoot   [32]byte
+	LeafHash     [32]byte
+	AuditPath    [][32]byte
+}
+
+func (p MerkleProofResponsePayload) MarshalBinary() ([]byte, error) {
+	const fixedHeaderSize = 80
+	auditPathLen := uint32(len(p.AuditPath) * 32)
+	totalLen := fixedHeaderSize + auditPathLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	PutUint64(buf[4:12], p.LeafIndex)
+	copy(buf[12:44], p.GlobalRoot[:])
+	copy(buf[44:76], p.LeafHash[:])
+	PutOffset(buf[76:80], fixedHeaderSize)
+
+	offset := fixedHeaderSize
+	for _, chunk := range p.AuditPath {
+		copy(buf[offset:offset+32], chunk[:])
+		offset += 32
+	}
+
+	return buf, nil
+}
+
+func (p *MerkleProofResponsePayload) UnmarshalBinary(data []byte) error {
+	const fixedHeaderSize = 80
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
+	}
+
+	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
+	p.LeafIndex = Uint64FromBytes(data[4:12])
+	copy(p.GlobalRoot[:], data[12:44])
+	copy(p.LeafHash[:], data[44:76])
+
+	off0 := GetOffset(data[76:80])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
+	}
+
+	auditPathBytes := totalLen - off0
+	if auditPathBytes%32 != 0 {
+		return ErrSSZListAlignment
+	}
+	chunkCount := auditPathBytes / 32
+	p.AuditPath = make([][32]byte, chunkCount)
+	idx := off0
+	for i := uint32(0); i < chunkCount; i++ {
+		copy(p.AuditPath[i][:], data[idx:idx+32])
+		idx += 32
+	}
+
+	return nil
+}

@@ -110,3 +110,19 @@ func BenchmarkMerkleTree_FederationGlobalRoot(b *testing.B) {
 		_ = stateTree.GetGlobalRoot()
 	}
 }
+
+func BenchmarkMerkleTree_UpdateAndGetRoot_1000Entities(b *testing.B) {
+	stateTree := NewFederationStateTree()
+	dummyRoot := ComputeObjectMerkleRoot(map[common.AttributeHandle][]byte{1: []byte("State")})
+	for i := 1; i <= 1000; i++ {
+		stateTree.UpdateObjectState(common.ObjectInstanceHandle(i), dummyRoot)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		h := common.ObjectInstanceHandle((i % 1000) + 1)
+		stateTree.UpdateObjectState(h, dummyRoot)
+		_ = stateTree.GetGlobalRoot()
+	}
+}

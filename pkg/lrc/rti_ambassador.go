@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/icemagno/valhalla/pkg/common"
+	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
 // RTIambassadorImpl implements the standard RTIambassador interface over the native Valhalla HLA-4 protocol
@@ -21,11 +22,16 @@ type RTIambassadorImpl struct {
 	federationID   int32
 	federateID     int32
 	lookahead      float64
+	stateTree      *core.FederationStateTree
+	desyncMu       sync.RWMutex
+	lastDesyncErr  error
 }
 
 // NewRTIambassador instantiates a new RTIambassador for the federate
 func NewRTIambassador() RTIambassador {
-	return &RTIambassadorImpl{}
+	return &RTIambassadorImpl{
+		stateTree: core.NewFederationStateTree(),
+	}
 }
 
 // Connect connects the federate to the CRC executive
@@ -760,7 +766,27 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 		return err
 	}
 
-	return checkNativeResponse(resp)
+	if err := checkNativeResponse(resp); err != nil {
+		return err
+	}
+
+	for k, v := range attrMap {
+		a.stateTree.UpdateEntityAttribute(common.ObjectInstanceHandle(objectHandle), k, v)
+	}
+	if (resp.Header.Flags & common.FlagNativeMerkle) != 0 {
+		localRoot := a.stateTree.GetGlobalRoot()
+		if localRoot != resp.Header.MerkleRoot {
+			desyncErr := fmt.Errorf("%w: CRC root %x != local root %x", ErrStateDesyncDetected, resp.Header.MerkleRoot, localRoot)
+			a.desyncMu.Lock()
+			a.lastDesyncErr = desyncErr
+			a.desyncMu.Unlock()
+			if desyncAmb, ok := a.fedAmb.(DesyncAwareFederateAmbassador); ok {
+				desyncAmb.OnStateDesyncDetected(resp.Header.MerkleRoot, localRoot)
+			}
+		}
+	}
+
+	return nil
 }
 
 // SendInteraction dispatches an interaction with parameters to the federation
@@ -1057,6 +1083,7 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 	case common.NativeMsgRemoveObjectInstance:
 		var remPayload common.RemoveObjectInstancePayload
 		if err := remPayload.UnmarshalBinary(cb.Payload); err == nil {
+			a.stateTree.RemoveObjectState(remPayload.ObjectHandle)
 			fedAmb.RemoveObjectInstance(int32(remPayload.ObjectHandle), remPayload.Tag)
 		}
 
@@ -1066,8 +1093,22 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 			attrs := make(map[int32][]byte, len(uavPayload.Attributes))
 			for k, v := range uavPayload.Attributes {
 				attrs[int32(k)] = v
+				a.stateTree.UpdateEntityAttribute(uavPayload.ObjectHandle, k, v)
 			}
 			fedAmb.ReflectAttributeValues(int32(uavPayload.ObjectHandle), attrs, uavPayload.Tag)
+
+			if cb.HasMerkle {
+				localRoot := a.stateTree.GetGlobalRoot()
+				if localRoot != cb.MerkleRoot {
+					desyncErr := fmt.Errorf("%w: CRC root %x != local root %x", ErrStateDesyncDetected, cb.MerkleRoot, localRoot)
+					a.desyncMu.Lock()
+					a.lastDesyncErr = desyncErr
+					a.desyncMu.Unlock()
+					if desyncAmb, ok := fedAmb.(DesyncAwareFederateAmbassador); ok {
+						desyncAmb.OnStateDesyncDetected(cb.MerkleRoot, localRoot)
+					}
+				}
+			}
 		}
 
 	case common.NativeMsgReceiveInteraction:
@@ -1376,5 +1417,75 @@ func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32,
 		return err
 	}
 	return checkNativeResponse(resp)
+}
+
+// GetLocalStateRoot returns the deterministic 32-byte Merkle root of the local LRC state
+func (a *RTIambassadorImpl) GetLocalStateRoot() [32]byte {
+	return a.stateTree.GetGlobalRoot()
+}
+
+// LastDesyncDetected returns the last state desynchronization error, if any
+func (a *RTIambassadorImpl) LastDesyncDetected() error {
+	a.desyncMu.RLock()
+	defer a.desyncMu.RUnlock()
+	return a.lastDesyncErr
+}
+
+// CorruptLocalStateForTesting deliberately injects an invalid attribute into the local state
+// to test adversarial desync detection against the CRC
+func (a *RTIambassadorImpl) CorruptLocalStateForTesting(objectHandle common.ObjectInstanceHandle, attributeHandle common.AttributeHandle, val []byte) {
+	a.stateTree.UpdateEntityAttribute(objectHandle, attributeHandle, val)
+}
+
+// GetObjectMerkleProof requests a cryptographic Merkle inclusion proof for an object from the CRC
+func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*core.MerkleProof, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return nil, ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return nil, ErrFederateNotExecutionMember
+	}
+
+	reqPayload, err := common.GetMerkleProofPayload{
+		ObjectHandle: common.ObjectInstanceHandle(objectHandle),
+	}.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgGetMerkleProof, uint32(a.federationID), uint32(a.federateID), reqPayload, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Header.MsgType == common.NativeMsgError {
+		var errPayload common.ErrorResponsePayload
+		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
+			return nil, errors.New(errPayload.Message)
+		}
+		return nil, ErrInvalidResponse
+	}
+	if resp.Header.MsgType != common.NativeMsgGetMerkleProofResp {
+		return nil, ErrInvalidResponse
+	}
+
+	var proofResp common.MerkleProofResponsePayload
+	if err := proofResp.UnmarshalBinary(resp.Payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal merkle proof response: %w", err)
+	}
+
+	return &core.MerkleProof{
+		LeafHash:   proofResp.LeafHash,
+		AuditPath:  proofResp.AuditPath,
+		LeafIndex:  proofResp.LeafIndex,
+		GlobalRoot: proofResp.GlobalRoot,
+	}, nil
+}
+
+// VerifyObjectInclusion mathematically validates a Merkle proof against the global root
+func (a *RTIambassadorImpl) VerifyObjectInclusion(proof *core.MerkleProof) bool {
+	return core.VerifyMerkleProof(proof)
 }
 

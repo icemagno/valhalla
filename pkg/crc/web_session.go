@@ -50,6 +50,11 @@ func (s *WebSession) Protocol() ProtocolType {
 
 // SendNotification formats standard HLA callbacks and dispatches them over WebSocket as JSON
 func (s *WebSession) SendNotification(msgType uint8, payload []byte) error {
+	return s.SendNotificationWithMerkle(msgType, payload, [32]byte{})
+}
+
+// SendNotificationWithMerkle formats standard HLA callbacks with Merkle root over WebSocket
+func (s *WebSession) SendNotificationWithMerkle(msgType uint8, payload []byte, merkleRoot [32]byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

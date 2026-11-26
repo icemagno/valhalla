@@ -12,6 +12,7 @@ type mockSession struct {
 func (m *mockSession) FederateID() int32                                  { return m.id }
 func (m *mockSession) Protocol() ProtocolType                             { return m.proto }
 func (m *mockSession) SendNotification(msgType uint8, payload []byte) error { return nil }
+func (m *mockSession) SendNotificationWithMerkle(msgType uint8, payload []byte, merkleRoot [32]byte) error { return nil }
 func (m *mockSession) Close() error                                       { return nil }
 
 func TestFederationExecution_Lifecycle(t *testing.T) {

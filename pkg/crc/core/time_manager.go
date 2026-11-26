@@ -50,6 +50,7 @@ type TSOMessage struct {
 	Timestamp   float64
 	MsgType     uint8
 	Payload     []byte
+	MerkleRoot  [32]byte
 	SequenceNum uint64
 }
 

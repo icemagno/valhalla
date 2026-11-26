@@ -517,6 +517,50 @@ func TestPayloads_RoundTrip(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("MerkleProofPayloads", func(t *testing.T) {
+		req := GetMerkleProofPayload{ObjectHandle: 77}
+		reqData, err := req.MarshalBinary()
+		if err != nil {
+			t.Fatalf("req marshal failed: %v", err)
+		}
+		var reqDec GetMerkleProofPayload
+		if err := reqDec.UnmarshalBinary(reqData); err != nil {
+			t.Fatalf("req unmarshal failed: %v", err)
+		}
+		if reqDec.ObjectHandle != req.ObjectHandle {
+			t.Fatalf("req handle mismatch: got %d, want %d", reqDec.ObjectHandle, req.ObjectHandle)
+		}
+
+		resp := MerkleProofResponsePayload{
+			ObjectHandle: 77,
+			LeafIndex:    3,
+			GlobalRoot:   [32]byte{0x01, 0x02, 0x03},
+			LeafHash:     [32]byte{0xAA, 0xBB, 0xCC},
+			AuditPath: [][32]byte{
+				{0x10, 0x20},
+				{0x30, 0x40},
+			},
+		}
+		respData, err := resp.MarshalBinary()
+		if err != nil {
+			t.Fatalf("resp marshal failed: %v", err)
+		}
+		var respDec MerkleProofResponsePayload
+		if err := respDec.UnmarshalBinary(respData); err != nil {
+			t.Fatalf("resp unmarshal failed: %v", err)
+		}
+		if respDec.ObjectHandle != resp.ObjectHandle || respDec.LeafIndex != resp.LeafIndex ||
+			respDec.GlobalRoot != resp.GlobalRoot || respDec.LeafHash != resp.LeafHash ||
+			len(respDec.AuditPath) != len(resp.AuditPath) {
+			t.Fatalf("resp mismatch: got %+v, want %+v", respDec, resp)
+		}
+		for i := range resp.AuditPath {
+			if respDec.AuditPath[i] != resp.AuditPath[i] {
+				t.Fatalf("audit path[%d] mismatch", i)
+			}
+		}
+	})
 }
 
 func BenchmarkPayload_UpdateAttributes(b *testing.B) {

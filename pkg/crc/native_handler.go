@@ -87,7 +87,7 @@ func dispatchTimeGrants(currentFed *FederationExecution, grants []core.TimeGrant
 		}
 		// Deliver any queued TSO messages first in strictly non-decreasing time order
 		for _, msg := range grant.Messages {
-			_ = fed.Session.SendNotification(msg.MsgType, msg.Payload)
+			_ = fed.Session.SendNotificationWithMerkle(msg.MsgType, msg.Payload, msg.MerkleRoot)
 		}
 		// Deliver TimeAdvanceGrant notification
 		grantPayload, _ := common.TimeFloat64Payload{Time: grant.Time}.MarshalBinary()
@@ -649,17 +649,18 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
 					if uavReq.HasTime && f.IsConstrained {
 						grants, err := currentFed.TimeManager().EnqueueTSOMessage(core.TSOMessage{
-							Sender:    common.FederateHandle(federateID),
-							Receiver:  subID,
-							Timestamp: uavReq.Time,
-							MsgType:   NativeMsgReflectAttributes,
-							Payload:   payload,
+							Sender:     common.FederateHandle(federateID),
+							Receiver:   subID,
+							Timestamp:  uavReq.Time,
+							MsgType:    NativeMsgReflectAttributes,
+							Payload:    payload,
+							MerkleRoot: globalRoot,
 						})
 						if err == nil && len(grants) > 0 {
 							dispatchTimeGrants(currentFed, grants)
 						}
 					} else {
-						_ = f.Session.SendNotification(NativeMsgReflectAttributes, payload)
+						_ = f.Session.SendNotificationWithMerkle(NativeMsgReflectAttributes, payload, globalRoot)
 					}
 				}
 			}
@@ -1269,6 +1270,45 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				FedID:      uint32(currentFed.Handle),
 				FederateID: uint32(federateID),
 				PayloadLen: uint32(len(respPayload)),
+			}
+			_ = session.SendMessage(respHdr, respPayload)
+
+		case common.NativeMsgGetMerkleProof:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			var qReq common.GetMerkleProofPayload
+			if err := qReq.UnmarshalBinary(payload); err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 400, errors.New("invalid get merkle proof payload"))
+				continue
+			}
+			proof, err := currentFed.StateTree().GenerateProof(qReq.ObjectHandle)
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 404, err)
+				continue
+			}
+			respPayload, err := common.MerkleProofResponsePayload{
+				ObjectHandle: qReq.ObjectHandle,
+				LeafIndex:    proof.LeafIndex,
+				GlobalRoot:   proof.GlobalRoot,
+				LeafHash:     proof.LeafHash,
+				AuditPath:    proof.AuditPath,
+			}.MarshalBinary()
+			if err != nil {
+				_ = sendNativeError(session, hdr.ReqID, 500, err)
+				continue
+			}
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      common.FlagNativeSSZ | common.FlagNativeMerkle,
+				MsgType:    common.NativeMsgGetMerkleProofResp,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+				PayloadLen: uint32(len(respPayload)),
+				MerkleRoot: proof.GlobalRoot,
 			}
 			_ = session.SendMessage(respHdr, respPayload)
 

@@ -92,26 +92,97 @@ func reduceMerkleTree(leaves [][32]byte) [32]byte {
 
 // FederationStateTree maintains the cryptographic state tree for all active simulation entities
 type FederationStateTree struct {
-	mu          sync.RWMutex
-	entityRoots map[common.ObjectInstanceHandle][32]byte
-	cachedRoot  [32]byte
-	isDirty     bool
+	mu               sync.RWMutex
+	entityRoots      map[common.ObjectInstanceHandle][32]byte
+	entityAttributes map[common.ObjectInstanceHandle]map[common.AttributeHandle][]byte
+	sortedHandles    []common.ObjectInstanceHandle
+	leaves           [][32]byte
+	cachedRoot       [32]byte
+	isDirty          bool
 }
 
 // NewFederationStateTree initializes a federation's state tree
 func NewFederationStateTree() *FederationStateTree {
 	return &FederationStateTree{
-		entityRoots: make(map[common.ObjectInstanceHandle][32]byte),
-		cachedRoot:  [32]byte{},
-		isDirty:     false,
+		entityRoots:      make(map[common.ObjectInstanceHandle][32]byte),
+		entityAttributes: make(map[common.ObjectInstanceHandle]map[common.AttributeHandle][]byte),
+		sortedHandles:    make([]common.ObjectInstanceHandle, 0),
+		leaves:           make([][32]byte, 0),
+		cachedRoot:       [32]byte{},
+		isDirty:          false,
 	}
+}
+
+func computeFederationLeaf(handle common.ObjectInstanceHandle, root [32]byte) [32]byte {
+	var handleBuf [4]byte
+	binary.LittleEndian.PutUint32(handleBuf[:], uint32(handle))
+	var combined [64]byte
+	copy(combined[:4], handleBuf[:])
+	copy(combined[4:36], root[:])
+	return sha256.Sum256(combined[:])
 }
 
 // UpdateObjectState updates the Merkle root of an active entity in the simulation
 func (t *FederationStateTree) UpdateObjectState(handle common.ObjectInstanceHandle, root [32]byte) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	t.entityRoots[handle] = root
+	leaf := computeFederationLeaf(handle, root)
+
+	idx := sort.Search(len(t.sortedHandles), func(i int) bool {
+		return t.sortedHandles[i] >= handle
+	})
+
+	if idx < len(t.sortedHandles) && t.sortedHandles[idx] == handle {
+		t.leaves[idx] = leaf
+	} else {
+		t.sortedHandles = append(t.sortedHandles, 0)
+		copy(t.sortedHandles[idx+1:], t.sortedHandles[idx:])
+		t.sortedHandles[idx] = handle
+
+		var zeroHash [32]byte
+		t.leaves = append(t.leaves, zeroHash)
+		copy(t.leaves[idx+1:], t.leaves[idx:])
+		t.leaves[idx] = leaf
+	}
+	t.isDirty = true
+}
+
+// UpdateEntityAttribute updates an attribute value for an entity and recalculates its object root
+func (t *FederationStateTree) UpdateEntityAttribute(handle common.ObjectInstanceHandle, attrHandle common.AttributeHandle, val []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	attrs, exists := t.entityAttributes[handle]
+	if !exists {
+		attrs = make(map[common.AttributeHandle][]byte)
+		t.entityAttributes[handle] = attrs
+	}
+	valCopy := make([]byte, len(val))
+	copy(valCopy, val)
+	attrs[attrHandle] = valCopy
+
+	objRoot := ComputeObjectMerkleRoot(attrs)
+	t.entityRoots[handle] = objRoot
+	leaf := computeFederationLeaf(handle, objRoot)
+
+	idx := sort.Search(len(t.sortedHandles), func(i int) bool {
+		return t.sortedHandles[i] >= handle
+	})
+
+	if idx < len(t.sortedHandles) && t.sortedHandles[idx] == handle {
+		t.leaves[idx] = leaf
+	} else {
+		t.sortedHandles = append(t.sortedHandles, 0)
+		copy(t.sortedHandles[idx+1:], t.sortedHandles[idx:])
+		t.sortedHandles[idx] = handle
+
+		var zeroHash [32]byte
+		t.leaves = append(t.leaves, zeroHash)
+		copy(t.leaves[idx+1:], t.leaves[idx:])
+		t.leaves[idx] = leaf
+	}
 	t.isDirty = true
 }
 
@@ -119,7 +190,21 @@ func (t *FederationStateTree) UpdateObjectState(handle common.ObjectInstanceHand
 func (t *FederationStateTree) RemoveObjectState(handle common.ObjectInstanceHandle) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	delete(t.entityRoots, handle)
+	delete(t.entityAttributes, handle)
+
+	idx := sort.Search(len(t.sortedHandles), func(i int) bool {
+		return t.sortedHandles[i] >= handle
+	})
+
+	if idx < len(t.sortedHandles) && t.sortedHandles[idx] == handle {
+		copy(t.sortedHandles[idx:], t.sortedHandles[idx+1:])
+		t.sortedHandles = t.sortedHandles[:len(t.sortedHandles)-1]
+
+		copy(t.leaves[idx:], t.leaves[idx+1:])
+		t.leaves = t.leaves[:len(t.leaves)-1]
+	}
 	t.isDirty = true
 }
 
@@ -132,32 +217,13 @@ func (t *FederationStateTree) GetGlobalRoot() [32]byte {
 		return t.cachedRoot
 	}
 
-	if len(t.entityRoots) == 0 {
+	if len(t.leaves) == 0 {
 		t.cachedRoot = [32]byte{}
 		t.isDirty = false
 		return t.cachedRoot
 	}
 
-	// Sort entities deterministically by handle
-	handles := make([]int, 0, len(t.entityRoots))
-	for h := range t.entityRoots {
-		handles = append(handles, int(h))
-	}
-	sort.Ints(handles)
-
-	leaves := make([][32]byte, len(handles))
-	for i, h := range handles {
-		leafHash := t.entityRoots[common.ObjectInstanceHandle(h)]
-		// Combine handle and entity root as a federation leaf
-		var handleBuf [4]byte
-		binary.LittleEndian.PutUint32(handleBuf[:], uint32(h))
-		var combined [64]byte
-		copy(combined[:4], handleBuf[:])
-		copy(combined[4:36], leafHash[:])
-		leaves[i] = sha256.Sum256(combined[:])
-	}
-
-	t.cachedRoot = reduceMerkleTree(leaves)
+	t.cachedRoot = common.Merkleize(t.leaves, 0)
 	t.isDirty = false
 	return t.cachedRoot
 }
@@ -175,35 +241,17 @@ func (t *FederationStateTree) GenerateProof(handle common.ObjectInstanceHandle) 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if _, exists := t.entityRoots[handle]; !exists {
+	idx := sort.Search(len(t.sortedHandles), func(i int) bool {
+		return t.sortedHandles[i] >= handle
+	})
+	if idx >= len(t.sortedHandles) || t.sortedHandles[idx] != handle {
 		return nil, ErrObjectNotFoundInMerkleTree
 	}
 
-	handles := make([]int, 0, len(t.entityRoots))
-	for h := range t.entityRoots {
-		handles = append(handles, int(h))
-	}
-	sort.Ints(handles)
-
-	leafIdx := -1
-	leaves := make([][32]byte, len(handles))
-	for i, h := range handles {
-		objH := common.ObjectInstanceHandle(h)
-		leafHash := t.entityRoots[objH]
-		var handleBuf [4]byte
-		binary.LittleEndian.PutUint32(handleBuf[:], uint32(h))
-		var combined [64]byte
-		copy(combined[:4], handleBuf[:])
-		copy(combined[4:36], leafHash[:])
-		leaves[i] = sha256.Sum256(combined[:])
-		if objH == handle {
-			leafIdx = i
-		}
-	}
-
-	power := nextPowerOfTwo(len(leaves))
+	leafIdx := idx
+	power := nextPowerOfTwo(len(t.leaves))
 	currentLevel := make([][32]byte, power)
-	copy(currentLevel, leaves)
+	copy(currentLevel, t.leaves)
 
 	targetIdx := leafIdx
 	auditPath := make([][32]byte, 0)
@@ -225,7 +273,7 @@ func (t *FederationStateTree) GenerateProof(handle common.ObjectInstanceHandle) 
 	t.isDirty = false
 
 	return &MerkleProof{
-		LeafHash:   leaves[leafIdx],
+		LeafHash:   t.leaves[leafIdx],
 		AuditPath:  auditPath,
 		LeafIndex:  uint64(leafIdx),
 		GlobalRoot: globalRoot,

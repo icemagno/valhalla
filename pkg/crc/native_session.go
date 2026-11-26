@@ -75,14 +75,24 @@ func (s *NativeSession) SendMessage(hdr NativeHeader, payload []byte) error {
 
 // SendNotification sends an asynchronous native notification to the federate
 func (s *NativeSession) SendNotification(msgType uint8, payload []byte) error {
+	return s.SendNotificationWithMerkle(msgType, payload, [32]byte{})
+}
+
+// SendNotificationWithMerkle sends an asynchronous notification with an optional 32-byte Merkle state root
+func (s *NativeSession) SendNotificationWithMerkle(msgType uint8, payload []byte, merkleRoot [32]byte) error {
+	flags := common.FlagNativeSSZ
+	if merkleRoot != [32]byte{} {
+		flags |= common.FlagNativeMerkle
+	}
 	hdr := NativeHeader{
 		Magic:      NativeHeaderMagic,
 		Version:    NativeProtocolVer,
-		Flags:      0x01, // SSZ
+		Flags:      flags,
 		PayloadLen: uint32(len(payload)),
 		MsgType:    msgType,
 		FedID:      uint32(s.fedID),
 		FederateID: uint32(s.id),
+		MerkleRoot: merkleRoot,
 	}
 	return s.SendMessage(hdr, payload)
 }

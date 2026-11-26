@@ -88,6 +88,10 @@ const (
 	NativeMsgGetParameterHandle            uint8 = 128
 	NativeMsgGetParameterHandleResp        uint8 = 129
 
+	// 140-149: Merkle State Proofs & Integrity Verification
+	NativeMsgGetMerkleProof     uint8 = 140
+	NativeMsgGetMerkleProofResp uint8 = 141
+
 	// 90-99: Generic Control Responses
 	NativeMsgSuccessOK uint8 = 90
 	NativeMsgError     uint8 = 91

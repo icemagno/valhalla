@@ -1,6 +1,15 @@
 package lrc
 
-import "time"
+import (
+	"errors"
+	"time"
+
+	"github.com/icemagno/valhalla/pkg/common"
+	"github.com/icemagno/valhalla/pkg/crc/core"
+)
+
+// ErrStateDesyncDetected is returned when local LRC state diverges from CRC Merkle root
+var ErrStateDesyncDetected = errors.New("lrc: cryptographic state desync detected against CRC Merkle root")
 
 // FederateAmbassador defines the canonical callback interface that federates implement
 // to receive asynchronous notifications from the RTI (IEEE 1516 / HLA-4).
@@ -14,6 +23,13 @@ type FederateAmbassador interface {
 	ReflectAttributeValues(theObject int32, theAttributes map[int32][]byte, tag []byte)
 	ReceiveInteraction(interactionClass int32, theParameters map[int32][]byte, tag []byte)
 	TimeAdvanceGrant(time float64)
+}
+
+// DesyncAwareFederateAmbassador is an optional interface that federates can implement
+// to receive immediate notifications when state desynchronization is cryptographically detected.
+type DesyncAwareFederateAmbassador interface {
+	FederateAmbassador
+	OnStateDesyncDetected(expectedRoot, localRoot [32]byte)
 }
 
 // NullFederateAmbassador provides a default no-op implementation of FederateAmbassador,
@@ -93,4 +109,11 @@ type RTIambassador interface {
 	// Callback Evocation
 	EvokeCallback(timeout time.Duration) (bool, error)
 	EvokeMultipleCallbacks(minTimeout, maxTimeout time.Duration) error
+
+	// Cryptographic State Integrity & Merkle Proofs
+	GetLocalStateRoot() [32]byte
+	LastDesyncDetected() error
+	GetObjectMerkleProof(objectHandle int32) (*core.MerkleProof, error)
+	VerifyObjectInclusion(proof *core.MerkleProof) bool
+	CorruptLocalStateForTesting(objectHandle common.ObjectInstanceHandle, attributeHandle common.AttributeHandle, val []byte)
 }

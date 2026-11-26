@@ -24,6 +24,7 @@ type Session interface {
 	FederateID() int32
 	Protocol() ProtocolType
 	SendNotification(msgType uint8, payload []byte) error
+	SendNotificationWithMerkle(msgType uint8, payload []byte, merkleRoot [32]byte) error
 	Close() error
 }
 

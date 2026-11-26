@@ -18,8 +18,10 @@ type nativeResponse struct {
 }
 
 type callbackItem struct {
-	MsgType uint8
-	Payload []byte
+	MsgType    uint8
+	Payload    []byte
+	MerkleRoot [32]byte
+	HasMerkle  bool
 }
 
 // Client manages the transport connection and native protocol (VAL4) with the CRC
@@ -172,8 +174,14 @@ func (c *Client) readLoop() {
 		}
 
 		// Otherwise, it is an asynchronous RTI notification dispatched to the callback queue
+		hasMerkle := (hdr.Flags & common.FlagNativeMerkle) != 0
 		select {
-		case c.callbacks <- callbackItem{MsgType: hdr.MsgType, Payload: payload}:
+		case c.callbacks <- callbackItem{
+			MsgType:    hdr.MsgType,
+			Payload:    payload,
+			MerkleRoot: hdr.MerkleRoot,
+			HasMerkle:  hasMerkle,
+		}:
 		default:
 			// Queue saturated, drop to prevent memory ballooning
 		}

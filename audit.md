@@ -33,12 +33,18 @@ O projeto demonstra engenhosidade na concepção de estruturas de dados e no par
 * **Realidade no Código:**
   A implementação em [`pkg/common/payloads.go`](pkg/common/payloads.go#L26-L49) é uma **serialização binária proprietária ad-hoc**, usando `binary.BigEndian` com prefixos de comprimento de 2 bytes (`uint16`). A norma canônica do SSZ (Ethereum 2.0) estipula inteiros em *Little-Endian*, offsets fixos de 4 bytes na frente para tipos variáveis/strings e heap dinâmica ao final. O protocolo **não é SSZ**.
 
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E APROVADO** (commits `552a97c`, `ba6a8a8`, `bc1981a`)  
+> Implementado SSZ canônico em `pkg/common/ssz.go` e `pkg/common/payloads.go` com Little-Endian unificado (incluindo `NativeHeader`, `RegisterObject` e `merkle_tree.go`), `List[Container]` determinístico com chaves ordenadas, validação estrita de booleanos (`0x00`/`0x01`), rejeição de trailing bytes e de `firstOffset == 0`, proteções anti-DoS (OOM e overflow `uint32`) e merkleização SSZ esparsa com *zero-hashes* pré-computados ($O(N + \log_2(\text{limit}))$). Validado com testes adversariais, benchmarks e `go test -race`.
+
 ### 🔴 1.3. Árvores Merkle e Auditoria Criptográfica (MLS / Inclusão) — Código Inoperante
 * **Alegações em Documentação ([README.md](README.md#L42), [TECHNICAL-MEMORY.md](TECHNICAL-MEMORY.md#L55-L58)):**
   > *"Instant Desync Detection: federates compare the 32-byte Merkle root hash each cycle; any 1-bit state divergence is flagged immediately. Multi-Level Security (MLS) via compact Merkle Inclusion Proofs."*
 * **Realidade no Código:**
   - O cliente ([`pkg/lrc/client.go`](pkg/lrc/client.go#L143-L180)) **descarta e ignora solenemente** o campo `MerkleRoot` de 32 bytes do cabeçalho `NativeHeader`. O LRC nunca compara o hash de estado nem verifica desync.
   - A função `GenerateProof` em [`pkg/crc/core/merkle_tree.go`](pkg/crc/core/merkle_tree.go#L178) **só é chamada no teste unitário**. Não há mensagem na rede para solicitar ou validar provas Merkle, nem qualquer exposição na C-ABI ou nos SDKs Java, C++ e Web.
+
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E VALIDADO**  
+> Implementada a validação ponta-a-ponta de integridade e detecção de desync no LRC (`pkg/lrc/client.go` e `pkg/lrc/rti_ambassador.go`): árvore local de estado mantida no federado e comparada a cada reflexão e atualização de atributos contra o `MerkleRoot` de 32 bytes recebido no `NativeHeader`, com notificação imediata via `DesyncAwareFederateAmbassador` e `LastDesyncDetected()`. Implementado o protocolo de rede para requisição (`NativeMsgGetMerkleProof`) e resposta (`NativeMsgGetMerkleProofResp`) de provas criptográficas de inclusão SSZ, validadas matematicamente no cliente via `VerifyObjectInclusion()`. Otimizada a `FederationStateTree` no CRC com manutenção incremental de folhas ordenadas em $O(\log N)$ e sparse Merkle reduction. Validado com testes de integração adversariais em `test/integration/merkle_desync_test.go` e `go test -race`.
 
 ### 🔴 1.4. DDM 3D com Curvas de Morton — Falsa Filtragem Bitwise
 * **Alegações em Documentação ([README.md](README.md#L43), [TECHNICAL-MEMORY.md](TECHNICAL-MEMORY.md#L281-L285)):**
@@ -52,6 +58,9 @@ O projeto demonstra engenhosidade na concepção de estruturas de dados e no par
   }
   ```
   Ele **decodifica o código Morton de volta para $(X, Y, Z)$** através de operações de deslocamento e realiza a comparação geométrica tradicional de bounding box (`MinX <= x && x <= MaxX`). Não existe busca por intervalos Z-order, nem contenção bitwise na curva. A conversão para Morton é um overhead inútil no caminho de execução.
+
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E APROVADO** (commit `a7db266`)  
+> Refatorado `ContainsMorton` em `pkg/crc/core/morton.go` e integrado ao ciclo de vida em `pkg/crc/models.go` para operar diretamente no espaço Morton sem decodificação (`Compact1By2` eliminado), utilizando limites dilatados pré-computados (`Part1By2` monotônico) e rejeição rápida por prefixo comum de octree (`PrefixMask`). Validado com 200.000+ pontos em `TestMortonBitwiseEquivalence`, 0 alocações e `go test -race`.
 
 ### 🔴 1.5. "High-speed UDP Framing" — Inexistente
 * **Alegações em Documentação ([README.md](README.md#L38)):**
@@ -216,3 +225,14 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 4. **Desmembramento dos God Handlers:** Quebrar as funções monolíticas de rede em processadores de comando especializados (`handlers/command pattern`), isolando a camada de transporte da camada de domínio.
 5. **Cálculo Sob Demanda da Árvore Merkle:** Desacoplar `GetGlobalRoot()` do loop de recepção de atributos, tornando-o assíncrono ou ativado somente sob demanda expressa de auditoria.
 6. **Eliminação de `time.After` e Supressões de Erro:** Substituir timers efêmeros por instâncias gerenciadas em `EvokeCallback`, além de adicionar tratamento adequado ou instrumentação de log para todos os retornos de erro de rede.
+
+---
+
+## ✅ Histórico de Remediações Verificadas
+
+| Item | Descrição | Commits | Status |
+| :---: | :--- | :--- | :---: |
+| **1.4** | DDM 3D com Curvas de Morton (filtragem bitwise zero-decode + prefixo de octree) | `a7db266` | **✅ CORRIGIDO** |
+| **1.2** | Serialização e Merkleização SSZ (Ethereum 2.0) canônica, determinística e anti-DoS | `552a97c`, `ba6a8a8`, `bc1981a` | **✅ CORRIGIDO** |
+| **1.3** | Árvores Merkle e Validação de Desync no LRC + Protocolo de Provas de Inclusão | *(commit atual)* | **✅ CORRIGIDO** |
+
