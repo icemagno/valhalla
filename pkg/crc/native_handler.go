@@ -1185,7 +1185,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 
 			for subID := range targetSubs {
 				if f, exists := currentFed.GetFederate(int32(subID)); exists && f.Session != nil {
-					_ = f.Session.SendNotification(NativeMsgReflectAttributes, ravPayload)
+					_ = f.Session.SendNotificationWithMerkle(NativeMsgReflectAttributes, ravPayload, globalRoot)
 				}
 			}
 

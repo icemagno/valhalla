@@ -1526,6 +1526,9 @@ func (p *MerkleProofResponsePayload) UnmarshalBinary(data []byte) error {
 		return ErrSSZListAlignment
 	}
 	chunkCount := auditPathBytes / 32
+	if chunkCount > 64 {
+		return ErrSSZDataOutOfBounds
+	}
 	p.AuditPath = make([][32]byte, chunkCount)
 	idx := off0
 	for i := uint32(0); i < chunkCount; i++ {

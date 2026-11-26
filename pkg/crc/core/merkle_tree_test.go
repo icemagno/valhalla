@@ -60,15 +60,29 @@ func TestMerkleTree_FederationStateAndProofVerification(t *testing.T) {
 		t.Fatalf("raiz global da prova (%x) diverge da raiz do estado (%x)", proof.GlobalRoot, globalRoot)
 	}
 
-	if !VerifyMerkleProof(proof) {
+	if !VerifyMerkleProof(proof, globalRoot) {
 		t.Fatalf("verificação da prova criptográfica de Merkle falhou para objeto 102")
 	}
 
 	// 2. Testar detecção de adulteração (Tampering Detection)
 	tamperedProof := *proof
 	tamperedProof.LeafHash[0] ^= 0xFF // Inverter um byte do hash da folha
-	if VerifyMerkleProof(&tamperedProof) {
+	if VerifyMerkleProof(&tamperedProof, globalRoot) {
 		t.Fatalf("prova de Merkle adulterada foi aceita incorretamente!")
+	}
+
+	// 2.1 Testar ataque adversarial: prova forjada sem audit path e leaf index arbitrário
+	fakeProof := &common.MerkleProof{
+		LeafHash:   [32]byte{0xDE, 0xAD, 0xBE, 0xEF},
+		AuditPath:  nil,
+		LeafIndex:  999,
+		GlobalRoot: [32]byte{0xDE, 0xAD, 0xBE, 0xEF},
+	}
+	if VerifyMerkleProof(fakeProof, globalRoot) {
+		t.Fatalf("prova forjada foi aceita por VerifyMerkleProof!")
+	}
+	if VerifyMerkleProof(fakeProof, fakeProof.GlobalRoot) {
+		t.Fatalf("prova forjada com idx != 0 foi aceita por VerifyMerkleProof!")
 	}
 
 	// 3. Testar remoção de entidade (exclusão de objeto)

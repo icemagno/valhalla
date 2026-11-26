@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/icemagno/valhalla/pkg/common"
-	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
 // ErrStateDesyncDetected is returned when local LRC state diverges from CRC Merkle root
@@ -113,7 +112,6 @@ type RTIambassador interface {
 	// Cryptographic State Integrity & Merkle Proofs
 	GetLocalStateRoot() [32]byte
 	LastDesyncDetected() error
-	GetObjectMerkleProof(objectHandle int32) (*core.MerkleProof, error)
-	VerifyObjectInclusion(proof *core.MerkleProof) bool
-	CorruptLocalStateForTesting(objectHandle common.ObjectInstanceHandle, attributeHandle common.AttributeHandle, val []byte)
+	GetObjectMerkleProof(objectHandle int32) (*common.MerkleProof, error)
+	VerifyObjectInclusion(proof *common.MerkleProof, expectedRoot [32]byte) bool
 }

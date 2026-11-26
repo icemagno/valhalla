@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/icemagno/valhalla/pkg/common"
-	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
 // RTIambassadorImpl implements the standard RTIambassador interface over the native Valhalla HLA-4 protocol
@@ -22,7 +21,7 @@ type RTIambassadorImpl struct {
 	federationID   int32
 	federateID     int32
 	lookahead      float64
-	stateTree      *core.FederationStateTree
+	stateTree      *common.FederationStateTree
 	desyncMu       sync.RWMutex
 	lastDesyncErr  error
 }
@@ -30,7 +29,7 @@ type RTIambassadorImpl struct {
 // NewRTIambassador instantiates a new RTIambassador for the federate
 func NewRTIambassador() RTIambassador {
 	return &RTIambassadorImpl{
-		stateTree: core.NewFederationStateTree(),
+		stateTree: common.NewFederationStateTree(),
 	}
 }
 
@@ -701,6 +700,7 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 	}
 
 	objHandle := int32(binary.LittleEndian.Uint32(resp.Payload[0:4]))
+	a.stateTree.UpdateObjectState(common.ObjectInstanceHandle(objHandle), [32]byte{})
 	return objHandle, nil
 }
 
@@ -730,7 +730,11 @@ func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte)
 		return err
 	}
 
-	return checkNativeResponse(resp)
+	if err := checkNativeResponse(resp); err != nil {
+		return err
+	}
+	a.stateTree.RemoveObjectState(common.ObjectInstanceHandle(objectHandle))
+	return nil
 }
 
 // UpdateAttributeValues dispatches updated attribute values to the federation
@@ -1077,6 +1081,7 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 	case common.NativeMsgDiscoverObject:
 		var discPayload common.DiscoverObjectInstancePayload
 		if err := discPayload.UnmarshalBinary(cb.Payload); err == nil {
+			a.stateTree.UpdateObjectState(discPayload.ObjectHandle, [32]byte{})
 			fedAmb.DiscoverObjectInstance(int32(discPayload.ObjectHandle), int32(discPayload.ClassHandle), discPayload.ObjectName)
 		}
 
@@ -1416,7 +1421,26 @@ func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32,
 	if err != nil {
 		return err
 	}
-	return checkNativeResponse(resp)
+	if err := checkNativeResponse(resp); err != nil {
+		return err
+	}
+
+	for k, v := range attrMap {
+		a.stateTree.UpdateEntityAttribute(common.ObjectInstanceHandle(objectHandle), k, v)
+	}
+	if (resp.Header.Flags & common.FlagNativeMerkle) != 0 {
+		localRoot := a.stateTree.GetGlobalRoot()
+		if localRoot != resp.Header.MerkleRoot {
+			desyncErr := fmt.Errorf("%w: CRC root %x != local root %x", ErrStateDesyncDetected, resp.Header.MerkleRoot, localRoot)
+			a.desyncMu.Lock()
+			a.lastDesyncErr = desyncErr
+			a.desyncMu.Unlock()
+			if desyncAmb, ok := a.fedAmb.(DesyncAwareFederateAmbassador); ok {
+				desyncAmb.OnStateDesyncDetected(resp.Header.MerkleRoot, localRoot)
+			}
+		}
+	}
+	return nil
 }
 
 // GetLocalStateRoot returns the deterministic 32-byte Merkle root of the local LRC state
@@ -1432,13 +1456,13 @@ func (a *RTIambassadorImpl) LastDesyncDetected() error {
 }
 
 // CorruptLocalStateForTesting deliberately injects an invalid attribute into the local state
-// to test adversarial desync detection against the CRC
+// to test adversarial desync detection against the CRC in integration tests.
 func (a *RTIambassadorImpl) CorruptLocalStateForTesting(objectHandle common.ObjectInstanceHandle, attributeHandle common.AttributeHandle, val []byte) {
 	a.stateTree.UpdateEntityAttribute(objectHandle, attributeHandle, val)
 }
 
 // GetObjectMerkleProof requests a cryptographic Merkle inclusion proof for an object from the CRC
-func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*core.MerkleProof, error) {
+func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*common.MerkleProof, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
@@ -1476,7 +1500,7 @@ func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*core.Merk
 		return nil, fmt.Errorf("failed to unmarshal merkle proof response: %w", err)
 	}
 
-	return &core.MerkleProof{
+	return &common.MerkleProof{
 		LeafHash:   proofResp.LeafHash,
 		AuditPath:  proofResp.AuditPath,
 		LeafIndex:  proofResp.LeafIndex,
@@ -1484,8 +1508,8 @@ func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*core.Merk
 	}, nil
 }
 
-// VerifyObjectInclusion mathematically validates a Merkle proof against the global root
-func (a *RTIambassadorImpl) VerifyObjectInclusion(proof *core.MerkleProof) bool {
-	return core.VerifyMerkleProof(proof)
+// VerifyObjectInclusion mathematically validates a Merkle proof against a trusted expectedRoot
+func (a *RTIambassadorImpl) VerifyObjectInclusion(proof *common.MerkleProof, expectedRoot [32]byte) bool {
+	return common.VerifyMerkleProof(proof, expectedRoot)
 }
 
