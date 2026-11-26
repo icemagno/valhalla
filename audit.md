@@ -109,6 +109,9 @@ func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameter
 * A funcionalidade documentada como *"Anti-Stall Resilience Engine"* implementa os métodos `EvictStalledFederates(timeout)` e `Heartbeat(handle)`.
 * **Nenhum componente do servidor (CRC, server, handlers)** chama esses métodos em tempo de execução. Não existe ticker, temporizador nem monitor em background. O código é estático e morto em produção, sendo executado apenas dentro de testes unitários isolados.
 
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E APROVADO** (commit `8726ea5`)  
+> Ativado o motor Anti-Stall em background no servidor CRC (`pkg/crc/server.go`) via goroutine `antiStallMonitorLoop` gerenciada por `sync.WaitGroup` e `<-s.stopChan`, executando varreduras periódicas em todas as federações (`GetAllFederations()`), aplicando `EvictStalledFederates(timeout)` e despachando concessões pendentes (`dispatchTimeGrants`). Protegido contra falsa quarentena de nós em espera de avanço (`State != TimeStateGranted`) e com renovação de `LastHeartbeat` no momento da concessão em `pkg/crc/core/time_manager.go`. Implementado o protocolo de vitalidade implícito (renovado em qualquer mensagem de rede em `native_handler.go` e `portico_handler.go`) e explícito (`NativeMsgHeartbeat uint8 = 70`), exposto no LRC (`RTIambassador.Heartbeat()`), C-ABI (`valhalla_heartbeat`), headers C e SDK Java (`IValhallaLrc.java`). Validado com testes de integração ponta-a-ponta (`test/integration/anti_stall_test.go`), C-ABI (`pkg/cabi/cabi_test.go`) e `go test -race ./...`.
+
 ---
 
 ## 3. Erros Não Tratados e Supressão em Massa
