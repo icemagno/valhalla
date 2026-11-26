@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,14 +193,41 @@ func TestCABI_SynchronizationPointLifecycleAndCallbacks(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
+	var evoked bool
 	// Sender evokes callback -> receives onSyncPointRegistrationSucceeded
-	evoked, _ := CABI_EvokeCallback(sender, 0.1)
-	if !evoked {
-		t.Fatalf("expected callback evoked on sender for sync point registration")
+	for i := 0; i < 5; i++ {
+		evoked, _ = CABI_EvokeCallback(sender, 0.1)
+		if !evoked {
+			break
+		}
+		if succLabel := Bridge_GetSyncRegSucceeded(); succLabel == syncLabel {
+			break
+		}
 	}
 
 	if succLabel := Bridge_GetSyncRegSucceeded(); succLabel != syncLabel {
 		t.Fatalf("expected onSyncPointRegistrationSucceeded for %q, got %q", syncLabel, succLabel)
+	}
+
+	// Duplicate registration attempt must fail and invoke onSyncPointRegistrationFailed with real reason
+	if code := CABI_RegisterFederationSyncPoint(sender, syncLabel, syncTag); code == ValhallaOK {
+		t.Fatalf("expected duplicate register sync point to fail, got %d", code)
+	}
+	for i := 0; i < 5; i++ {
+		evoked, _ = CABI_EvokeCallback(sender, 0.05)
+		if !evoked {
+			break
+		}
+		if failLabel, _ := Bridge_GetSyncRegFailed(); failLabel != "" {
+			break
+		}
+	}
+	failLabel, failReason := Bridge_GetSyncRegFailed()
+	if failLabel != syncLabel {
+		t.Fatalf("expected onSyncPointRegistrationFailed for %q, got %q", syncLabel, failLabel)
+	}
+	if !strings.Contains(failReason, "not unique") {
+		t.Fatalf("expected real reason containing 'not unique', got %q", failReason)
 	}
 
 	// Receiver evokes callback -> receives onAnnounceSynchronizationPoint

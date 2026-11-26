@@ -118,8 +118,15 @@ func mapErrorToStatusCode(err error) C.int32_t {
 }
 
 type ambContext struct {
-	amb lrc.RTIambassador
-	cb  C.ValhallaCallbacks
+	cbMu sync.RWMutex
+	amb  lrc.RTIambassador
+	cb   C.ValhallaCallbacks
+}
+
+func (ctx *ambContext) getCallbacks() C.ValhallaCallbacks {
+	ctx.cbMu.RLock()
+	defer ctx.cbMu.RUnlock()
+	return ctx.cb
 }
 
 type cFedAmbassador struct {
@@ -127,63 +134,74 @@ type cFedAmbassador struct {
 }
 
 func (f *cFedAmbassador) SynchronizationPointRegistrationSucceeded(label string) {
-	if f.ctx.cb.onSyncPointRegistrationSucceeded != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onSyncPointRegistrationSucceeded != nil {
 		cLabel := C.CString(label)
 		defer C.free(unsafe.Pointer(cLabel))
-		C.call_sync_reg_succeeded(f.ctx.cb.onSyncPointRegistrationSucceeded, cLabel)
+		C.call_sync_reg_succeeded(cb.onSyncPointRegistrationSucceeded, cLabel)
 	}
 }
 
 func (f *cFedAmbassador) SynchronizationPointRegistrationFailed(label string, reason string) {
-	if f.ctx.cb.onSyncPointRegistrationFailed != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onSyncPointRegistrationFailed != nil {
 		cLabel := C.CString(label)
 		defer C.free(unsafe.Pointer(cLabel))
 		cReason := C.CString(reason)
 		defer C.free(unsafe.Pointer(cReason))
-		C.call_sync_reg_failed(f.ctx.cb.onSyncPointRegistrationFailed, cLabel, cReason)
+		C.call_sync_reg_failed(cb.onSyncPointRegistrationFailed, cLabel, cReason)
 	}
 }
 
 func (f *cFedAmbassador) AnnounceSynchronizationPoint(label string, tag []byte) {
-	if f.ctx.cb.onAnnounceSynchronizationPoint != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onAnnounceSynchronizationPoint != nil {
 		cLabel := C.CString(label)
 		defer C.free(unsafe.Pointer(cLabel))
 		var cTag *C.uint8_t
 		if len(tag) > 0 {
-			cTag = (*C.uint8_t)(unsafe.Pointer(&tag[0]))
+			cTagPtr := C.CBytes(tag)
+			defer C.free(cTagPtr)
+			cTag = (*C.uint8_t)(cTagPtr)
 		}
-		C.call_announce_sync(f.ctx.cb.onAnnounceSynchronizationPoint, cLabel, cTag, C.int32_t(len(tag)))
+		C.call_announce_sync(cb.onAnnounceSynchronizationPoint, cLabel, cTag, C.int32_t(len(tag)))
 	}
 }
 
 func (f *cFedAmbassador) FederationSynchronized(label string) {
-	if f.ctx.cb.onFederationSynchronized != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onFederationSynchronized != nil {
 		cLabel := C.CString(label)
 		defer C.free(unsafe.Pointer(cLabel))
-		C.call_federation_sync(f.ctx.cb.onFederationSynchronized, cLabel)
+		C.call_federation_sync(cb.onFederationSynchronized, cLabel)
 	}
 }
 
 func (f *cFedAmbassador) DiscoverObjectInstance(theObject int32, theObjectClass int32, objectName string) {
-	if f.ctx.cb.onDiscoverObject != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onDiscoverObject != nil {
 		cName := C.CString(objectName)
 		defer C.free(unsafe.Pointer(cName))
-		C.call_discover_object(f.ctx.cb.onDiscoverObject, C.int32_t(theObject), C.int32_t(theObjectClass), cName)
+		C.call_discover_object(cb.onDiscoverObject, C.int32_t(theObject), C.int32_t(theObjectClass), cName)
 	}
 }
 
 func (f *cFedAmbassador) RemoveObjectInstance(theObject int32, tag []byte) {
-	if f.ctx.cb.onRemoveObject != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onRemoveObject != nil {
 		var cTag *C.uint8_t
 		if len(tag) > 0 {
-			cTag = (*C.uint8_t)(unsafe.Pointer(&tag[0]))
+			cTagPtr := C.CBytes(tag)
+			defer C.free(cTagPtr)
+			cTag = (*C.uint8_t)(cTagPtr)
 		}
-		C.call_remove_object(f.ctx.cb.onRemoveObject, C.int32_t(theObject), cTag, C.int32_t(len(tag)))
+		C.call_remove_object(cb.onRemoveObject, C.int32_t(theObject), cTag, C.int32_t(len(tag)))
 	}
 }
 
 func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes map[int32][]byte, tag []byte) {
-	if f.ctx.cb.onReflectAttributes != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onReflectAttributes != nil {
 		count := len(theAttributes)
 		if count == 0 {
 			return
@@ -200,6 +218,13 @@ func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes m
 		valuesPtr := unsafe.Slice((**C.uint8_t)(cValues), count)
 		lensPtr := unsafe.Slice((*C.int32_t)(cLens), count)
 
+		var toFree []unsafe.Pointer
+		defer func() {
+			for _, p := range toFree {
+				C.free(p)
+			}
+		}()
+
 		keys := make([]int32, 0, count)
 		for k := range theAttributes {
 			keys = append(keys, k)
@@ -211,7 +236,9 @@ func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes m
 			handlesPtr[i] = C.int32_t(k)
 			lensPtr[i] = C.int32_t(len(v))
 			if len(v) > 0 {
-				valuesPtr[i] = (*C.uint8_t)(unsafe.Pointer(&v[0]))
+				cVal := C.CBytes(v)
+				toFree = append(toFree, cVal)
+				valuesPtr[i] = (*C.uint8_t)(cVal)
 			} else {
 				valuesPtr[i] = nil
 			}
@@ -219,11 +246,13 @@ func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes m
 
 		var cTag *C.uint8_t
 		if len(tag) > 0 {
-			cTag = (*C.uint8_t)(unsafe.Pointer(&tag[0]))
+			cTagPtr := C.CBytes(tag)
+			toFree = append(toFree, cTagPtr)
+			cTag = (*C.uint8_t)(cTagPtr)
 		}
 
 		C.call_reflect_attrs(
-			f.ctx.cb.onReflectAttributes,
+			cb.onReflectAttributes,
 			C.int32_t(theObject),
 			C.int32_t(count),
 			(*C.int32_t)(cHandles),
@@ -236,11 +265,19 @@ func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes m
 }
 
 func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameters map[int32][]byte, tag []byte) {
-	if f.ctx.cb.onReceiveInteraction != nil {
+	cb := f.ctx.getCallbacks()
+	if cb.onReceiveInteraction != nil {
 		count := len(theParameters)
 		var cHandles unsafe.Pointer
 		var cValues unsafe.Pointer
 		var cLens unsafe.Pointer
+
+		var toFree []unsafe.Pointer
+		defer func() {
+			for _, p := range toFree {
+				C.free(p)
+			}
+		}()
 
 		if count > 0 {
 			cHandles = C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(C.int32_t(0))))
@@ -265,7 +302,9 @@ func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameter
 				handlesPtr[i] = C.int32_t(k)
 				lensPtr[i] = C.int32_t(len(v))
 				if len(v) > 0 {
-					valuesPtr[i] = (*C.uint8_t)(unsafe.Pointer(&v[0]))
+					cVal := C.CBytes(v)
+					toFree = append(toFree, cVal)
+					valuesPtr[i] = (*C.uint8_t)(cVal)
 				} else {
 					valuesPtr[i] = nil
 				}
@@ -274,11 +313,13 @@ func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameter
 
 		var cTag *C.uint8_t
 		if len(tag) > 0 {
-			cTag = (*C.uint8_t)(unsafe.Pointer(&tag[0]))
+			cTagPtr := C.CBytes(tag)
+			toFree = append(toFree, cTagPtr)
+			cTag = (*C.uint8_t)(cTagPtr)
 		}
 
 		C.call_receive_interaction(
-			f.ctx.cb.onReceiveInteraction,
+			cb.onReceiveInteraction,
 			C.int32_t(interactionClass),
 			C.int32_t(count),
 			(*C.int32_t)(cHandles),
@@ -291,8 +332,9 @@ func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameter
 }
 
 func (f *cFedAmbassador) TimeAdvanceGrant(grantTime float64) {
-	if f.ctx.cb.onTimeAdvanceGrant != nil {
-		C.call_time_grant(f.ctx.cb.onTimeAdvanceGrant, C.double(grantTime))
+	cb := f.ctx.getCallbacks()
+	if cb.onTimeAdvanceGrant != nil {
+		C.call_time_grant(cb.onTimeAdvanceGrant, C.double(grantTime))
 	}
 }
 
@@ -353,7 +395,9 @@ func valhalla_set_callbacks(amb C.ValhallaAmbassador, callbacks C.ValhallaCallba
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
 	}
+	ctx.cbMu.Lock()
 	ctx.cb = callbacks
+	ctx.cbMu.Unlock()
 	return C.VALHALLA_OK
 }
 

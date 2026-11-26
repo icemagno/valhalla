@@ -83,6 +83,7 @@ ValhallaRTIambassador::ValhallaRTIambassador()
     }
 
     ValhallaCallbacks cbs;
+    std::memset(&cbs, 0, sizeof(cbs));
     cbs.onDiscoverObject = c_onDiscoverObject;
     cbs.onRemoveObject = c_onRemoveObject;
     cbs.onReflectAttributes = c_onReflectAttributes;

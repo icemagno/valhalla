@@ -44,7 +44,37 @@ public interface IValhallaLrc extends Library {
         void invoke(double time);
     }
 
-    @Structure.FieldOrder({"onDiscoverObject", "onRemoveObject", "onReflectAttributes", "onTimeAdvanceGrant"})
+    interface ReceiveInteractionCallback extends Callback {
+        void invoke(int interactionClass, int paramCount, Pointer paramHandles, Pointer paramValues, Pointer paramLens, Pointer tag, int tagLen);
+    }
+
+    interface AnnounceSynchronizationPointCallback extends Callback {
+        void invoke(String label, Pointer tag, int tagLen);
+    }
+
+    interface FederationSynchronizedCallback extends Callback {
+        void invoke(String label);
+    }
+
+    interface SynchronizationPointRegistrationSucceededCallback extends Callback {
+        void invoke(String label);
+    }
+
+    interface SynchronizationPointRegistrationFailedCallback extends Callback {
+        void invoke(String label, String reason);
+    }
+
+    @Structure.FieldOrder({
+        "onDiscoverObject",
+        "onRemoveObject",
+        "onReflectAttributes",
+        "onTimeAdvanceGrant",
+        "onReceiveInteraction",
+        "onAnnounceSynchronizationPoint",
+        "onFederationSynchronized",
+        "onSyncPointRegistrationSucceeded",
+        "onSyncPointRegistrationFailed"
+    })
     class ValhallaCallbacks extends Structure {
         public static class ByValue extends ValhallaCallbacks implements Structure.ByValue {}
 
@@ -52,10 +82,25 @@ public interface IValhallaLrc extends Library {
         public RemoveObjectCallback onRemoveObject;
         public ReflectAttributesCallback onReflectAttributes;
         public TimeAdvanceGrantCallback onTimeAdvanceGrant;
+        public ReceiveInteractionCallback onReceiveInteraction;
+        public AnnounceSynchronizationPointCallback onAnnounceSynchronizationPoint;
+        public FederationSynchronizedCallback onFederationSynchronized;
+        public SynchronizationPointRegistrationSucceededCallback onSyncPointRegistrationSucceeded;
+        public SynchronizationPointRegistrationFailedCallback onSyncPointRegistrationFailed;
 
         @Override
         protected List<String> getFieldOrder() {
-            return Arrays.asList("onDiscoverObject", "onRemoveObject", "onReflectAttributes", "onTimeAdvanceGrant");
+            return Arrays.asList(
+                "onDiscoverObject",
+                "onRemoveObject",
+                "onReflectAttributes",
+                "onTimeAdvanceGrant",
+                "onReceiveInteraction",
+                "onAnnounceSynchronizationPoint",
+                "onFederationSynchronized",
+                "onSyncPointRegistrationSucceeded",
+                "onSyncPointRegistrationFailed"
+            );
         }
     }
 
@@ -71,16 +116,27 @@ public interface IValhallaLrc extends Library {
     int valhalla_join_federation(Pointer amb, String federateName, String fedName, IntByReference outFederateHandle);
     int valhalla_resign_federation(Pointer amb);
 
+    int valhalla_register_federation_synchronization_point(Pointer amb, String label, byte[] tag, int tagLen);
+    int valhalla_synchronization_point_achieved(Pointer amb, String label);
+
     int valhalla_get_object_class_handle(Pointer amb, String className, IntByReference outHandle);
     int valhalla_get_attribute_handle(Pointer amb, int classHandle, String attrName, IntByReference outHandle);
     int valhalla_get_dimension_handle(Pointer amb, String dimName, IntByReference outHandle);
 
     int valhalla_publish_object_class(Pointer amb, int classHandle, int[] attrHandles, int attrCount);
+    int valhalla_unpublish_object_class(Pointer amb, int classHandle);
     int valhalla_subscribe_object_class(Pointer amb, int classHandle, int[] attrHandles, int attrCount);
+    int valhalla_unsubscribe_object_class(Pointer amb, int classHandle);
+    int valhalla_publish_interaction_class(Pointer amb, int interactionClass);
+    int valhalla_unpublish_interaction_class(Pointer amb, int interactionClass);
+    int valhalla_subscribe_interaction_class(Pointer amb, int interactionClass);
+    int valhalla_unsubscribe_interaction_class(Pointer amb, int interactionClass);
 
     int valhalla_register_object(Pointer amb, int classHandle, String objectName, IntByReference outObjectHandle);
     int valhalla_delete_object(Pointer amb, int objectHandle, byte[] tag, int tagLen);
     int valhalla_update_attributes(Pointer amb, int objectHandle, int[] attrHandles, Pointer[] attrValues, int[] attrLens, int attrCount, byte[] tag, int tagLen);
+
+    int valhalla_send_interaction(Pointer amb, int interactionClass, int[] paramHandles, Pointer[] paramValues, int[] paramLens, int paramCount, byte[] tag, int tagLen);
 
     int valhalla_enable_time_regulation(Pointer amb, double lookahead);
     int valhalla_enable_time_constrained(Pointer amb);

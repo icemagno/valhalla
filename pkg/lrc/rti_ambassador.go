@@ -391,7 +391,7 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 
 	resp, err := a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	if err != nil {
-		failPayload, _ := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+		failPayload, _ := common.SyncPointFailurePayload{Label: label, Reason: err.Error()}.MarshalBinary()
 		a.client.EnqueueCallback(callbackItem{
 			MsgType: common.NativeMsgSyncPointRegFailed,
 			Payload: failPayload,
@@ -400,7 +400,7 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 	}
 
 	if err := checkNativeResponse(resp); err != nil {
-		failPayload, _ := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+		failPayload, _ := common.SyncPointFailurePayload{Label: label, Reason: err.Error()}.MarshalBinary()
 		a.client.EnqueueCallback(callbackItem{
 			MsgType: common.NativeMsgSyncPointRegFailed,
 			Payload: failPayload,
@@ -1092,11 +1092,16 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 		}
 
 	case common.NativeMsgSyncPointRegFailed:
-		var failPayload common.SyncPointLabelPayload
+		var failPayload common.SyncPointFailurePayload
 		if err := failPayload.UnmarshalBinary(cb.Payload); err == nil {
-			fedAmb.SynchronizationPointRegistrationFailed(failPayload.Label, "synchronization point registration failed")
+			fedAmb.SynchronizationPointRegistrationFailed(failPayload.Label, failPayload.Reason)
 		} else {
-			fedAmb.SynchronizationPointRegistrationFailed(string(cb.Payload), "synchronization point registration failed")
+			var labelPayload common.SyncPointLabelPayload
+			if err2 := labelPayload.UnmarshalBinary(cb.Payload); err2 == nil {
+				fedAmb.SynchronizationPointRegistrationFailed(labelPayload.Label, "synchronization point registration failed")
+			} else {
+				fedAmb.SynchronizationPointRegistrationFailed(string(cb.Payload), "synchronization point registration failed")
+			}
 		}
 
 	case common.NativeMsgAnnounceSyncPoint:

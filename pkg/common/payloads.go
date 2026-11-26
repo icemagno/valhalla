@@ -272,6 +272,53 @@ func (p *SyncPointLabelPayload) UnmarshalBinary(data []byte) error {
 	return err
 }
 
+// SyncPointFailurePayload represents synchronization point registration failure
+// Layout: [Offset0:4 (Label), Offset1:4 (Reason)] + Heap [Label, Reason]
+type SyncPointFailurePayload struct {
+	Label  string
+	Reason string
+}
+
+func (p SyncPointFailurePayload) MarshalBinary() ([]byte, error) {
+	const fixedHeaderSize = 8
+	labelLen := uint32(len(p.Label))
+	reasonLen := uint32(len(p.Reason))
+
+	off0 := uint32(fixedHeaderSize)
+	off1 := off0 + labelLen
+	totalLen := off1 + reasonLen
+
+	buf := make([]byte, totalLen)
+	PutOffset(buf[0:4], off0)
+	PutOffset(buf[4:8], off1)
+	EncodeSSZString(buf, off0, p.Label)
+	EncodeSSZString(buf, off1, p.Reason)
+	return buf, nil
+}
+
+func (p *SyncPointFailurePayload) UnmarshalBinary(data []byte) error {
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
+	}
+
+	off0 := GetOffset(data[0:4])
+	off1 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0, off1}, fixedHeaderSize, totalLen); err != nil {
+		return err
+	}
+
+	var err error
+	p.Label, err = DecodeSSZString(data, off0, off1)
+	if err != nil {
+		return err
+	}
+	p.Reason, err = DecodeSSZString(data, off1, totalLen)
+	return err
+}
+
 // ============================================================================
 // 2. DECLARATION MANAGEMENT (PUB/SUB) PAYLOADS
 // ============================================================================
