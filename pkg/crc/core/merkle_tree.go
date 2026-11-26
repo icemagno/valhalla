@@ -23,16 +23,12 @@ func HashPair(left, right [32]byte) [32]byte {
 	return sha256.Sum256(buf[:])
 }
 
-// ComputeAttributeLeaf computes the leaf hash for an attribute: SHA-256(AttrHandle || Value)
+// ComputeAttributeLeaf computes the canonical SSZ leaf hash for an attribute container:
+// HashTreeRoot(Container[handle uint32, value ByteList]) = HashPair(HashTreeRoot(handle), HashTreeRoot(value))
 func ComputeAttributeLeaf(handle common.AttributeHandle, value []byte) [32]byte {
-	h := sha256.New()
-	var handleBuf [4]byte
-	binary.BigEndian.PutUint32(handleBuf[:], uint32(handle))
-	h.Write(handleBuf[:])
-	h.Write(value)
-	var res [32]byte
-	copy(res[:], h.Sum(nil))
-	return res
+	hRoot := common.HashTreeRootUint32(uint32(handle))
+	vRoot := common.HashTreeRootByteList(value, 1024*1024)
+	return common.HashPair(hRoot, vRoot)
 }
 
 // ComputeObjectMerkleRoot calculates the deterministic Merkle root (hash_tree_root) of an entity's attributes
@@ -154,7 +150,7 @@ func (t *FederationStateTree) GetGlobalRoot() [32]byte {
 		leafHash := t.entityRoots[common.ObjectInstanceHandle(h)]
 		// Combine handle and entity root as a federation leaf
 		var handleBuf [4]byte
-		binary.BigEndian.PutUint32(handleBuf[:], uint32(h))
+		binary.LittleEndian.PutUint32(handleBuf[:], uint32(h))
 		var combined [64]byte
 		copy(combined[:4], handleBuf[:])
 		copy(combined[4:36], leafHash[:])
@@ -195,7 +191,7 @@ func (t *FederationStateTree) GenerateProof(handle common.ObjectInstanceHandle) 
 		objH := common.ObjectInstanceHandle(h)
 		leafHash := t.entityRoots[objH]
 		var handleBuf [4]byte
-		binary.BigEndian.PutUint32(handleBuf[:], uint32(h))
+		binary.LittleEndian.PutUint32(handleBuf[:], uint32(h))
 		var combined [64]byte
 		copy(combined[:4], handleBuf[:])
 		copy(combined[4:36], leafHash[:])

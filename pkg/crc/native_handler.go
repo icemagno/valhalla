@@ -524,7 +524,7 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 
 			var respPayload [4]byte
-			binary.BigEndian.PutUint32(respPayload[0:4], uint32(obj.Handle))
+			binary.LittleEndian.PutUint32(respPayload[0:4], uint32(obj.Handle))
 
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,

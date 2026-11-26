@@ -124,3 +124,227 @@ func TestSSZInt32List(t *testing.T) {
 		}
 	}
 }
+
+func TestSSZStrictBooleans(t *testing.T) {
+	// 0x00 and 0x01 are strictly allowed
+	b, err := DecodeBool(0x00)
+	if err != nil || b != false {
+		t.Fatalf("expected false, nil; got %v, %v", b, err)
+	}
+	b, err = DecodeBool(0x01)
+	if err != nil || b != true {
+		t.Fatalf("expected true, nil; got %v, %v", b, err)
+	}
+
+	// Any other byte MUST return ErrSSZInvalidBoolean
+	for _, invalid := range []byte{0x02, 0x03, 0x10, 0x80, 0xFF} {
+		if _, err := DecodeBool(invalid); err == nil {
+			t.Fatalf("expected error for invalid bool byte 0x%02X, got nil", invalid)
+		}
+	}
+
+	// Payload test: tampering boolean in UpdateAttributesPayload
+	p := &UpdateAttributesPayload{
+		ObjectHandle: 100,
+		HasTime:      true,
+		Time:         12.34,
+		Attributes: map[AttributeHandle][]byte{
+			1: []byte("val1"),
+		},
+	}
+	encoded, err := p.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	// Offset 4 is HasTime in UpdateAttributesPayload
+	corrupted := make([]byte, len(encoded))
+	copy(corrupted, encoded)
+	corrupted[4] = 0x02 // illegal boolean value
+
+	p2 := &UpdateAttributesPayload{}
+	if err := p2.UnmarshalBinary(corrupted); err == nil {
+		t.Fatalf("expected unmarshal to reject boolean 0x02, but succeeded")
+	}
+}
+
+func TestSSZDeterminism(t *testing.T) {
+	// Canonical SSZ requirement: Map serialization MUST be 100% deterministic
+	// across iterations despite Go map randomization.
+	p := &UpdateAttributesPayload{
+		ObjectHandle: 55,
+		HasTime:      true,
+		Time:         123.456,
+		Attributes: map[AttributeHandle][]byte{
+			999: []byte("omega"),
+			1:   []byte("alpha"),
+			42:  []byte("middle"),
+			7:   []byte("beta"),
+			500: []byte("zeta"),
+		},
+	}
+
+	firstBytes, err := p.MarshalBinary()
+	if err != nil {
+		t.Fatalf("initial marshal failed: %v", err)
+	}
+
+	for i := 0; i < 200; i++ {
+		bytes, err := p.MarshalBinary()
+		if err != nil {
+			t.Fatalf("marshal at iteration %d failed: %v", i, err)
+		}
+		if string(bytes) != string(firstBytes) {
+			t.Fatalf("non-deterministic SSZ serialization detected at iteration %d", i)
+		}
+	}
+
+	// Same for SendInteractionPayload
+	sip := &SendInteractionPayload{
+		ClassHandle: 77,
+		HasTime:     true,
+		Time:        999.0,
+		Parameters: map[ParameterHandle][]byte{
+			100: []byte("param100"),
+			5:   []byte("param5"),
+			50:  []byte("param50"),
+			1:   []byte("param1"),
+		},
+	}
+	firstSIP, err := sip.MarshalBinary()
+	if err != nil {
+		t.Fatalf("sip marshal failed: %v", err)
+	}
+	for i := 0; i < 200; i++ {
+		bytes, err := sip.MarshalBinary()
+		if err != nil {
+			t.Fatalf("sip marshal at %d failed: %v", i, err)
+		}
+		if string(bytes) != string(firstSIP) {
+			t.Fatalf("non-deterministic interaction serialization detected at %d", i)
+		}
+	}
+}
+
+func TestSSZTrailingBytesRejection(t *testing.T) {
+	// 1. Fixed container: TimeFloat64Payload (exactly 8 bytes)
+	timeP := &TimeFloat64Payload{Time: 42.5}
+	timeData, err := timeP.MarshalBinary()
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if len(timeData) != 8 {
+		t.Fatalf("expected 8 bytes, got %d", len(timeData))
+	}
+
+	// Appending trailing garbage (0xDEADBEEF) must fail with ErrSSZTrailingBytes
+	withGarbage := append(timeData, 0xDE, 0xAD, 0xBE, 0xEF)
+	timeDec := &TimeFloat64Payload{}
+	if err := timeDec.UnmarshalBinary(withGarbage); err == nil {
+		t.Fatalf("expected error on trailing bytes for TimeFloat64Payload, got nil")
+	}
+
+	// 2. Fixed container: JoinFederationResponsePayload (exactly 8 bytes)
+	joinResp := &JoinFederationResponsePayload{FederateHandle: 10, FederationHandle: 20}
+	joinData, err := joinResp.MarshalBinary()
+	if err != nil {
+		t.Fatalf("joinResp marshal failed: %v", err)
+	}
+	joinDec := &JoinFederationResponsePayload{}
+	if err := joinDec.UnmarshalBinary(append(joinData, 0xDE, 0xAD, 0xBE, 0xEF)); err == nil {
+		t.Fatalf("expected error on trailing bytes for JoinFederationResponsePayload, got nil")
+	}
+
+	// 3. Fixed container: InteractionClassPayload (exactly 4 bytes)
+	icP := &InteractionClassPayload{ClassHandle: 99}
+	icData, err := icP.MarshalBinary()
+	if err != nil {
+		t.Fatalf("ic marshal failed: %v", err)
+	}
+	icDec := &InteractionClassPayload{}
+	if err := icDec.UnmarshalBinary(append(icData, 0xCA, 0xFE)); err == nil {
+		t.Fatalf("expected error on trailing bytes for InteractionClassPayload, got nil")
+	}
+
+	// 4. Fixed container: QueryOwnershipPayload (exactly 8 bytes)
+	qoP := &QueryOwnershipPayload{ObjectHandle: 1, AttributeHandle: 2}
+	qoData, err := qoP.MarshalBinary()
+	if err != nil {
+		t.Fatalf("qo marshal failed: %v", err)
+	}
+	qoDec := &QueryOwnershipPayload{}
+	if err := qoDec.UnmarshalBinary(append(qoData, 0x01, 0x02)); err == nil {
+		t.Fatalf("expected error on trailing bytes for QueryOwnershipPayload, got nil")
+	}
+}
+
+func TestSSZAntiOOMDoS(t *testing.T) {
+	// A malicious packet claiming an immense offset / count in a tiny buffer
+	// e.g. 25-byte packet claiming first offset of 20,000,000 * 4 bytes
+	malicious := make([]byte, 25)
+	Endian.PutUint32(malicious[0:4], 1) // ObjectHandle
+	malicious[4] = 0x00                 // HasTime = false
+	Endian.PutUint64(malicious[5:13], 0) // Time
+	Endian.PutUint32(malicious[13:17], 21) // TagOffset = 21 (valid start)
+	Endian.PutUint32(malicious[17:21], 21) // AttrOffset = 21
+	// Now at byte 21, try to forge an offset table with huge fake count:
+	Endian.PutUint32(malicious[21:25], 80_000_000)
+
+	p := &UpdateAttributesPayload{}
+	err := p.UnmarshalBinary(malicious)
+	if err == nil {
+		t.Fatalf("expected error on malicious OOM packet, got nil")
+	}
+}
+
+func TestSSZIntegerOverflowAttack(t *testing.T) {
+	// Attempt to trigger uint32 wraparound with 0xFFFFFFF0
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("PANIC on uint32 overflow: %v", r)
+		}
+	}()
+
+	malicious := make([]byte, 32)
+	// Fill with overflow offsets
+	for i := 0; i < len(malicious); i += 4 {
+		Endian.PutUint32(malicious[i:i+4], 0xFFFFFFF0)
+	}
+
+	p := &UpdateAttributesPayload{}
+	_ = p.UnmarshalBinary(malicious)
+
+	p2 := &SendInteractionPayload{}
+	_ = p2.UnmarshalBinary(malicious)
+
+	p3 := &UpdateAttributesSpatialPayload{}
+	_ = p3.UnmarshalBinary(malicious)
+}
+
+func TestSSZMerkleization(t *testing.T) {
+	// Test basic Merkleization primitives
+	h1 := HashTreeRootUint32(42)
+	h2 := HashTreeRootUint32(42)
+	if h1 != h2 {
+		t.Fatalf("expected identical root for same scalar")
+	}
+
+	h3 := HashTreeRootUint32(43)
+	if h1 == h3 {
+		t.Fatalf("different values must produce different root")
+	}
+
+	// Byte list merkleization
+	data := []byte("Project Valhalla Sovereign HLA-4")
+	root1 := HashTreeRootByteList(data, 1024)
+	root2 := HashTreeRootByteList(data, 1024)
+	if root1 != root2 {
+		t.Fatalf("byte list merkleization not deterministic")
+	}
+
+	// Pair hashing
+	pair := HashPair(h1, h3)
+	if pair == [32]byte{} {
+		t.Fatalf("HashPair returned zero hash")
+	}
+}

@@ -122,7 +122,7 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 		return NativeHeader{}, err
 	}
 
-	magic := binary.BigEndian.Uint16(buf[0:2])
+	magic := binary.LittleEndian.Uint16(buf[0:2])
 	if magic != NativeHeaderMagic {
 		return NativeHeader{}, fmt.Errorf("invalid native magic: 0x%04X", magic)
 	}
@@ -132,7 +132,7 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 		return NativeHeader{}, fmt.Errorf("unsupported native protocol version: %d", version)
 	}
 
-	payloadLen := binary.BigEndian.Uint32(buf[4:8])
+	payloadLen := binary.LittleEndian.Uint32(buf[4:8])
 	if payloadLen > MaxNativePayloadLen {
 		return NativeHeader{}, fmt.Errorf("%w: %d bytes (limit: %d)", ErrNativePayloadTooLarge, payloadLen, MaxNativePayloadLen)
 	}
@@ -147,10 +147,10 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 		PayloadLen: payloadLen,
 		MsgType:    buf[8],
 		Reserved:   buf[9],
-		ReqID:      binary.BigEndian.Uint16(buf[10:12]),
-		FedID:      binary.BigEndian.Uint32(buf[12:16]),
-		FederateID: binary.BigEndian.Uint32(buf[16:20]),
-		Reserved2:  binary.BigEndian.Uint32(buf[20:24]),
+		ReqID:      binary.LittleEndian.Uint16(buf[10:12]),
+		FedID:      binary.LittleEndian.Uint32(buf[12:16]),
+		FederateID: binary.LittleEndian.Uint32(buf[16:20]),
+		Reserved2:  binary.LittleEndian.Uint32(buf[20:24]),
 		MerkleRoot: merkle,
 	}, nil
 }
@@ -158,16 +158,16 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 // WriteNativeHeader serializes the 56-byte native binary header into a fixed array
 func WriteNativeHeader(hdr NativeHeader) [NativeHeaderLength]byte {
 	var buf [NativeHeaderLength]byte
-	binary.BigEndian.PutUint16(buf[0:2], NativeHeaderMagic)
+	binary.LittleEndian.PutUint16(buf[0:2], NativeHeaderMagic)
 	buf[2] = NativeProtocolVer
 	buf[3] = hdr.Flags
-	binary.BigEndian.PutUint32(buf[4:8], hdr.PayloadLen)
+	binary.LittleEndian.PutUint32(buf[4:8], hdr.PayloadLen)
 	buf[8] = hdr.MsgType
 	buf[9] = hdr.Reserved
-	binary.BigEndian.PutUint16(buf[10:12], hdr.ReqID)
-	binary.BigEndian.PutUint32(buf[12:16], hdr.FedID)
-	binary.BigEndian.PutUint32(buf[16:20], hdr.FederateID)
-	binary.BigEndian.PutUint32(buf[20:24], hdr.Reserved2)
+	binary.LittleEndian.PutUint16(buf[10:12], hdr.ReqID)
+	binary.LittleEndian.PutUint32(buf[12:16], hdr.FedID)
+	binary.LittleEndian.PutUint32(buf[16:20], hdr.FederateID)
+	binary.LittleEndian.PutUint32(buf[20:24], hdr.Reserved2)
 	copy(buf[24:56], hdr.MerkleRoot[:])
 	return buf
 }

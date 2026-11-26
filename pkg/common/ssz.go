@@ -1,33 +1,45 @@
 // Project Valhalla - Sovereign HLA-4 Run-Time Infrastructure
 // Lead Developer: Carlos Magno Oliveira de Abreu (@icemagno / magno.mabreu@gmail.com)
 //
-// Package common: Canonical Ethereum 2.0 Simple Serialize (SSZ) implementation.
-// Adheres strictly to the Ethereum Consensus Layer SSZ Specification:
-// - All primitive scalars encoded in Little-Endian byte order.
-// - Fixed-size fields placed in the fixed container prefix.
-// - Variable-size fields referenced by 4-byte Little-Endian uint32 offsets.
-// - Variable-size heaps serialized sequentially with strict monotonic offset validation.
+// Canonical Ethereum 2.0 Simple Serialize (SSZ) Implementation.
+// Strictly adheres to the Ethereum Consensus Layer SSZ Specification:
+// - All primitive integers and floats in Little-Endian byte order.
+// - Strict boolean verification (0x00 = false, 0x01 = true; all other values rejected).
+// - Fixed-size fields located in container prefix; dynamic fields indexed by 4-byte uint32 offsets.
+// - Strict monotonic offset validation; zero trailing bytes permitted.
+// - Canonical SSZ Merkleization (hash_tree_root): Pack, Merkleize, MixInLength.
+// - Anti-DoS: strict bounds checks preventing memory amplification (OOM) and uint32 wraparound.
 
 package common
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 )
 
 // Endian defines the canonical SSZ byte order (Little-Endian) per Ethereum 2.0 specification.
 var Endian = binary.LittleEndian
 
-// SSZ Encoding and Decoding Errors
+// SSZ Specification Errors
 var (
 	ErrSSZBufferTooShort    = errors.New("ssz: buffer smaller than minimum expected container size")
+	ErrSSZInvalidSize       = errors.New("ssz: buffer size does not match exact fixed container size")
+	ErrSSZTrailingBytes     = errors.New("ssz: unconsumed trailing bytes at end of container")
 	ErrSSZInvalidOffset     = errors.New("ssz: offset table violates monotonic ordering or bounds")
+	ErrSSZInvalidBoolean    = errors.New("ssz: invalid boolean value (must be 0x00 or 0x01)")
 	ErrSSZStringOutOfBounds = errors.New("ssz: dynamic string range exceeds buffer boundary")
 	ErrSSZDataOutOfBounds   = errors.New("ssz: dynamic byte slice range exceeds buffer boundary")
 	ErrSSZListAlignment     = errors.New("ssz: dynamic list byte length is not a multiple of element size")
+	ErrSSZMemoryOverflow    = errors.New("ssz: item count exceeds maximum capacity of input buffer (OOM DoS prevented)")
 )
+
+// ============================================================================
+// 1. PRIMITIVE SCALAR CODECS
+// ============================================================================
 
 // PutUint8 encodes an 8-bit unsigned integer.
 func PutUint8(dst []byte, v uint8) {
@@ -62,6 +74,15 @@ func PutFloat64(dst []byte, v float64) {
 // PutOffset writes a 4-byte dynamic field offset into the container's offset table.
 func PutOffset(dst []byte, offset uint32) {
 	Endian.PutUint32(dst, offset)
+}
+
+// PutBool encodes a boolean strictly as 0x01 (true) or 0x00 (false).
+func PutBool(dst []byte, v bool) {
+	if v {
+		dst[0] = 0x01
+	} else {
+		dst[0] = 0x00
+	}
 }
 
 // Uint8FromBytes reads an 8-bit unsigned integer.
@@ -112,6 +133,18 @@ func Float64FromBytes(b []byte) float64 {
 	return math.Float64frombits(Endian.Uint64(b))
 }
 
+// DecodeBool decodes a boolean with strict validation (only 0x00 and 0x01 allowed).
+func DecodeBool(b byte) (bool, error) {
+	switch b {
+	case 0x00:
+		return false, nil
+	case 0x01:
+		return true, nil
+	default:
+		return false, fmt.Errorf("%w: byte 0x%02X", ErrSSZInvalidBoolean, b)
+	}
+}
+
 // GetOffset reads a 4-byte dynamic field offset from the container's offset table.
 func GetOffset(b []byte) uint32 {
 	if len(b) < 4 {
@@ -120,8 +153,14 @@ func GetOffset(b []byte) uint32 {
 	return Endian.Uint32(b)
 }
 
-// ValidateOffsets validates a sequence of SSZ dynamic offsets for strict monotonicity,
-// anti-overlap integrity, and total container length bounds.
+// ============================================================================
+// 2. OFFSET & BOUNDS VALIDATION (ANTI-DOS & MONOTONICITY)
+// ============================================================================
+
+// ValidateOffsets validates a sequence of SSZ dynamic offsets:
+// 1. First offset matches the exact fixed header size (no gaps).
+// 2. Offsets are strictly non-decreasing (monotonic ordering).
+// 3. Offsets do not exceed the container boundary.
 func ValidateOffsets(offsets []uint32, minDataPos uint32, totalLen uint32) error {
 	if len(offsets) == 0 {
 		return nil
@@ -147,6 +186,10 @@ func ValidateOffsets(offsets []uint32, minDataPos uint32, totalLen uint32) error
 
 	return nil
 }
+
+// ============================================================================
+// 3. STRINGS & RAW BYTE SLICES
+// ============================================================================
 
 // EncodeSSZString copies string bytes into dst at offset and returns the updated offset.
 func EncodeSSZString(dst []byte, offset uint32, s string) uint32 {
@@ -183,6 +226,10 @@ func DecodeSSZBytes(data []byte, start, end uint32) ([]byte, error) {
 	copy(res, data[start:end])
 	return res, nil
 }
+
+// ============================================================================
+// 4. LISTS (SCALARS & STRINGS)
+// ============================================================================
 
 // EncodeSSZUint32List serializes a slice of uint32 integers in contiguous Little-Endian bytes.
 func EncodeSSZUint32List(dst []byte, offset uint32, list []uint32) uint32 {
@@ -246,8 +293,7 @@ func DecodeSSZInt32List(data []byte, start, end uint32) ([]int32, error) {
 	return res, nil
 }
 
-// EncodeSSZStringList serializes a list of dynamic strings as an SSZ sub-container.
-// Each string receives a 4-byte offset in a local offset table, followed by its bytes.
+// EncodeSSZStringList serializes a list of dynamic strings as a canonical SSZ List[String].
 func EncodeSSZStringList(dst []byte, offset uint32, list []string) uint32 {
 	count := uint32(len(list))
 	if count == 0 {
@@ -299,6 +345,11 @@ func DecodeSSZStringList(data []byte, start, end uint32) ([]string, error) {
 	}
 	count := firstOffset / 4
 
+	// Anti-DoS check: each string requires at least 4 offset bytes
+	if count > byteLen/4 {
+		return nil, ErrSSZMemoryOverflow
+	}
+
 	offsets := make([]uint32, count)
 	for i := uint32(0); i < count; i++ {
 		offsets[i] = Endian.Uint32(subData[i*4 : (i+1)*4])
@@ -319,4 +370,345 @@ func DecodeSSZStringList(data []byte, start, end uint32) ([]string, error) {
 	}
 
 	return res, nil
+}
+
+// ============================================================================
+// 5. CANONICAL SSZ LIST[CONTAINER] FOR ATTRIBUTES & PARAMETERS
+// ============================================================================
+
+// SSZAttributeEntry represents an attribute handle and its binary value.
+type SSZAttributeEntry struct {
+	Handle uint32
+	Value  []byte
+}
+
+// EncodeSSZAttributeList encodes a map of attributes as a strictly deterministic,
+// canonical SSZ List[Container]. Keys are sorted in strictly ascending numerical order.
+// Each container element has fixed size 8 (Handle:4 + ValOffset:4) followed by Value bytes.
+func EncodeSSZAttributeList(dst []byte, offset uint32, attributes map[AttributeHandle][]byte) uint32 {
+	count := uint32(len(attributes))
+	if count == 0 {
+		return offset
+	}
+
+	// 1. Sort handles strictly ascending for deterministic canonical serialization
+	keys := make([]uint32, 0, count)
+	for k := range attributes {
+		keys = append(keys, uint32(k))
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
+	// 2. Compute offsets and serialize
+	listOffsetTableSize := count * 4
+	curElementOffset := offset + listOffsetTableSize
+
+	for i, k := range keys {
+		val := attributes[AttributeHandle(k)]
+		relElementOffset := curElementOffset - offset
+		Endian.PutUint32(dst[offset+uint32(i*4):offset+uint32(i*4)+4], relElementOffset)
+
+		// Container fixed part: Handle (4) + ValueOffset (4)
+		Endian.PutUint32(dst[curElementOffset:curElementOffset+4], k)
+		Endian.PutUint32(dst[curElementOffset+4:curElementOffset+8], 8) // Value starts immediately after fixed part
+		// Container dynamic part: Value bytes
+		copy(dst[curElementOffset+8:], val)
+
+		curElementOffset += 8 + uint32(len(val))
+	}
+
+	return curElementOffset
+}
+
+// SizeSSZAttributeList computes the exact byte size required for an attribute map.
+func SizeSSZAttributeList(attributes map[AttributeHandle][]byte) uint32 {
+	count := uint32(len(attributes))
+	if count == 0 {
+		return 0
+	}
+	total := count * 4 // list offset table
+	for _, val := range attributes {
+		total += 8 + uint32(len(val)) // container header (8) + dynamic value
+	}
+	return total
+}
+
+// DecodeSSZAttributeList deserializes a canonical SSZ List[Container] of attributes.
+// Implements strict bounds verification, anti-DoS memory amplification guards,
+// and safe integer math preventing overflow panics.
+func DecodeSSZAttributeList(data []byte, start, end uint32) (map[AttributeHandle][]byte, error) {
+	if start > end || end > uint32(len(data)) {
+		return nil, ErrSSZDataOutOfBounds
+	}
+	byteLen := end - start
+	if byteLen == 0 {
+		return make(map[AttributeHandle][]byte), nil
+	}
+	if byteLen < 4 {
+		return nil, ErrSSZBufferTooShort
+	}
+
+	subData := data[start:end]
+	firstOffset := Endian.Uint32(subData[0:4])
+	if firstOffset%4 != 0 || firstOffset > byteLen {
+		return nil, ErrSSZInvalidOffset
+	}
+	count := firstOffset / 4
+
+	// Anti-DoS Guard: Each element takes at least 4 bytes in offset table + 8 bytes container = 12 bytes
+	if count > byteLen/12 {
+		return nil, ErrSSZMemoryOverflow
+	}
+
+	offsets := make([]uint32, count)
+	for i := uint32(0); i < count; i++ {
+		offsets[i] = Endian.Uint32(subData[i*4 : (i+1)*4])
+	}
+
+	if err := ValidateOffsets(offsets, firstOffset, byteLen); err != nil {
+		return nil, err
+	}
+
+	res := make(map[AttributeHandle][]byte, count)
+	var lastHandle uint32
+	hasLast := false
+
+	for i := uint32(0); i < count; i++ {
+		elemStart := offsets[i]
+		elemEnd := byteLen
+		if i+1 < count {
+			elemEnd = offsets[i+1]
+		}
+
+		if elemEnd < elemStart || elemEnd-elemStart < 8 {
+			return nil, ErrSSZBufferTooShort
+		}
+
+		elemBytes := subData[elemStart:elemEnd]
+		handle := Endian.Uint32(elemBytes[0:4])
+		valOffset := Endian.Uint32(elemBytes[4:8])
+
+		// In canonical SSZ, container fixed part is 8 bytes; value must start at offset 8
+		if valOffset != 8 || valOffset > uint32(len(elemBytes)) {
+			return nil, ErrSSZInvalidOffset
+		}
+
+		// Canonical check: handles must be sorted strictly ascending
+		if hasLast && handle <= lastHandle {
+			return nil, fmt.Errorf("%w: duplicate or unsorted handle %d <= %d", ErrSSZInvalidOffset, handle, lastHandle)
+		}
+		lastHandle = handle
+		hasLast = true
+
+		valLen := uint32(len(elemBytes)) - valOffset
+		val := make([]byte, valLen)
+		copy(val, elemBytes[valOffset:])
+		res[AttributeHandle(handle)] = val
+	}
+
+	return res, nil
+}
+
+// EncodeSSZParameterList encodes a map of parameters as a deterministic canonical SSZ List[Container].
+func EncodeSSZParameterList(dst []byte, offset uint32, params map[ParameterHandle][]byte) uint32 {
+	count := uint32(len(params))
+	if count == 0 {
+		return offset
+	}
+
+	keys := make([]uint32, 0, count)
+	for k := range params {
+		keys = append(keys, uint32(k))
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
+	listOffsetTableSize := count * 4
+	curElementOffset := offset + listOffsetTableSize
+
+	for i, k := range keys {
+		val := params[ParameterHandle(k)]
+		relElementOffset := curElementOffset - offset
+		Endian.PutUint32(dst[offset+uint32(i*4):offset+uint32(i*4)+4], relElementOffset)
+
+		Endian.PutUint32(dst[curElementOffset:curElementOffset+4], k)
+		Endian.PutUint32(dst[curElementOffset+4:curElementOffset+8], 8)
+		copy(dst[curElementOffset+8:], val)
+
+		curElementOffset += 8 + uint32(len(val))
+	}
+
+	return curElementOffset
+}
+
+// SizeSSZParameterList computes the exact byte size required for a parameter map.
+func SizeSSZParameterList(params map[ParameterHandle][]byte) uint32 {
+	count := uint32(len(params))
+	if count == 0 {
+		return 0
+	}
+	total := count * 4
+	for _, val := range params {
+		total += 8 + uint32(len(val))
+	}
+	return total
+}
+
+// DecodeSSZParameterList deserializes a canonical SSZ List[Container] of parameters.
+func DecodeSSZParameterList(data []byte, start, end uint32) (map[ParameterHandle][]byte, error) {
+	if start > end || end > uint32(len(data)) {
+		return nil, ErrSSZDataOutOfBounds
+	}
+	byteLen := end - start
+	if byteLen == 0 {
+		return make(map[ParameterHandle][]byte), nil
+	}
+	if byteLen < 4 {
+		return nil, ErrSSZBufferTooShort
+	}
+
+	subData := data[start:end]
+	firstOffset := Endian.Uint32(subData[0:4])
+	if firstOffset%4 != 0 || firstOffset > byteLen {
+		return nil, ErrSSZInvalidOffset
+	}
+	count := firstOffset / 4
+
+	if count > byteLen/12 {
+		return nil, ErrSSZMemoryOverflow
+	}
+
+	offsets := make([]uint32, count)
+	for i := uint32(0); i < count; i++ {
+		offsets[i] = Endian.Uint32(subData[i*4 : (i+1)*4])
+	}
+
+	if err := ValidateOffsets(offsets, firstOffset, byteLen); err != nil {
+		return nil, err
+	}
+
+	res := make(map[ParameterHandle][]byte, count)
+	var lastHandle uint32
+	hasLast := false
+
+	for i := uint32(0); i < count; i++ {
+		elemStart := offsets[i]
+		elemEnd := byteLen
+		if i+1 < count {
+			elemEnd = offsets[i+1]
+		}
+
+		if elemEnd < elemStart || elemEnd-elemStart < 8 {
+			return nil, ErrSSZBufferTooShort
+		}
+
+		elemBytes := subData[elemStart:elemEnd]
+		handle := Endian.Uint32(elemBytes[0:4])
+		valOffset := Endian.Uint32(elemBytes[4:8])
+
+		if valOffset != 8 || valOffset > uint32(len(elemBytes)) {
+			return nil, ErrSSZInvalidOffset
+		}
+
+		if hasLast && handle <= lastHandle {
+			return nil, fmt.Errorf("%w: duplicate or unsorted handle %d <= %d", ErrSSZInvalidOffset, handle, lastHandle)
+		}
+		lastHandle = handle
+		hasLast = true
+
+		valLen := uint32(len(elemBytes)) - valOffset
+		val := make([]byte, valLen)
+		copy(val, elemBytes[valOffset:])
+		res[ParameterHandle(handle)] = val
+	}
+
+	return res, nil
+}
+
+// ============================================================================
+// 6. CANONICAL SSZ MERKLEIZATION (hash_tree_root)
+// ============================================================================
+
+// HashPair computes the SHA-256 hash of two 32-byte chunks: SHA256(left || right).
+func HashPair(left, right [32]byte) [32]byte {
+	var buf [64]byte
+	copy(buf[:32], left[:])
+	copy(buf[32:], right[:])
+	return sha256.Sum256(buf[:])
+}
+
+// Pack chunks raw bytes into consecutive 32-byte chunks (padded with zeros).
+func Pack(data []byte) [][32]byte {
+	if len(data) == 0 {
+		return [][32]byte{}
+	}
+	numChunks := (len(data) + 31) / 32
+	chunks := make([][32]byte, numChunks)
+	for i := 0; i < numChunks; i++ {
+		start := i * 32
+		end := start + 32
+		if end > len(data) {
+			end = len(data)
+		}
+		copy(chunks[i][:end-start], data[start:end])
+	}
+	return chunks
+}
+
+// NextPowerOfTwo returns the smallest power of 2 >= n (at least 1).
+func NextPowerOfTwo(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	p := 1
+	for p < n {
+		p <<= 1
+	}
+	return p
+}
+
+// Merkleize computes the Merkle root of a sequence of 32-byte chunks per Ethereum 2.0 SSZ.
+// If limit > 0, the tree is expanded to the virtual depth required by limit.
+func Merkleize(chunks [][32]byte, limit uint64) [32]byte {
+	n := len(chunks)
+	count := n
+	if limit > uint64(count) {
+		count = int(limit)
+	}
+	if count == 0 {
+		return [32]byte{}
+	}
+
+	power := NextPowerOfTwo(count)
+	tree := make([][32]byte, power)
+	copy(tree, chunks)
+
+	for size := power; size > 1; size /= 2 {
+		for i := 0; i < size/2; i++ {
+			tree[i] = HashPair(tree[2*i], tree[2*i+1])
+		}
+	}
+
+	return tree[0]
+}
+
+// MixInLength mixes the length of a dynamic list into its Merkle root:
+// HashPair(root, uint256(length)) per Ethereum 2.0 specification.
+func MixInLength(root [32]byte, length uint64) [32]byte {
+	var lenChunk [32]byte
+	Endian.PutUint64(lenChunk[0:8], length)
+	return HashPair(root, lenChunk)
+}
+
+// HashTreeRootUint32 computes the SSZ hash_tree_root of a uint32.
+func HashTreeRootUint32(v uint32) [32]byte {
+	var chunk [32]byte
+	Endian.PutUint32(chunk[0:4], v)
+	return chunk
+}
+
+// HashTreeRootByteList computes the SSZ hash_tree_root of a dynamic byte slice (ByteList).
+func HashTreeRootByteList(data []byte, limit uint64) [32]byte {
+	chunks := Pack(data)
+	chunkLimit := (limit + 31) / 32
+	root := Merkleize(chunks, chunkLimit)
+	return MixInLength(root, uint64(len(data)))
 }

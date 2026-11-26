@@ -694,7 +694,7 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 		return 0, ErrInvalidResponse
 	}
 
-	objHandle := int32(binary.BigEndian.Uint32(resp.Payload[0:4]))
+	objHandle := int32(binary.LittleEndian.Uint32(resp.Payload[0:4]))
 	return objHandle, nil
 }
 

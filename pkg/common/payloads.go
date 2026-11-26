@@ -3,10 +3,11 @@
 //
 // Canonical Simple Serialize (SSZ) Payloads for Valhalla Native Wire Protocol (VAL4).
 // Conforms strictly to the Ethereum 2.0 Consensus Layer Specification (SSZ):
-// - All primitive integers and floats encoded in Little-Endian.
-// - Fixed-size fields located in the container's static header.
-// - Dynamic fields (strings, byte slices, lists) indexed by 4-byte uint32 offsets.
-// - Strict monotonic offset validation and anti-overlap boundary checking.
+// - All primitive integers and floats in Little-Endian byte order.
+// - Strict boolean verification (0x00 and 0x01 only; all other values rejected).
+// - Zero trailing bytes permitted; exact container length enforcement.
+// - Canonical SSZ List[Container] for attributes and parameters with strict ascending handle sorting.
+// - Anti-DoS bounds checking preventing memory amplification (OOM) and uint32 wraparound.
 
 package common
 
@@ -136,7 +137,7 @@ func (p *JoinFederationPayload) UnmarshalBinary(data []byte) error {
 }
 
 // JoinFederationResponsePayload contains granted federate and federation identifiers
-// Layout: [FederateHandle:4, FederationHandle:4] (All Fixed)
+// Layout: [FederateHandle:4, FederationHandle:4] (Exact 8 bytes fixed)
 type JoinFederationResponsePayload struct {
 	FederateHandle   FederateHandle
 	FederationHandle int32
@@ -150,8 +151,11 @@ func (p JoinFederationResponsePayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *JoinFederationResponsePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 8 {
-		return ErrSSZBufferTooShort
+	if len(data) != 8 {
+		if len(data) < 8 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.FederateHandle = FederateHandle(Uint32FromBytes(data[0:4]))
 	p.FederationHandle = Int32FromBytes(data[4:8])
@@ -159,7 +163,7 @@ func (p *JoinFederationResponsePayload) UnmarshalBinary(data []byte) error {
 }
 
 // ResignFederationPayload represents federate resignation
-// Layout: [ResignAction:1]
+// Layout: [ResignAction:1] (Exact 1 byte fixed)
 type ResignFederationPayload struct {
 	ResignAction uint8
 }
@@ -169,8 +173,11 @@ func (p ResignFederationPayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *ResignFederationPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 1 {
-		return ErrSSZBufferTooShort
+	if len(data) != 1 {
+		if len(data) < 1 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.ResignAction = data[0]
 	return nil
@@ -334,11 +341,7 @@ func (p SubscribeObjectClassPayload) MarshalBinary() ([]byte, error) {
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ClassHandle))
-	if p.Active {
-		buf[4] = 1
-	} else {
-		buf[4] = 0
-	}
+	PutBool(buf[4:5], p.Active)
 	PutOffset(buf[5:9], fixedHeaderSize)
 
 	for i, h := range p.AttributeHandles {
@@ -355,7 +358,12 @@ func (p *SubscribeObjectClassPayload) UnmarshalBinary(data []byte) error {
 	}
 
 	p.ClassHandle = ObjectClassHandle(Uint32FromBytes(data[0:4]))
-	p.Active = data[4] == 1
+	var err error
+	p.Active, err = DecodeBool(data[4])
+	if err != nil {
+		return err
+	}
+
 	off0 := GetOffset(data[5:9])
 	totalLen := uint32(len(data))
 
@@ -377,7 +385,7 @@ func (p *SubscribeObjectClassPayload) UnmarshalBinary(data []byte) error {
 }
 
 // InteractionClassPayload publishes or unpublishes an interaction class
-// Layout: [ClassHandle:4]
+// Layout: [ClassHandle:4] (Exact 4 bytes fixed)
 type InteractionClassPayload struct {
 	ClassHandle InteractionClassHandle
 }
@@ -389,15 +397,18 @@ func (p InteractionClassPayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *InteractionClassPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 4 {
-		return ErrSSZBufferTooShort
+	if len(data) != 4 {
+		if len(data) < 4 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.ClassHandle = InteractionClassHandle(Uint32FromBytes(data[0:4]))
 	return nil
 }
 
 // SubscribeInteractionClassPayload subscribes or unsubscribes to an interaction class
-// Layout: [ClassHandle:4, Active:1]
+// Layout: [ClassHandle:4, Active:1] (Exact 5 bytes fixed)
 type SubscribeInteractionClassPayload struct {
 	ClassHandle InteractionClassHandle
 	Active      bool
@@ -406,21 +417,21 @@ type SubscribeInteractionClassPayload struct {
 func (p SubscribeInteractionClassPayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 5)
 	PutUint32(buf[0:4], uint32(p.ClassHandle))
-	if p.Active {
-		buf[4] = 1
-	} else {
-		buf[4] = 0
-	}
+	PutBool(buf[4:5], p.Active)
 	return buf, nil
 }
 
 func (p *SubscribeInteractionClassPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 5 {
-		return ErrSSZBufferTooShort
+	if len(data) != 5 {
+		if len(data) < 5 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.ClassHandle = InteractionClassHandle(Uint32FromBytes(data[0:4]))
-	p.Active = data[4] == 1
-	return nil
+	var err error
+	p.Active, err = DecodeBool(data[4])
+	return err
 }
 
 // ============================================================================
@@ -588,7 +599,7 @@ func (p *RemoveObjectInstancePayload) UnmarshalBinary(data []byte) error {
 
 // UpdateAttributesPayload carries attribute updates (UAV) or reflections (RAV)
 // Layout: [ObjectHandle:4, HasTime:1, Time:8, Offset0:4 (Tag), Offset1:4 (Attributes)]
-// Heap: Tag bytes + Attributes table [Count:4 + (Handle:4, Len:4, Data:N)...]
+// Dynamic part: Tag bytes + Canonical SSZ List[Container] of Attributes
 type UpdateAttributesPayload struct {
 	ObjectHandle ObjectInstanceHandle
 	Attributes   map[AttributeHandle][]byte
@@ -600,21 +611,16 @@ type UpdateAttributesPayload struct {
 func (p UpdateAttributesPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 21 // 4 + 1 + 8 + 4 + 4
 	tagLen := uint32(len(p.Tag))
+	attrListSize := SizeSSZAttributeList(p.Attributes)
 
-	attrDataLen := uint32(4) // count
-	for _, val := range p.Attributes {
-		attrDataLen += 8 + uint32(len(val)) // handle(4) + len(4) + data
-	}
-
-	totalLen := fixedHeaderSize + tagLen + attrDataLen
+	totalLen := fixedHeaderSize + tagLen + attrListSize
 	buf := make([]byte, totalLen)
 
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	PutBool(buf[4:5], p.HasTime)
 	if p.HasTime {
-		buf[4] = 1
 		PutFloat64(buf[5:13], p.Time)
 	} else {
-		buf[4] = 0
 		PutFloat64(buf[5:13], 0)
 	}
 
@@ -625,17 +631,7 @@ func (p UpdateAttributesPayload) MarshalBinary() ([]byte, error) {
 	PutOffset(buf[17:21], off1)
 
 	EncodeSSZBytes(buf, off0, p.Tag)
-
-	// Serialize attribute table
-	PutUint32(buf[off1:off1+4], uint32(len(p.Attributes)))
-	curOffset := off1 + 4
-	for attr, val := range p.Attributes {
-		PutUint32(buf[curOffset:curOffset+4], uint32(attr))
-		PutUint32(buf[curOffset+4:curOffset+8], uint32(len(val)))
-		curOffset += 8
-		copy(buf[curOffset:], val)
-		curOffset += uint32(len(val))
-	}
+	EncodeSSZAttributeList(buf, off1, p.Attributes)
 
 	return buf, nil
 }
@@ -647,7 +643,11 @@ func (p *UpdateAttributesPayload) UnmarshalBinary(data []byte) error {
 	}
 
 	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
-	p.HasTime = data[4] == 1
+	var err error
+	p.HasTime, err = DecodeBool(data[4])
+	if err != nil {
+		return err
+	}
 	p.Time = Float64FromBytes(data[5:13])
 
 	off0 := GetOffset(data[13:17])
@@ -658,36 +658,14 @@ func (p *UpdateAttributesPayload) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	var err error
 	p.Tag, err = DecodeSSZBytes(data, off0, off1)
 	if err != nil {
 		return err
 	}
 
-	// Parse attributes table
-	if off1+4 > totalLen {
-		p.Attributes = make(map[AttributeHandle][]byte)
-		return nil
-	}
-
-	count := Uint32FromBytes(data[off1 : off1+4])
-	p.Attributes = make(map[AttributeHandle][]byte, count)
-	curOffset := off1 + 4
-
-	for i := uint32(0); i < count; i++ {
-		if curOffset+8 > totalLen {
-			return ErrSSZBufferTooShort
-		}
-		handle := AttributeHandle(Uint32FromBytes(data[curOffset : curOffset+4]))
-		valLen := Uint32FromBytes(data[curOffset+4 : curOffset+8])
-		curOffset += 8
-		if curOffset+valLen > totalLen {
-			return ErrSSZDataOutOfBounds
-		}
-		val := make([]byte, valLen)
-		copy(val, data[curOffset:curOffset+valLen])
-		curOffset += valLen
-		p.Attributes[handle] = val
+	p.Attributes, err = DecodeSSZAttributeList(data, off1, totalLen)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -695,7 +673,7 @@ func (p *UpdateAttributesPayload) UnmarshalBinary(data []byte) error {
 
 // SendInteractionPayload carries interaction sending or reception
 // Layout: [ClassHandle:4, HasTime:1, Time:8, Offset0:4 (Tag), Offset1:4 (Parameters)]
-// Heap: Tag bytes + Parameters table [Count:4 + (Handle:4, Len:4, Data:N)...]
+// Dynamic part: Tag bytes + Canonical SSZ List[Container] of Parameters
 type SendInteractionPayload struct {
 	ClassHandle InteractionClassHandle
 	Parameters  map[ParameterHandle][]byte
@@ -707,21 +685,16 @@ type SendInteractionPayload struct {
 func (p SendInteractionPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 21 // 4 + 1 + 8 + 4 + 4
 	tagLen := uint32(len(p.Tag))
+	paramListSize := SizeSSZParameterList(p.Parameters)
 
-	paramDataLen := uint32(4) // count
-	for _, val := range p.Parameters {
-		paramDataLen += 8 + uint32(len(val))
-	}
-
-	totalLen := fixedHeaderSize + tagLen + paramDataLen
+	totalLen := fixedHeaderSize + tagLen + paramListSize
 	buf := make([]byte, totalLen)
 
 	PutUint32(buf[0:4], uint32(p.ClassHandle))
+	PutBool(buf[4:5], p.HasTime)
 	if p.HasTime {
-		buf[4] = 1
 		PutFloat64(buf[5:13], p.Time)
 	} else {
-		buf[4] = 0
 		PutFloat64(buf[5:13], 0)
 	}
 
@@ -732,17 +705,7 @@ func (p SendInteractionPayload) MarshalBinary() ([]byte, error) {
 	PutOffset(buf[17:21], off1)
 
 	EncodeSSZBytes(buf, off0, p.Tag)
-
-	// Serialize parameter table
-	PutUint32(buf[off1:off1+4], uint32(len(p.Parameters)))
-	curOffset := off1 + 4
-	for param, val := range p.Parameters {
-		PutUint32(buf[curOffset:curOffset+4], uint32(param))
-		PutUint32(buf[curOffset+4:curOffset+8], uint32(len(val)))
-		curOffset += 8
-		copy(buf[curOffset:], val)
-		curOffset += uint32(len(val))
-	}
+	EncodeSSZParameterList(buf, off1, p.Parameters)
 
 	return buf, nil
 }
@@ -754,7 +717,11 @@ func (p *SendInteractionPayload) UnmarshalBinary(data []byte) error {
 	}
 
 	p.ClassHandle = InteractionClassHandle(Uint32FromBytes(data[0:4]))
-	p.HasTime = data[4] == 1
+	var err error
+	p.HasTime, err = DecodeBool(data[4])
+	if err != nil {
+		return err
+	}
 	p.Time = Float64FromBytes(data[5:13])
 
 	off0 := GetOffset(data[13:17])
@@ -765,35 +732,14 @@ func (p *SendInteractionPayload) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	var err error
 	p.Tag, err = DecodeSSZBytes(data, off0, off1)
 	if err != nil {
 		return err
 	}
 
-	if off1+4 > totalLen {
-		p.Parameters = make(map[ParameterHandle][]byte)
-		return nil
-	}
-
-	count := Uint32FromBytes(data[off1 : off1+4])
-	p.Parameters = make(map[ParameterHandle][]byte, count)
-	curOffset := off1 + 4
-
-	for i := uint32(0); i < count; i++ {
-		if curOffset+8 > totalLen {
-			return ErrSSZBufferTooShort
-		}
-		handle := ParameterHandle(Uint32FromBytes(data[curOffset : curOffset+4]))
-		valLen := Uint32FromBytes(data[curOffset+4 : curOffset+8])
-		curOffset += 8
-		if curOffset+valLen > totalLen {
-			return ErrSSZDataOutOfBounds
-		}
-		val := make([]byte, valLen)
-		copy(val, data[curOffset:curOffset+valLen])
-		curOffset += valLen
-		p.Parameters[handle] = val
+	p.Parameters, err = DecodeSSZParameterList(data, off1, totalLen)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -804,7 +750,7 @@ func (p *SendInteractionPayload) UnmarshalBinary(data []byte) error {
 // ============================================================================
 
 // TimeFloat64Payload conveys a single float64 time value
-// Layout: [Time:8] (Fixed)
+// Layout: [Time:8] (Exact 8 bytes fixed)
 type TimeFloat64Payload struct {
 	Time float64
 }
@@ -816,8 +762,11 @@ func (p TimeFloat64Payload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *TimeFloat64Payload) UnmarshalBinary(data []byte) error {
-	if len(data) < 8 {
-		return ErrSSZBufferTooShort
+	if len(data) != 8 {
+		if len(data) < 8 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.Time = Float64FromBytes(data[0:8])
 	return nil
@@ -985,7 +934,7 @@ func (p *AcquireOwnershipPayload) UnmarshalBinary(data []byte) error {
 }
 
 // QueryOwnershipPayload carries the object handle and attribute handle to query
-// Layout: [ObjectHandle:4, AttributeHandle:4] (Fixed)
+// Layout: [ObjectHandle:4, AttributeHandle:4] (Exact 8 bytes fixed)
 type QueryOwnershipPayload struct {
 	ObjectHandle    uint32
 	AttributeHandle uint32
@@ -999,8 +948,11 @@ func (p QueryOwnershipPayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *QueryOwnershipPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 8 {
-		return ErrSSZBufferTooShort
+	if len(data) != 8 {
+		if len(data) < 8 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.ObjectHandle = Uint32FromBytes(data[0:4])
 	p.AttributeHandle = Uint32FromBytes(data[4:8])
@@ -1008,7 +960,7 @@ func (p *QueryOwnershipPayload) UnmarshalBinary(data []byte) error {
 }
 
 // QueryOwnershipResponsePayload returns ownership status
-// Layout: [ObjectHandle:4, AttributeHandle:4, OwnerHandle:4, IsOwned:1] (Fixed)
+// Layout: [ObjectHandle:4, AttributeHandle:4, OwnerHandle:4, IsOwned:1] (Exact 13 bytes fixed)
 type QueryOwnershipResponsePayload struct {
 	ObjectHandle    uint32
 	AttributeHandle uint32
@@ -1021,23 +973,23 @@ func (p QueryOwnershipResponsePayload) MarshalBinary() ([]byte, error) {
 	PutUint32(buf[0:4], p.ObjectHandle)
 	PutUint32(buf[4:8], p.AttributeHandle)
 	PutUint32(buf[8:12], p.OwnerHandle)
-	if p.IsOwned {
-		buf[12] = 1
-	} else {
-		buf[12] = 0
-	}
+	PutBool(buf[12:13], p.IsOwned)
 	return buf, nil
 }
 
 func (p *QueryOwnershipResponsePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 13 {
-		return ErrSSZBufferTooShort
+	if len(data) != 13 {
+		if len(data) < 13 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.ObjectHandle = Uint32FromBytes(data[0:4])
 	p.AttributeHandle = Uint32FromBytes(data[4:8])
 	p.OwnerHandle = Uint32FromBytes(data[8:12])
-	p.IsOwned = data[12] == 1
-	return nil
+	var err error
+	p.IsOwned, err = DecodeBool(data[12])
+	return err
 }
 
 // ============================================================================
@@ -1081,7 +1033,7 @@ func (p *CreateRegionPayload) UnmarshalBinary(data []byte) error {
 }
 
 // CreateRegionResponsePayload returns the assigned region handle
-// Layout: [RegionHandle:4] (Fixed)
+// Layout: [RegionHandle:4] (Exact 4 bytes fixed)
 type CreateRegionResponsePayload struct {
 	RegionHandle uint32
 }
@@ -1093,15 +1045,18 @@ func (p CreateRegionResponsePayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *CreateRegionResponsePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 4 {
-		return ErrSSZBufferTooShort
+	if len(data) != 4 {
+		if len(data) < 4 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.RegionHandle = Uint32FromBytes(data[0:4])
 	return nil
 }
 
 // SetRangeBoundsPayload defines discrete grid bounds [lower, upper] for a dimension
-// Layout: [RegionHandle:4, DimensionHandle:4, LowerBound:4, UpperBound:4] (Fixed)
+// Layout: [RegionHandle:4, DimensionHandle:4, LowerBound:4, UpperBound:4] (Exact 16 bytes fixed)
 type SetRangeBoundsPayload struct {
 	RegionHandle    uint32
 	DimensionHandle uint32
@@ -1119,8 +1074,11 @@ func (p SetRangeBoundsPayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *SetRangeBoundsPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 16 {
-		return ErrSSZBufferTooShort
+	if len(data) != 16 {
+		if len(data) < 16 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.RegionHandle = Uint32FromBytes(data[0:4])
 	p.DimensionHandle = Uint32FromBytes(data[4:8])
@@ -1130,7 +1088,7 @@ func (p *SetRangeBoundsPayload) UnmarshalBinary(data []byte) error {
 }
 
 // SetMetricBoundsPayload sets continuous ECEF metric bounds for a region
-// Layout: [RegionHandle:4, MinX:8, MaxX:8, MinY:8, MaxY:8, MinZ:8, MaxZ:8] (Fixed)
+// Layout: [RegionHandle:4, MinX:8, MaxX:8, MinY:8, MaxY:8, MinZ:8, MaxZ:8] (Exact 52 bytes fixed)
 type SetMetricBoundsPayload struct {
 	RegionHandle uint32
 	MinX, MaxX   float64
@@ -1151,8 +1109,11 @@ func (p SetMetricBoundsPayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *SetMetricBoundsPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 52 {
-		return ErrSSZBufferTooShort
+	if len(data) != 52 {
+		if len(data) < 52 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.RegionHandle = Uint32FromBytes(data[0:4])
 	p.MinX = Float64FromBytes(data[4:12])
@@ -1208,7 +1169,7 @@ func (p *SubscribeWithRegionPayload) UnmarshalBinary(data []byte) error {
 
 // UpdateAttributesSpatialPayload transmits attribute updates tagged with metric ECEF coordinates
 // Layout: [ObjectHandle:4, X:8, Y:8, Z:8, Offset0:4 (Tag), Offset1:4 (Attributes)]
-// Heap: Tag bytes + Attributes table
+// Dynamic part: Tag bytes + Canonical SSZ List[Container] of Attributes
 type UpdateAttributesSpatialPayload struct {
 	ObjectHandle ObjectInstanceHandle
 	X, Y, Z      float64
@@ -1219,13 +1180,9 @@ type UpdateAttributesSpatialPayload struct {
 func (p UpdateAttributesSpatialPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 36 // 4 + 8 + 8 + 8 + 4 + 4
 	tagLen := uint32(len(p.Tag))
+	attrListSize := SizeSSZAttributeList(p.Attributes)
 
-	attrDataLen := uint32(4) // count
-	for _, val := range p.Attributes {
-		attrDataLen += 8 + uint32(len(val))
-	}
-
-	totalLen := fixedHeaderSize + tagLen + attrDataLen
+	totalLen := fixedHeaderSize + tagLen + attrListSize
 	buf := make([]byte, totalLen)
 
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))
@@ -1240,16 +1197,7 @@ func (p UpdateAttributesSpatialPayload) MarshalBinary() ([]byte, error) {
 	PutOffset(buf[32:36], off1)
 
 	EncodeSSZBytes(buf, off0, p.Tag)
-
-	PutUint32(buf[off1:off1+4], uint32(len(p.Attributes)))
-	curOffset := off1 + 4
-	for attr, val := range p.Attributes {
-		PutUint32(buf[curOffset:curOffset+4], uint32(attr))
-		PutUint32(buf[curOffset+4:curOffset+8], uint32(len(val)))
-		curOffset += 8
-		copy(buf[curOffset:], val)
-		curOffset += uint32(len(val))
-	}
+	EncodeSSZAttributeList(buf, off1, p.Attributes)
 
 	return buf, nil
 }
@@ -1279,29 +1227,9 @@ func (p *UpdateAttributesSpatialPayload) UnmarshalBinary(data []byte) error {
 		return err
 	}
 
-	if off1+4 > totalLen {
-		p.Attributes = make(map[AttributeHandle][]byte)
-		return nil
-	}
-
-	count := Uint32FromBytes(data[off1 : off1+4])
-	p.Attributes = make(map[AttributeHandle][]byte, count)
-	curOffset := off1 + 4
-
-	for i := uint32(0); i < count; i++ {
-		if curOffset+8 > totalLen {
-			return ErrSSZBufferTooShort
-		}
-		handle := AttributeHandle(Uint32FromBytes(data[curOffset : curOffset+4]))
-		valLen := Uint32FromBytes(data[curOffset+4 : curOffset+8])
-		curOffset += 8
-		if curOffset+valLen > totalLen {
-			return ErrSSZDataOutOfBounds
-		}
-		val := make([]byte, valLen)
-		copy(val, data[curOffset:curOffset+valLen])
-		curOffset += valLen
-		p.Attributes[handle] = val
+	p.Attributes, err = DecodeSSZAttributeList(data, off1, totalLen)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -1348,7 +1276,7 @@ func (p *GetObjectClassHandlePayload) UnmarshalBinary(data []byte) error {
 }
 
 // HandleResponsePayload returns an int32 handle
-// Layout: [Handle:4] (Fixed)
+// Layout: [Handle:4] (Exact 4 bytes fixed)
 type HandleResponsePayload struct {
 	Handle int32
 }
@@ -1360,8 +1288,11 @@ func (p HandleResponsePayload) MarshalBinary() ([]byte, error) {
 }
 
 func (p *HandleResponsePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 4 {
-		return ErrSSZBufferTooShort
+	if len(data) != 4 {
+		if len(data) < 4 {
+			return ErrSSZBufferTooShort
+		}
+		return ErrSSZTrailingBytes
 	}
 	p.Handle = Int32FromBytes(data[0:4])
 	return nil
