@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"math"
+	"math/bits"
 )
 
 const (
@@ -16,6 +17,9 @@ const (
 	ECEFMaxBound = 10000000.0
 	// ECEFExtent is the total 20,000 km span
 	ECEFExtent = ECEFMaxBound - ECEFMinBound
+
+	// MortonXMask extracts every 3rd bit starting at bit 0 (the dilated X bits)
+	MortonXMask uint64 = 0x1249249249249249
 )
 
 var (
@@ -99,10 +103,71 @@ func DecodeECEF(code uint64) (float64, float64, float64) {
 }
 
 // SpatialRegion represents an orthogonal 3D bounding box for Data Distribution Management (DDM).
+// It maintains precomputed dilated coordinate bounds for direct bitwise containment in Morton space.
 type SpatialRegion struct {
 	MinX, MaxX uint32
 	MinY, MaxY uint32
 	MinZ, MaxZ uint32
+
+	// Precomputed dilated Morton coordinates for zero-decode bitwise containment
+	partMinX, partMaxX uint64
+	partMinY, partMaxY uint64
+	partMinZ, partMaxZ uint64
+
+	// Common octree ancestor prefix and mask for O(1) branch rejection
+	Prefix     uint64
+	PrefixMask uint64
+}
+
+// RecomputeMortonBounds calculates the dilated coordinates and octree prefix mask.
+func (r *SpatialRegion) RecomputeMortonBounds() {
+	r.partMinX = Part1By2(uint64(r.MinX))
+	r.partMaxX = Part1By2(uint64(r.MaxX))
+	r.partMinY = Part1By2(uint64(r.MinY))
+	r.partMaxY = Part1By2(uint64(r.MaxY))
+	r.partMinZ = Part1By2(uint64(r.MinZ))
+	r.partMaxZ = Part1By2(uint64(r.MaxZ))
+
+	minCode := (r.partMinZ << 2) | (r.partMinY << 1) | r.partMinX
+	maxCode := (r.partMaxZ << 2) | (r.partMaxY << 1) | r.partMaxX
+	diff := minCode ^ maxCode
+
+	if diff == 0 {
+		r.PrefixMask = 0x7fffffffffffffff
+		r.Prefix = minCode & r.PrefixMask
+	} else {
+		clz := bits.LeadingZeros64(diff)
+		// Morton codes occupy 63 bits (bits 0..62). Bit 63 is zero.
+		if clz > 1 {
+			sharedBits := clz - 1
+			octreeLevels := sharedBits / 3
+			pBits := octreeLevels * 3
+			if pBits > 0 && pBits <= 63 {
+				r.PrefixMask = ((uint64(1) << pBits) - 1) << (63 - pBits)
+				r.Prefix = minCode & r.PrefixMask
+			} else {
+				r.PrefixMask = 0
+				r.Prefix = 0
+			}
+		} else {
+			r.PrefixMask = 0
+			r.Prefix = 0
+		}
+	}
+}
+
+// NewSpatialRegion creates a SpatialRegion from discrete grid coordinates and precomputes Morton bounds.
+func NewSpatialRegion(minX, maxX, minY, maxY, minZ, maxZ uint32) (SpatialRegion, error) {
+	if minX > maxX || minY > maxY || minZ > maxZ {
+		return SpatialRegion{}, ErrInvalidBoundingBox
+	}
+	r := SpatialRegion{
+		MinX: minX, MaxX: maxX,
+		MinY: minY, MaxY: maxY,
+		MinZ: minZ, MaxZ: maxZ,
+	}
+	r.RecomputeMortonBounds()
+	return r, nil
 }
 
 // NewSpatialRegionFromMetric creates a SpatialRegion from continuous metric coordinates.
@@ -110,14 +175,16 @@ func NewSpatialRegionFromMetric(minX, maxX, minY, maxY, minZ, maxZ float64) (Spa
 	if minX > maxX || minY > maxY || minZ > maxZ {
 		return SpatialRegion{}, ErrInvalidBoundingBox
 	}
-	return SpatialRegion{
+	r := SpatialRegion{
 		MinX: MetricToGrid(minX),
 		MaxX: MetricToGrid(maxX),
 		MinY: MetricToGrid(minY),
 		MaxY: MetricToGrid(maxY),
 		MinZ: MetricToGrid(minZ),
 		MaxZ: MetricToGrid(maxZ),
-	}, nil
+	}
+	r.RecomputeMortonBounds()
+	return r, nil
 }
 
 // ContainsPoint checks whether a 3D grid point (x, y, z) is inside the region.
@@ -127,10 +194,50 @@ func (r SpatialRegion) ContainsPoint(x, y, z uint32) bool {
 		z >= r.MinZ && z <= r.MaxZ
 }
 
-// ContainsMorton checks whether a Morton-encoded point is inside the region in under 2 nanoseconds.
+// ContainsMorton evaluates spatial containment directly in Morton space without decoding coordinates.
+// It executes a bitwise common-octree ancestor filter followed by parallel bitwise coordinate comparison.
+// Because Part1By2 is strictly monotonic, comparing dilated bits preserves total ordering:
+//
+//	(code & MortonXMask) in [partMinX, partMaxX] <=> x in [MinX, MaxX]
+//
+// This eliminates coordinate decoding (Compact1By2) and floating-point conversions.
 func (r SpatialRegion) ContainsMorton(code uint64) bool {
-	x, y, z := DecodeMorton3D(code)
-	return r.ContainsPoint(x, y, z)
+	if r.partMaxX == 0 && r.MaxX > 0 {
+		r.RecomputeMortonBounds()
+	}
+
+	// 1. Bitwise common octree ancestor check (fast reject for points in other octants)
+	if r.PrefixMask != 0 && (code&r.PrefixMask) != r.Prefix {
+		return false
+	}
+
+	// 2. Parallel bitwise coordinate containment in Morton space
+	cx := code & MortonXMask
+	if cx < r.partMinX || cx > r.partMaxX {
+		return false
+	}
+
+	cy := (code >> 1) & MortonXMask
+	if cy < r.partMinY || cy > r.partMaxY {
+		return false
+	}
+
+	cz := (code >> 2) & MortonXMask
+	if cz < r.partMinZ || cz > r.partMaxZ {
+		return false
+	}
+
+	return true
+}
+
+// MortonBounds returns the enclosing bounding interval [minCode, maxCode] in Morton space.
+func (r SpatialRegion) MortonBounds() (uint64, uint64) {
+	if r.partMaxX == 0 && r.MaxX > 0 {
+		r.RecomputeMortonBounds()
+	}
+	minCode := (r.partMinZ << 2) | (r.partMinY << 1) | r.partMinX
+	maxCode := (r.partMaxZ << 2) | (r.partMaxY << 1) | r.partMaxX
+	return minCode, maxCode
 }
 
 // Overlaps checks whether two 3D spatial regions intersect.

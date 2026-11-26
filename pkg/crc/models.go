@@ -413,11 +413,8 @@ func (f *FederationExecution) CreateRegion() uint32 {
 
 	handle := f.nextRegionHandle
 	f.nextRegionHandle++
-	f.regions[handle] = &core.SpatialRegion{
-		MinX: 0, MaxX: core.MaxCoordinateValue,
-		MinY: 0, MaxY: core.MaxCoordinateValue,
-		MinZ: 0, MaxZ: core.MaxCoordinateValue,
-	}
+	reg, _ := core.NewSpatialRegion(0, core.MaxCoordinateValue, 0, core.MaxCoordinateValue, 0, core.MaxCoordinateValue)
+	f.regions[handle] = &reg
 	return handle
 }
 
@@ -439,6 +436,7 @@ func (f *FederationExecution) SetRegionRangeBounds(handle uint32, dim uint32, lo
 	case 3:
 		r.MinZ, r.MaxZ = lower, upper
 	}
+	r.RecomputeMortonBounds()
 	return nil
 }
 
