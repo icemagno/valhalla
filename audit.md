@@ -43,7 +43,7 @@ O projeto demonstra engenhosidade na concepção de estruturas de dados e no par
   - O cliente ([`pkg/lrc/client.go`](pkg/lrc/client.go#L143-L180)) **descarta e ignora solenemente** o campo `MerkleRoot` de 32 bytes do cabeçalho `NativeHeader`. O LRC nunca compara o hash de estado nem verifica desync.
   - A função `GenerateProof` em [`pkg/crc/core/merkle_tree.go`](pkg/crc/core/merkle_tree.go#L178) **só é chamada no teste unitário**. Não há mensagem na rede para solicitar ou validar provas Merkle, nem qualquer exposição na C-ABI ou nos SDKs Java, C++ e Web.
 
-> ⏳ **STATUS DE REMEDIAÇÃO (26/11/2026): EM REVISÃO DE AUDITORIA**  
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E APROVADO** (commit `ca8e127`)  
 > Implementada a validação ponta-a-ponta de integridade e detecção de desync no LRC (`pkg/lrc/client.go` e `pkg/lrc/rti_ambassador.go`): árvore local de estado mantida no federado (`common.FederationStateTree`) com sincronização do ciclo de vida completo (registro, descoberta, atualização, atualização espacial e remoção) e comparada a cada reflexão e atualização de atributos contra o `MerkleRoot` de 32 bytes recebido no `NativeHeader`, com notificação imediata via `DesyncAwareFederateAmbassador` e `LastDesyncDetected()`. Implementado o protocolo de rede para requisição (`NativeMsgGetMerkleProof`) e resposta (`NativeMsgGetMerkleProofResp`) de provas criptográficas de inclusão SSZ, validadas matematicamente no cliente contra a raiz de estado confiável (`expectedRoot`) com checagem estrita de convergência de caminho (`idx == 0`) e limite de profundidade (<= 64 chunks) via `VerifyMerkleProof()`. Coberto por testes adversariais contra falsos positivos, forjamento de provas e corrupção de estado em `test/integration/merkle_desync_test.go` e `go test -race`.
 
 ### 🔴 1.4. DDM 3D com Curvas de Morton — Falsa Filtragem Bitwise
@@ -234,5 +234,5 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | :---: | :--- | :--- | :---: |
 | **1.4** | DDM 3D com Curvas de Morton (filtragem bitwise zero-decode + prefixo de octree) | `a7db266` | **✅ CORRIGIDO** |
 | **1.2** | Serialização e Merkleização SSZ (Ethereum 2.0) canônica, determinística e anti-DoS | `552a97c`, `ba6a8a8`, `bc1981a` | **✅ CORRIGIDO** |
-| **1.3** | Árvores Merkle e Validação de Desync no LRC + Protocolo de Provas de Inclusão | *(commit atual)* | **✅ CORRIGIDO** |
+| **1.3** | Árvores Merkle e Validação de Desync no LRC + Protocolo de Provas de Inclusão | `ca8e127` | **✅ CORRIGIDO** |
 
