@@ -10,4 +10,5 @@ var (
 	ErrConnectionClosed               = errors.New("hla lrc: transport connection closed")
 	ErrRequestTimeout                 = errors.New("hla lrc: request timeout waiting for crc response")
 	ErrInvalidResponse                = errors.New("hla lrc: invalid response from crc")
+	ErrCallbackQueueSaturated         = errors.New("hla lrc: callback queue capacity saturated")
 )

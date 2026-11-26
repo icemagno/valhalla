@@ -17,6 +17,15 @@ type nativeResponse struct {
 	Err     error
 }
 
+const (
+	// DefaultMaxCallbackQueueCapacity is the maximum safety ceiling before saturation is declared
+	DefaultMaxCallbackQueueCapacity = 262144 // 256K callbacks
+	// DefaultInQueueBufferSize is the internal buffer for incoming network callbacks
+	DefaultInQueueBufferSize        = 4096
+	// DefaultOutQueueBufferSize is the channel buffer exposed to EvokeCallback
+	DefaultOutQueueBufferSize       = 1024
+)
+
 type callbackItem struct {
 	MsgType    uint8
 	Payload    []byte
@@ -26,14 +35,22 @@ type callbackItem struct {
 
 // Client manages the transport connection and native protocol (VAL4) with the CRC
 type Client struct {
-	conn       net.Conn
-	writeMu    sync.Mutex
-	nextReqID  uint32
-	pendingMu  sync.Mutex
-	pending    map[uint16]chan nativeResponse
-	callbacks  chan callbackItem
-	isClosed   int32
-	closedChan chan struct{}
+	conn             net.Conn
+	writeMu          sync.Mutex
+	nextReqID        uint32
+	pendingMu        sync.Mutex
+	pending          map[uint16]chan nativeResponse
+
+	// Elastic callback queue pipeline
+	inQueue          chan callbackItem
+	callbacks        chan callbackItem
+	maxQueueCapacity int64
+	queueLen         int64
+	isSaturated      uint32
+	droppedCount     uint64
+
+	isClosed         int32
+	closedChan       chan struct{}
 }
 
 // NewClient connects to the CRC over TCP and establishes the native VAL4 preamble
@@ -51,13 +68,16 @@ func NewClient(address string) (*Client, error) {
 	}
 
 	c := &Client{
-		conn:       conn,
-		pending:    make(map[uint16]chan nativeResponse),
-		callbacks:  make(chan callbackItem, 1024),
-		closedChan: make(chan struct{}),
+		conn:             conn,
+		pending:          make(map[uint16]chan nativeResponse),
+		inQueue:          make(chan callbackItem, DefaultInQueueBufferSize),
+		callbacks:        make(chan callbackItem, DefaultOutQueueBufferSize),
+		maxQueueCapacity: DefaultMaxCallbackQueueCapacity,
+		closedChan:       make(chan struct{}),
 	}
 
 	go c.readLoop()
+	go c.queueLoop()
 
 	return c, nil
 }
@@ -144,9 +164,114 @@ func (c *Client) writePacket(hdr common.NativeHeader, payload []byte) error {
 
 // EnqueueCallback injects an asynchronous callback item into the callback processing queue
 func (c *Client) EnqueueCallback(item callbackItem) {
+	if c.IsClosed() {
+		return
+	}
 	select {
-	case c.callbacks <- item:
-	default:
+	case c.inQueue <- item:
+	case <-c.closedChan:
+	}
+}
+
+// SetMaxQueueCapacity dynamically adjusts the safety ceiling of the elastic callback queue
+func (c *Client) SetMaxQueueCapacity(capacity int) {
+	atomic.StoreInt64(&c.maxQueueCapacity, int64(capacity))
+}
+
+// MaxQueueCapacity returns the maximum allowed items in the elastic callback queue
+func (c *Client) MaxQueueCapacity() int {
+	return int(atomic.LoadInt64(&c.maxQueueCapacity))
+}
+
+// QueueLength returns the current number of queued callbacks awaiting processing
+func (c *Client) QueueLength() int {
+	return int(atomic.LoadInt64(&c.queueLen)) + len(c.inQueue)
+}
+
+// IsQueueSaturated indicates whether the callback queue reached its safety ceiling
+func (c *Client) IsQueueSaturated() bool {
+	return atomic.LoadUint32(&c.isSaturated) == 1
+}
+
+// DroppedCallbackCount returns the cumulative number of dropped callbacks due to saturation
+func (c *Client) DroppedCallbackCount() uint64 {
+	return atomic.LoadUint64(&c.droppedCount)
+}
+
+// ResetQueueSaturation clears the saturation indicator and dropped counter
+func (c *Client) ResetQueueSaturation() {
+	atomic.StoreUint32(&c.isSaturated, 0)
+	atomic.StoreUint64(&c.droppedCount, 0)
+}
+
+// queueLoop manages the elastic buffer between the internal inQueue and the public callbacks channel
+func (c *Client) queueLoop() {
+	var buffer []callbackItem
+
+	for {
+		var outChan chan<- callbackItem
+		var nextItem callbackItem
+		if len(buffer) > 0 {
+			outChan = c.callbacks
+			nextItem = buffer[0]
+		} else if c.IsClosed() {
+			return
+		}
+
+		select {
+		case item := <-c.inQueue:
+			maxCap := atomic.LoadInt64(&c.maxQueueCapacity)
+			currentTotal := int64(len(buffer) + len(c.callbacks))
+			if maxCap > 0 && currentTotal >= maxCap {
+				atomic.StoreUint32(&c.isSaturated, 1)
+				atomic.AddUint64(&c.droppedCount, 1)
+			} else {
+				buffer = append(buffer, item)
+				atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+			}
+
+		case outChan <- nextItem:
+			buffer[0] = callbackItem{} // Release reference for GC
+			buffer = buffer[1:]
+			atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+			if len(buffer) == 0 && cap(buffer) > 4096 {
+				buffer = nil
+			}
+
+		case <-c.closedChan:
+			// Client was closed: drain inQueue non-blockingly into buffer
+		drainInQueue:
+			for {
+				select {
+				case item := <-c.inQueue:
+					maxCap := atomic.LoadInt64(&c.maxQueueCapacity)
+					currentTotal := int64(len(buffer) + len(c.callbacks))
+					if maxCap > 0 && currentTotal >= maxCap {
+						atomic.StoreUint32(&c.isSaturated, 1)
+						atomic.AddUint64(&c.droppedCount, 1)
+					} else {
+						buffer = append(buffer, item)
+						atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+					}
+				default:
+					break drainInQueue
+				}
+			}
+
+			// Drain buffer into c.callbacks as long as consumer is reading
+			for len(buffer) > 0 {
+				select {
+				case c.callbacks <- buffer[0]:
+					buffer[0] = callbackItem{}
+					buffer = buffer[1:]
+					atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+				case <-time.After(500 * time.Millisecond):
+					// Consumer stopped reading or abandoned queue; terminate
+					return
+				}
+			}
+			return
+		}
 	}
 }
 
@@ -181,17 +306,18 @@ func (c *Client) readLoop() {
 			}
 		}
 
-		// Otherwise, it is an asynchronous RTI notification dispatched to the callback queue
+		// Otherwise, it is an asynchronous RTI notification dispatched to the elastic callback queue
 		hasMerkle := (hdr.Flags & common.FlagNativeMerkle) != 0
-		select {
-		case c.callbacks <- callbackItem{
+		item := callbackItem{
 			MsgType:    hdr.MsgType,
 			Payload:    payload,
 			MerkleRoot: hdr.MerkleRoot,
 			HasMerkle:  hasMerkle,
-		}:
-		default:
-			// Queue saturated, drop to prevent memory ballooning
+		}
+		select {
+		case c.inQueue <- item:
+		case <-c.closedChan:
+			return
 		}
 	}
 }

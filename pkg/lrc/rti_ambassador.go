@@ -1054,7 +1054,9 @@ func (a *RTIambassadorImpl) Heartbeat() error {
 	return checkNativeResponse(resp)
 }
 
-// EvokeCallback delivers one pending callback to the FederateAmbassador if available
+// EvokeCallback delivers one pending callback to the FederateAmbassador if available.
+// If the callback queue has reached saturation, it returns ErrCallbackQueueSaturated
+// to explicitly alert the federate to message loss.
 func (a *RTIambassadorImpl) EvokeCallback(timeout time.Duration) (bool, error) {
 	a.mu.RLock()
 	client := a.client
@@ -1073,11 +1075,61 @@ func (a *RTIambassadorImpl) EvokeCallback(timeout time.Duration) (bool, error) {
 	select {
 	case cb := <-client.callbacks:
 		a.dispatchCallback(cb, fedAmb)
+		if client.IsQueueSaturated() {
+			return true, ErrCallbackQueueSaturated
+		}
 		return true, nil
 	case <-timer:
+		if client.IsQueueSaturated() {
+			return false, ErrCallbackQueueSaturated
+		}
 		return false, nil
 	case <-client.closedChan:
-		return false, ErrConnectionClosed
+		// Check if any drained callback remains available in callbacks channel
+		select {
+		case cb := <-client.callbacks:
+			a.dispatchCallback(cb, fedAmb)
+			if client.IsQueueSaturated() {
+				return true, ErrCallbackQueueSaturated
+			}
+			return true, nil
+		default:
+			return false, ErrConnectionClosed
+		}
+	}
+}
+
+// GetCallbackQueueStatus reports the current callback backlog, saturation state, and dropped count
+func (a *RTIambassadorImpl) GetCallbackQueueStatus() (length int, saturated bool, dropped uint64) {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return 0, false, 0
+	}
+	return client.QueueLength(), client.IsQueueSaturated(), client.DroppedCallbackCount()
+}
+
+// ResetCallbackQueueSaturation clears the saturation flag and dropped count on the client queue
+func (a *RTIambassadorImpl) ResetCallbackQueueSaturation() {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client != nil {
+		client.ResetQueueSaturation()
+	}
+}
+
+// SetCallbackQueueCapacity dynamically configures the maximum queue limit
+func (a *RTIambassadorImpl) SetCallbackQueueCapacity(capacity int) {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client != nil {
+		client.SetMaxQueueCapacity(capacity)
 	}
 }
 

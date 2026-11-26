@@ -109,6 +109,9 @@ type RTIambassador interface {
 	// Callback Evocation
 	EvokeCallback(timeout time.Duration) (bool, error)
 	EvokeMultipleCallbacks(minTimeout, maxTimeout time.Duration) error
+	GetCallbackQueueStatus() (length int, saturated bool, dropped uint64)
+	ResetCallbackQueueSaturation()
+	SetCallbackQueueCapacity(capacity int)
 
 	// Cryptographic State Integrity & Merkle Proofs
 	GetLocalStateRoot() [32]byte
