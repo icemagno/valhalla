@@ -142,6 +142,7 @@ public interface IValhallaLrc extends Library {
     int valhalla_enable_time_constrained(Pointer amb);
     int valhalla_time_advance_request(Pointer amb, double time);
     int valhalla_next_message_request(Pointer amb, double time);
+    int valhalla_heartbeat(Pointer amb);
 
     int valhalla_divest_ownership(Pointer amb, int objectHandle, int[] attrHandles, int attrCount);
     int valhalla_acquire_ownership(Pointer amb, int objectHandle, int[] attrHandles, int attrCount);

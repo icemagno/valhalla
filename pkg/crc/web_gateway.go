@@ -84,6 +84,16 @@ func (g *WebGateway) Start() error {
 	return nil
 }
 
+// Addr returns the real network listener address of the WebGateway
+func (g *WebGateway) Addr() net.Addr {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.listener != nil {
+		return g.listener.Addr()
+	}
+	return nil
+}
+
 // Stop gracefully shuts down the Web gateway and terminates active WebSocket client connections
 func (g *WebGateway) Stop() error {
 	g.mu.Lock()

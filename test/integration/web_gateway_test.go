@@ -36,15 +36,7 @@ func TestHLA4_WebProfile_11Stages(t *testing.T) {
 	}
 	defer func() { _ = webGW.Stop() }()
 
-	time.Sleep(100 * time.Millisecond)
-
-	// We can get the bound address or run on a known free local port:
-	wsPort := 52298
-	gwTest := crc.NewWebGateway(fmt.Sprintf("127.0.0.1:%d", wsPort), fedMgr)
-	if err := gwTest.Start(); err != nil {
-		t.Fatalf("Failed to start gwTest on port %d: %v", wsPort, err)
-	}
-	defer func() { _ = gwTest.Stop() }()
+	wsPort := webGW.Addr().(*net.TCPAddr).Port
 
 	time.Sleep(100 * time.Millisecond)
 

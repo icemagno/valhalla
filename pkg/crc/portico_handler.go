@@ -96,6 +96,10 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			return fmt.Errorf("erro lendo pacote Portico: %w", err)
 		}
 
+		if currentFed != nil && federateID > 0 {
+			currentFed.TimeManager().Heartbeat(common.FederateHandle(federateID))
+		}
+
 		switch hdr.MessageType {
 		case wire.MsgCreateFederation:
 			var fedName string

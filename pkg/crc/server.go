@@ -30,6 +30,10 @@ type Server struct {
 	conns   map[net.Conn]struct{}
 	connsMu sync.Mutex
 
+	antiStallTimeout  time.Duration
+	antiStallInterval time.Duration
+	antiStallEnabled  bool
+
 	stopChan chan struct{}
 	wg       sync.WaitGroup
 	mu       sync.Mutex
@@ -58,8 +62,11 @@ func NewServer(addr string) *Server {
 		webAddr:     webAddr,
 		fedManager:  NewFederationManager(),
 		peekTimeout: 50 * time.Millisecond,
-		conns:       make(map[net.Conn]struct{}),
-		stopChan:    make(chan struct{}),
+		conns:             make(map[net.Conn]struct{}),
+		antiStallTimeout:  2 * time.Second,
+		antiStallInterval: 200 * time.Millisecond,
+		antiStallEnabled:  true,
+		stopChan:          make(chan struct{}),
 	}
 }
 
@@ -71,6 +78,25 @@ func (s *Server) SetWebAddr(webAddr string) {
 		webAddr = ":" + webAddr
 	}
 	s.webAddr = webAddr
+}
+
+// SetAntiStall configures the stall timeout and monitor interval for the Anti-Stall resilience engine
+func (s *Server) SetAntiStall(timeout, interval time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if timeout > 0 {
+		s.antiStallTimeout = timeout
+	}
+	if interval > 0 {
+		s.antiStallInterval = interval
+	}
+}
+
+// EnableAntiStall enables or disables the background anti-stall watchdog
+func (s *Server) EnableAntiStall(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.antiStallEnabled = enabled
 }
 
 // FederationManager returns the central federation manager
@@ -105,7 +131,49 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go s.acceptLoop()
 
+	s.wg.Add(1)
+	go s.antiStallMonitorLoop()
+
 	return nil
+}
+
+func (s *Server) antiStallMonitorLoop() {
+	defer s.wg.Done()
+
+	s.mu.Lock()
+	interval := s.antiStallInterval
+	s.mu.Unlock()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			s.checkStalledFederates()
+		}
+	}
+}
+
+func (s *Server) checkStalledFederates() {
+	s.mu.Lock()
+	enabled := s.antiStallEnabled
+	timeout := s.antiStallTimeout
+	s.mu.Unlock()
+
+	if !enabled {
+		return
+	}
+
+	for _, fed := range s.fedManager.GetAllFederations() {
+		evicted, grants := fed.TimeManager().EvictStalledFederates(timeout)
+		if len(evicted) > 0 {
+			logCRC.Warn("Anti-Stall: Federate(s) %v stalled in federation [%s]; quarantined from LBTS calculations", evicted, fed.Name)
+			dispatchTimeGrants(fed, grants)
+		}
+	}
 }
 
 func (s *Server) acceptLoop() {

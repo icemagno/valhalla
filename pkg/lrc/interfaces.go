@@ -92,6 +92,7 @@ type RTIambassador interface {
 	TimeAdvanceRequest(targetTime float64) error
 	NextMessageRequest(targetTime float64) error
 	FlushQueueRequest(targetTime float64) error
+	Heartbeat() error
 
 	// Ownership Management
 	UnconditionalAttributeOwnershipDivestiture(objectHandle int32, attributes []int32) error

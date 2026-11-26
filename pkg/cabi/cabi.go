@@ -898,6 +898,18 @@ func valhalla_next_message_request(amb C.ValhallaAmbassador, time C.double) C.in
 	return C.VALHALLA_OK
 }
 
+//export valhalla_heartbeat
+func valhalla_heartbeat(amb C.ValhallaAmbassador) C.int32_t {
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	if err := ctx.amb.Heartbeat(); err != nil {
+		return mapErrorToStatusCode(err)
+	}
+	return C.VALHALLA_OK
+}
+
 //export valhalla_divest_ownership
 func valhalla_divest_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
 	if attrCount < 0 || (attrCount > 0 && attrHandles == nil) {

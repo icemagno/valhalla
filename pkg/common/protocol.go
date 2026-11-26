@@ -63,6 +63,7 @@ const (
 	NativeMsgTimeAdvanceGrant        uint8 = 67
 	NativeMsgNextMessageRequest      uint8 = 68
 	NativeMsgFlushQueueRequest       uint8 = 69
+	NativeMsgHeartbeat               uint8 = 70
 
 	// 80-89: Ownership Management
 	NativeMsgQueryAttributeOwnership    uint8 = 80

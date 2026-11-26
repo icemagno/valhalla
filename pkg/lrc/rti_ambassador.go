@@ -1035,6 +1035,25 @@ func (a *RTIambassadorImpl) FlushQueueRequest(targetTime float64) error {
 	return checkNativeResponse(resp)
 }
 
+// Heartbeat notifies the CRC of federate vitality to prevent anti-stall eviction/quarantine
+func (a *RTIambassadorImpl) Heartbeat() error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.client == nil || a.client.IsClosed() {
+		return ErrNotConnected
+	}
+	if a.federateID == 0 {
+		return ErrFederateNotExecutionMember
+	}
+
+	resp, err := a.client.SendRequest(common.NativeMsgHeartbeat, uint32(a.federationID), uint32(a.federateID), nil, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	return checkNativeResponse(resp)
+}
+
 // EvokeCallback delivers one pending callback to the FederateAmbassador if available
 func (a *RTIambassadorImpl) EvokeCallback(timeout time.Duration) (bool, error) {
 	a.mu.RLock()

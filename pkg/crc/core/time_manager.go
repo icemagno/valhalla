@@ -406,6 +406,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					msgs := tm.drainQueueUpToLocked(q, fed.TargetTime)
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
+					fed.LastHeartbeat = time.Now()
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -420,6 +421,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					msgs := tm.drainQueueUpToLocked(q, fed.TargetTime)
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
+					fed.LastHeartbeat = time.Now()
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -430,6 +432,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					msgs := tm.drainQueueUpToLocked(q, lbts)
 					fed.CurrentTime = lbts
 					fed.State = TimeStateGranted
+					fed.LastHeartbeat = time.Now()
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     lbts,
@@ -446,6 +449,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 						msgs := tm.drainQueueUpToLocked(q, earliest)
 						fed.CurrentTime = earliest
 						fed.State = TimeStateGranted
+						fed.LastHeartbeat = time.Now()
 						events = append(events, TimeGrantEvent{
 							Federate: handle,
 							Time:     earliest,
@@ -460,6 +464,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					msgs := tm.drainQueueUpToLocked(q, fed.TargetTime)
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
+					fed.LastHeartbeat = time.Now()
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -476,6 +481,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 						msgs := tm.drainQueueUpToLocked(q, earliest)
 						fed.CurrentTime = earliest
 						fed.State = TimeStateGranted
+						fed.LastHeartbeat = time.Now()
 						events = append(events, TimeGrantEvent{
 							Federate: handle,
 							Time:     earliest,
@@ -489,6 +495,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					msgs := tm.drainQueueUpToLocked(q, fed.TargetTime)
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
+					fed.LastHeartbeat = time.Now()
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -499,6 +506,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					msgs := tm.drainQueueUpToLocked(q, lbts)
 					fed.CurrentTime = lbts
 					fed.State = TimeStateGranted
+					fed.LastHeartbeat = time.Now()
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     lbts,
@@ -514,6 +522,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					msgs := tm.drainQueueUpToLocked(q, effective)
 					fed.CurrentTime = effective
 					fed.State = TimeStateGranted
+					fed.LastHeartbeat = time.Now()
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     effective,
@@ -548,7 +557,9 @@ func (tm *TimeManager) drainQueueUpToLocked(q *tsoHeap, upTo float64) []TSOMessa
 }
 
 // EvictStalledFederates detects regulating federates that have stopped sending heartbeats
-// within timeout and quarantines them from LBTS calculations to prevent deadlock
+// within timeout and quarantines them from LBTS calculations to prevent deadlock.
+// Federates that are actively blocked waiting for an advance grant (State != TimeStateGranted)
+// are waiting for peer progression and are not stalled.
 func (tm *TimeManager) EvictStalledFederates(timeout time.Duration) ([]common.FederateHandle, []TimeGrantEvent) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -557,6 +568,9 @@ func (tm *TimeManager) EvictStalledFederates(timeout time.Duration) ([]common.Fe
 	var evicted []common.FederateHandle
 	for handle, fed := range tm.federates {
 		if fed.IsRegulating && !fed.Quarantined {
+			if fed.State != TimeStateGranted {
+				continue
+			}
 			if now.Sub(fed.LastHeartbeat) > timeout {
 				fed.Quarantined = true
 				evicted = append(evicted, handle)

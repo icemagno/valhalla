@@ -87,6 +87,18 @@ func (m *FederationManager) GetFirstFederation() (*FederationExecution, bool) {
 	return nil, false
 }
 
+// GetAllFederations returns a snapshot slice of all active federation executions
+func (m *FederationManager) GetAllFederations() []*FederationExecution {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	feds := make([]*FederationExecution, 0, len(m.federations))
+	for _, fed := range m.federations {
+		feds = append(feds, fed)
+	}
+	return feds
+}
+
 // ListFederations returns a list of names of all active federations
 func (m *FederationManager) ListFederations() []string {
 	m.mu.RLock()

@@ -329,6 +329,10 @@ func CABI_SyncPointAchieved(amb uintptr, label string) int32 {
 	))
 }
 
+func CABI_Heartbeat(amb uintptr) int32 {
+	return int32(valhalla_heartbeat(C.ValhallaAmbassador(unsafe.Pointer(amb))))
+}
+
 func CABI_EvokeCallback(amb uintptr, timeoutSeconds float64) (bool, int32) {
 	var evoked C.bool
 	code := valhalla_evoke_callback(

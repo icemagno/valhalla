@@ -96,6 +96,7 @@ int32_t valhalla_enable_time_regulation(ValhallaAmbassador amb, double lookahead
 int32_t valhalla_enable_time_constrained(ValhallaAmbassador amb);
 int32_t valhalla_time_advance_request(ValhallaAmbassador amb, double time);
 int32_t valhalla_next_message_request(ValhallaAmbassador amb, double time);
+int32_t valhalla_heartbeat(ValhallaAmbassador amb);
 
 // Ownership Management (Sprint 6 & IEEE 1516-2025)
 int32_t valhalla_divest_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, int32_t attrCount);

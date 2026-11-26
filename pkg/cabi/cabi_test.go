@@ -14,6 +14,7 @@ import (
 
 const (
 	ValhallaOK             = 0
+	ValhallaErrNotConnected = 1
 	ValhallaErrInvalidArg  = 2
 	ValhallaErrNotMember   = 11
 )
@@ -260,5 +261,48 @@ func TestCABI_SynchronizationPointLifecycleAndCallbacks(t *testing.T) {
 
 	if fedLabel := Bridge_GetFederationSynchronized(); fedLabel != syncLabel {
 		t.Fatalf("expected onFederationSynchronized for %q, got %q", syncLabel, fedLabel)
+	}
+}
+
+func TestCABI_Heartbeat(t *testing.T) {
+	server := crc.NewServer("127.0.0.1:0")
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start CRC server: %v", err)
+	}
+	defer server.Stop()
+
+	crcAddr := server.Addr().String()
+	amb := CABI_CreateAmbassador()
+	if amb == 0 {
+		t.Fatalf("failed to create ambassador")
+	}
+	defer CABI_DestroyAmbassador(amb)
+
+	// Heartbeat before connect must fail with NOT_CONNECTED
+	if code := CABI_Heartbeat(amb); code != ValhallaErrNotConnected {
+		t.Fatalf("expected VALHALLA_ERR_NOT_CONNECTED before connect, got %d", code)
+	}
+
+	if code := CABI_Connect(amb, crcAddr); code != ValhallaOK {
+		t.Fatalf("connect failed: %d", code)
+	}
+	defer CABI_Disconnect(amb)
+
+	// Heartbeat before joining must fail with NOT_MEMBER
+	if code := CABI_Heartbeat(amb); code != ValhallaErrNotMember {
+		t.Fatalf("expected VALHALLA_ERR_NOT_MEMBER before join, got %d", code)
+	}
+
+	fedName := "CABI_Heartbeat_Fed"
+	_ = CABI_CreateFederation(amb, fedName)
+
+	h, code := CABI_JoinFederation(amb, "HeartbeatCABI", fedName)
+	if code != ValhallaOK || h <= 0 {
+		t.Fatalf("join failed: %d (handle: %d)", code, h)
+	}
+
+	// Heartbeat after join must succeed
+	if code := CABI_Heartbeat(amb); code != ValhallaOK {
+		t.Fatalf("expected CABI_Heartbeat to succeed, got %d", code)
 	}
 }

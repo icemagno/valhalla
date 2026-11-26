@@ -48,6 +48,7 @@ const (
 	NativeMsgTimeAdvanceGrant        = common.NativeMsgTimeAdvanceGrant
 	NativeMsgNextMessageRequest      = common.NativeMsgNextMessageRequest
 	NativeMsgFlushQueueRequest       = common.NativeMsgFlushQueueRequest
+	NativeMsgHeartbeat               = common.NativeMsgHeartbeat
 	NativeMsgDivestOwnership         = common.NativeMsgDivestOwnership
 	NativeMsgAcquireOwnership        = common.NativeMsgAcquireOwnership
 	NativeMsgQueryAttributeOwnership = common.NativeMsgQueryAttributeOwnership
@@ -129,6 +130,10 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			if _, err := io.ReadFull(reader, payload); err != nil {
 				return fmt.Errorf("failed to read native payload (%d bytes): %w", hdr.PayloadLen, err)
 			}
+		}
+
+		if currentFed != nil && federateID > 0 {
+			currentFed.TimeManager().Heartbeat(common.FederateHandle(federateID))
 		}
 
 		switch hdr.MsgType {
@@ -923,6 +928,23 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = session.SendMessage(respHdr, nil)
 			dispatchTimeGrants(currentFed, grants)
+
+		case NativeMsgHeartbeat:
+			if currentFed == nil || federateID <= 0 {
+				_ = sendNativeError(session, hdr.ReqID, 403, common.ErrFederateNotExecutionMember)
+				continue
+			}
+			currentFed.TimeManager().Heartbeat(common.FederateHandle(federateID))
+			respHdr := NativeHeader{
+				Magic:      NativeHeaderMagic,
+				Version:    NativeProtocolVer,
+				Flags:      0x01,
+				MsgType:    NativeMsgSuccessOK,
+				ReqID:      hdr.ReqID,
+				FedID:      uint32(currentFed.Handle),
+				FederateID: uint32(federateID),
+			}
+			_ = session.SendMessage(respHdr, nil)
 
 		case NativeMsgDivestOwnership:
 			if currentFed == nil || federateID <= 0 {
