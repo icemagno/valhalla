@@ -142,6 +142,14 @@ func (c *Client) writePacket(hdr common.NativeHeader, payload []byte) error {
 	return nil
 }
 
+// EnqueueCallback injects an asynchronous callback item into the callback processing queue
+func (c *Client) EnqueueCallback(item callbackItem) {
+	select {
+	case c.callbacks <- item:
+	default:
+	}
+}
+
 func (c *Client) readLoop() {
 	defer c.Close()
 

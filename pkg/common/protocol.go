@@ -29,6 +29,8 @@ const (
 	NativeMsgAchieveSyncPoint       uint8 = 10
 	NativeMsgSyncPointAchieved      uint8 = 11
 	NativeMsgFederationSynchronized uint8 = 12
+	NativeMsgSyncPointRegSucceeded  uint8 = 13
+	NativeMsgSyncPointRegFailed     uint8 = 14
 
 	// 20-39: Declaration Management (Pub/Sub)
 	NativeMsgPublishObjectClass           uint8 = 20

@@ -391,10 +391,29 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 
 	resp, err := a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
 	if err != nil {
+		failPayload, _ := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+		a.client.EnqueueCallback(callbackItem{
+			MsgType: common.NativeMsgSyncPointRegFailed,
+			Payload: failPayload,
+		})
 		return err
 	}
 
-	return checkNativeResponse(resp)
+	if err := checkNativeResponse(resp); err != nil {
+		failPayload, _ := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+		a.client.EnqueueCallback(callbackItem{
+			MsgType: common.NativeMsgSyncPointRegFailed,
+			Payload: failPayload,
+		})
+		return err
+	}
+
+	succPayload, _ := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+	a.client.EnqueueCallback(callbackItem{
+		MsgType: common.NativeMsgSyncPointRegSucceeded,
+		Payload: succPayload,
+	})
+	return nil
 }
 
 // SynchronizationPointAchieved notifies the CRC that this federate achieved the synchronization point
@@ -1064,6 +1083,22 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 	}
 
 	switch cb.MsgType {
+	case common.NativeMsgSyncPointRegSucceeded:
+		var succPayload common.SyncPointLabelPayload
+		if err := succPayload.UnmarshalBinary(cb.Payload); err == nil {
+			fedAmb.SynchronizationPointRegistrationSucceeded(succPayload.Label)
+		} else {
+			fedAmb.SynchronizationPointRegistrationSucceeded(string(cb.Payload))
+		}
+
+	case common.NativeMsgSyncPointRegFailed:
+		var failPayload common.SyncPointLabelPayload
+		if err := failPayload.UnmarshalBinary(cb.Payload); err == nil {
+			fedAmb.SynchronizationPointRegistrationFailed(failPayload.Label, "synchronization point registration failed")
+		} else {
+			fedAmb.SynchronizationPointRegistrationFailed(string(cb.Payload), "synchronization point registration failed")
+		}
+
 	case common.NativeMsgAnnounceSyncPoint:
 		var annPayload common.RegisterSyncPointPayload
 		if err := annPayload.UnmarshalBinary(cb.Payload); err == nil {
