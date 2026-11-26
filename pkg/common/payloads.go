@@ -1,87 +1,78 @@
+// Project Valhalla - Sovereign HLA-4 Run-Time Infrastructure
+// Lead Developer: Carlos Magno Oliveira de Abreu (@icemagno / magno.mabreu@gmail.com)
+//
+// Canonical Simple Serialize (SSZ) Payloads for Valhalla Native Wire Protocol (VAL4).
+// Conforms strictly to the Ethereum 2.0 Consensus Layer Specification (SSZ):
+// - All primitive integers and floats encoded in Little-Endian.
+// - Fixed-size fields located in the container's static header.
+// - Dynamic fields (strings, byte slices, lists) indexed by 4-byte uint32 offsets.
+// - Strict monotonic offset validation and anti-overlap boundary checking.
+
 package common
-
-import (
-	"encoding/binary"
-	"errors"
-	"math"
-)
-
-// Binary payload decoding errors
-var (
-	ErrPayloadTooShort       = errors.New("valhalla payload: buffer smaller than minimum expected length")
-	ErrPayloadStringOverflow = errors.New("valhalla payload: string length exceeds buffer")
-	ErrPayloadDataOverflow   = errors.New("valhalla payload: data length exceeds buffer")
-)
 
 // ============================================================================
 // 1. FEDERATION MANAGEMENT PAYLOADS
 // ============================================================================
 
-// FederationExecutionPayload carries the federation name and optional FOM modules for creation or destruction
+// FederationExecutionPayload carries the federation name and optional FOM modules
+// Layout: [Offset0:4 (Name), Offset1:4 (FOMModules)] + Heap [Name bytes, StringList bytes]
 type FederationExecutionPayload struct {
 	FederationName string
 	FOMModules     []string
 }
 
 func (p FederationExecutionPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 2 + len(p.FederationName)
-	if len(p.FOMModules) > 0 {
-		totalLen += 2 // uint16 module count
-		for _, m := range p.FOMModules {
-			totalLen += 2 + len(m)
-		}
-	}
-	buf := make([]byte, totalLen)
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.FederationName)))
-	copy(buf[2:], p.FederationName)
+	nameLen := uint32(len(p.FederationName))
+	fomSize := SizeSSZStringList(p.FOMModules)
+	const fixedHeaderSize = 8
 
-	offset := 2 + len(p.FederationName)
-	if len(p.FOMModules) > 0 {
-		binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(p.FOMModules)))
-		offset += 2
-		for _, m := range p.FOMModules {
-			binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(m)))
-			offset += 2
-			copy(buf[offset:], m)
-			offset += len(m)
-		}
+	totalLen := fixedHeaderSize + nameLen + fomSize
+	buf := make([]byte, totalLen)
+
+	off0 := uint32(fixedHeaderSize)
+	off1 := off0 + nameLen
+
+	PutOffset(buf[0:4], off0)
+	PutOffset(buf[4:8], off1)
+
+	EncodeSSZString(buf, off0, p.FederationName)
+	if fomSize > 0 {
+		EncodeSSZStringList(buf, off1, p.FOMModules)
 	}
+
 	return buf, nil
 }
 
 func (p *FederationExecutionPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 2 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	fedLen := int(binary.BigEndian.Uint16(data[0:2]))
-	if 2+fedLen > len(data) {
-		return ErrPayloadStringOverflow
-	}
-	p.FederationName = string(data[2 : 2+fedLen])
-	p.FOMModules = nil
 
-	offset := 2 + fedLen
-	if len(data) >= offset+2 {
-		numMods := int(binary.BigEndian.Uint16(data[offset : offset+2]))
-		offset += 2
-		p.FOMModules = make([]string, 0, numMods)
-		for i := 0; i < numMods; i++ {
-			if len(data) < offset+2 {
-				break
-			}
-			mLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
-			offset += 2
-			if len(data) < offset+mLen {
-				break
-			}
-			p.FOMModules = append(p.FOMModules, string(data[offset:offset+mLen]))
-			offset += mLen
-		}
+	off0 := GetOffset(data[0:4])
+	off1 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0, off1}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
+
+	var err error
+	p.FederationName, err = DecodeSSZString(data, off0, off1)
+	if err != nil {
+		return err
+	}
+
+	p.FOMModules, err = DecodeSSZStringList(data, off1, totalLen)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // JoinFederationPayload represents a federate join request
+// Layout: [Offset0:4 (FedName), Offset1:4 (FedType), Offset2:4 (FederationName)] + Heap strings
 type JoinFederationPayload struct {
 	FederateName   string
 	FederateType   string
@@ -89,69 +80,63 @@ type JoinFederationPayload struct {
 }
 
 func (p JoinFederationPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 2 + len(p.FederateName) + 2 + len(p.FederateType) + 2 + len(p.FederationName)
+	const fixedHeaderSize = 12
+	nameLen := uint32(len(p.FederateName))
+	typeLen := uint32(len(p.FederateType))
+	fedLen := uint32(len(p.FederationName))
+
+	totalLen := fixedHeaderSize + nameLen + typeLen + fedLen
 	buf := make([]byte, totalLen)
-	offset := 0
 
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.FederateName)))
-	offset += 2
-	copy(buf[offset:], p.FederateName)
-	offset += len(p.FederateName)
+	off0 := uint32(fixedHeaderSize)
+	off1 := off0 + nameLen
+	off2 := off1 + typeLen
 
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.FederateType)))
-	offset += 2
-	copy(buf[offset:], p.FederateType)
-	offset += len(p.FederateType)
+	PutOffset(buf[0:4], off0)
+	PutOffset(buf[4:8], off1)
+	PutOffset(buf[8:12], off2)
 
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.FederationName)))
-	offset += 2
-	copy(buf[offset:], p.FederationName)
+	EncodeSSZString(buf, off0, p.FederateName)
+	EncodeSSZString(buf, off1, p.FederateType)
+	EncodeSSZString(buf, off2, p.FederationName)
 
 	return buf, nil
 }
 
 func (p *JoinFederationPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 12
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	offset := 0
 
-	// FederateName
-	nameLen := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+nameLen > len(data) {
-		return ErrPayloadStringOverflow
-	}
-	p.FederateName = string(data[offset : offset+nameLen])
-	offset += nameLen
+	off0 := GetOffset(data[0:4])
+	off1 := GetOffset(data[4:8])
+	off2 := GetOffset(data[8:12])
+	totalLen := uint32(len(data))
 
-	// FederateType
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
+	if err := ValidateOffsets([]uint32{off0, off1, off2}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	typeLen := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+typeLen > len(data) {
-		return ErrPayloadStringOverflow
-	}
-	p.FederateType = string(data[offset : offset+typeLen])
-	offset += typeLen
 
-	// FederationName
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
+	var err error
+	p.FederateName, err = DecodeSSZString(data, off0, off1)
+	if err != nil {
+		return err
 	}
-	fedLen := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+fedLen > len(data) {
-		return ErrPayloadStringOverflow
+	p.FederateType, err = DecodeSSZString(data, off1, off2)
+	if err != nil {
+		return err
 	}
-	p.FederationName = string(data[offset : offset+fedLen])
+	p.FederationName, err = DecodeSSZString(data, off2, totalLen)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
-// JoinFederationResponsePayload contains granted federate and federation identifiers.
+// JoinFederationResponsePayload contains granted federate and federation identifiers
+// Layout: [FederateHandle:4, FederationHandle:4] (All Fixed)
 type JoinFederationResponsePayload struct {
 	FederateHandle   FederateHandle
 	FederationHandle int32
@@ -159,23 +144,24 @@ type JoinFederationResponsePayload struct {
 
 func (p JoinFederationResponsePayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 8)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.FederateHandle))
-	binary.BigEndian.PutUint32(buf[4:8], uint32(p.FederationHandle))
+	PutUint32(buf[0:4], uint32(p.FederateHandle))
+	PutInt32(buf[4:8], p.FederationHandle)
 	return buf, nil
 }
 
 func (p *JoinFederationResponsePayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 8 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.FederateHandle = FederateHandle(binary.BigEndian.Uint32(data[0:4]))
-	p.FederationHandle = int32(binary.BigEndian.Uint32(data[4:8]))
+	p.FederateHandle = FederateHandle(Uint32FromBytes(data[0:4]))
+	p.FederationHandle = Int32FromBytes(data[4:8])
 	return nil
 }
 
 // ResignFederationPayload represents federate resignation
+// Layout: [ResignAction:1]
 type ResignFederationPayload struct {
-	ResignAction uint8 // 1=UnconditionallyDivest, 2=DeleteObjects, etc.
+	ResignAction uint8
 }
 
 func (p ResignFederationPayload) MarshalBinary() ([]byte, error) {
@@ -184,122 +170,157 @@ func (p ResignFederationPayload) MarshalBinary() ([]byte, error) {
 
 func (p *ResignFederationPayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 1 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
 	p.ResignAction = data[0]
 	return nil
 }
 
 // RegisterSyncPointPayload represents synchronization point registration
+// Layout: [Offset0:4 (Label), Offset1:4 (Tag)] + Heap [Label, Tag]
 type RegisterSyncPointPayload struct {
 	Label string
 	Tag   []byte
 }
 
 func (p RegisterSyncPointPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 2 + len(p.Label) + 2 + len(p.Tag)
+	const fixedHeaderSize = 8
+	labelLen := uint32(len(p.Label))
+	tagLen := uint32(len(p.Tag))
+
+	totalLen := fixedHeaderSize + labelLen + tagLen
 	buf := make([]byte, totalLen)
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.Label)))
-	copy(buf[2:], p.Label)
-	offset := 2 + len(p.Label)
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.Tag)))
-	copy(buf[offset+2:], p.Tag)
+
+	off0 := uint32(fixedHeaderSize)
+	off1 := off0 + labelLen
+
+	PutOffset(buf[0:4], off0)
+	PutOffset(buf[4:8], off1)
+
+	EncodeSSZString(buf, off0, p.Label)
+	EncodeSSZBytes(buf, off1, p.Tag)
+
 	return buf, nil
 }
 
 func (p *RegisterSyncPointPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 4 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	labelLen := int(binary.BigEndian.Uint16(data[0:2]))
-	offset := 2
-	if offset+labelLen > len(data) {
-		return ErrPayloadStringOverflow
-	}
-	p.Label = string(data[offset : offset+labelLen])
-	offset += labelLen
 
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
+	off0 := GetOffset(data[0:4])
+	off1 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0, off1}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	tagLen := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+tagLen > len(data) {
-		return ErrPayloadDataOverflow
+
+	var err error
+	p.Label, err = DecodeSSZString(data, off0, off1)
+	if err != nil {
+		return err
 	}
-	p.Tag = make([]byte, tagLen)
-	copy(p.Tag, data[offset:offset+tagLen])
+	p.Tag, err = DecodeSSZBytes(data, off1, totalLen)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-// SyncPointLabelPayload represents messages carrying only a label string (Achieve, Announce, Synchronized).
+// SyncPointLabelPayload represents messages carrying only a label string
+// Layout: [Offset0:4 (Label)] + Heap [Label]
 type SyncPointLabelPayload struct {
 	Label string
 }
 
 func (p SyncPointLabelPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+len(p.Label))
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.Label)))
-	copy(buf[2:], p.Label)
+	const fixedHeaderSize = 4
+	labelLen := uint32(len(p.Label))
+	totalLen := fixedHeaderSize + labelLen
+
+	buf := make([]byte, totalLen)
+	PutOffset(buf[0:4], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.Label)
 	return buf, nil
 }
 
 func (p *SyncPointLabelPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 2 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 4
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	labelLen := int(binary.BigEndian.Uint16(data[0:2]))
-	if 2+labelLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	off0 := GetOffset(data[0:4])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Label = string(data[2 : 2+labelLen])
-	return nil
+
+	var err error
+	p.Label, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // ============================================================================
 // 2. DECLARATION MANAGEMENT (PUB/SUB) PAYLOADS
 // ============================================================================
 
-// PublishObjectClassPayload publishes attributes of an object class.
+// PublishObjectClassPayload publishes attributes of an object class
+// Layout: [ClassHandle:4, Offset0:4 (AttributeHandles)] + Heap [AttributeHandles uint32 list]
 type PublishObjectClassPayload struct {
 	ClassHandle      ObjectClassHandle
 	AttributeHandles []AttributeHandle
 }
 
 func (p PublishObjectClassPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 4 + 2 + (len(p.AttributeHandles) * 4)
+	const fixedHeaderSize = 8
+	attrListSize := uint32(len(p.AttributeHandles) * 4)
+	totalLen := fixedHeaderSize + attrListSize
+
 	buf := make([]byte, totalLen)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ClassHandle))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.AttributeHandles)))
-	offset := 6
-	for _, attr := range p.AttributeHandles {
-		binary.BigEndian.PutUint32(buf[offset:], uint32(attr))
-		offset += 4
+	PutUint32(buf[0:4], uint32(p.ClassHandle))
+	PutOffset(buf[4:8], fixedHeaderSize)
+
+	for i, h := range p.AttributeHandles {
+		PutUint32(buf[fixedHeaderSize+uint32(i*4):fixedHeaderSize+uint32(i*4)+4], uint32(h))
 	}
+
 	return buf, nil
 }
 
 func (p *PublishObjectClassPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
-	}
-	p.ClassHandle = ObjectClassHandle(binary.BigEndian.Uint32(data[0:4]))
-	count := int(binary.BigEndian.Uint16(data[4:6]))
-	expectedLen := 6 + (count * 4)
-	if len(data) < expectedLen {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
 
-	p.AttributeHandles = make([]AttributeHandle, count)
-	offset := 6
-	for i := 0; i < count; i++ {
-		p.AttributeHandles[i] = AttributeHandle(binary.BigEndian.Uint32(data[offset:]))
-		offset += 4
+	p.ClassHandle = ObjectClassHandle(Uint32FromBytes(data[0:4]))
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
+
+	rawList, err := DecodeSSZUint32List(data, off0, totalLen)
+	if err != nil {
+		return err
+	}
+
+	p.AttributeHandles = make([]AttributeHandle, len(rawList))
+	for i, v := range rawList {
+		p.AttributeHandles[i] = AttributeHandle(v)
+	}
+
 	return nil
 }
 
-// SubscribeObjectClassPayload subscribes to attributes of an object class.
+// SubscribeObjectClassPayload subscribes to attributes of an object class
+// Layout: [ClassHandle:4, Active:1, Offset0:4 (AttributeHandles)] + Heap [AttributeHandles uint32 list]
 type SubscribeObjectClassPayload struct {
 	ClassHandle      ObjectClassHandle
 	AttributeHandles []AttributeHandle
@@ -307,64 +328,76 @@ type SubscribeObjectClassPayload struct {
 }
 
 func (p SubscribeObjectClassPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 4 + 1 + 2 + (len(p.AttributeHandles) * 4)
+	const fixedHeaderSize = 9
+	attrListSize := uint32(len(p.AttributeHandles) * 4)
+	totalLen := fixedHeaderSize + attrListSize
+
 	buf := make([]byte, totalLen)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ClassHandle))
+	PutUint32(buf[0:4], uint32(p.ClassHandle))
 	if p.Active {
 		buf[4] = 1
 	} else {
 		buf[4] = 0
 	}
-	binary.BigEndian.PutUint16(buf[5:7], uint16(len(p.AttributeHandles)))
-	offset := 7
-	for _, attr := range p.AttributeHandles {
-		binary.BigEndian.PutUint32(buf[offset:], uint32(attr))
-		offset += 4
+	PutOffset(buf[5:9], fixedHeaderSize)
+
+	for i, h := range p.AttributeHandles {
+		PutUint32(buf[fixedHeaderSize+uint32(i*4):fixedHeaderSize+uint32(i*4)+4], uint32(h))
 	}
+
 	return buf, nil
 }
 
 func (p *SubscribeObjectClassPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 7 {
-		return ErrPayloadTooShort
-	}
-	p.ClassHandle = ObjectClassHandle(binary.BigEndian.Uint32(data[0:4]))
-	p.Active = data[4] == 1
-	count := int(binary.BigEndian.Uint16(data[5:7]))
-	expectedLen := 7 + (count * 4)
-	if len(data) < expectedLen {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 9
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
 
-	p.AttributeHandles = make([]AttributeHandle, count)
-	offset := 7
-	for i := 0; i < count; i++ {
-		p.AttributeHandles[i] = AttributeHandle(binary.BigEndian.Uint32(data[offset:]))
-		offset += 4
+	p.ClassHandle = ObjectClassHandle(Uint32FromBytes(data[0:4]))
+	p.Active = data[4] == 1
+	off0 := GetOffset(data[5:9])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
+
+	rawList, err := DecodeSSZUint32List(data, off0, totalLen)
+	if err != nil {
+		return err
+	}
+
+	p.AttributeHandles = make([]AttributeHandle, len(rawList))
+	for i, v := range rawList {
+		p.AttributeHandles[i] = AttributeHandle(v)
+	}
+
 	return nil
 }
 
 // InteractionClassPayload publishes or unpublishes an interaction class
+// Layout: [ClassHandle:4]
 type InteractionClassPayload struct {
 	ClassHandle InteractionClassHandle
 }
 
 func (p InteractionClassPayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ClassHandle))
+	PutUint32(buf[0:4], uint32(p.ClassHandle))
 	return buf, nil
 }
 
 func (p *InteractionClassPayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 4 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.ClassHandle = InteractionClassHandle(binary.BigEndian.Uint32(data[0:4]))
+	p.ClassHandle = InteractionClassHandle(Uint32FromBytes(data[0:4]))
 	return nil
 }
 
-// SubscribeInteractionClassPayload subscribes to an interaction class
+// SubscribeInteractionClassPayload subscribes or unsubscribes to an interaction class
+// Layout: [ClassHandle:4, Active:1]
 type SubscribeInteractionClassPayload struct {
 	ClassHandle InteractionClassHandle
 	Active      bool
@@ -372,7 +405,7 @@ type SubscribeInteractionClassPayload struct {
 
 func (p SubscribeInteractionClassPayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 5)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ClassHandle))
+	PutUint32(buf[0:4], uint32(p.ClassHandle))
 	if p.Active {
 		buf[4] = 1
 	} else {
@@ -383,9 +416,9 @@ func (p SubscribeInteractionClassPayload) MarshalBinary() ([]byte, error) {
 
 func (p *SubscribeInteractionClassPayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 5 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.ClassHandle = InteractionClassHandle(binary.BigEndian.Uint32(data[0:4]))
+	p.ClassHandle = InteractionClassHandle(Uint32FromBytes(data[0:4]))
 	p.Active = data[4] == 1
 	return nil
 }
@@ -394,34 +427,47 @@ func (p *SubscribeInteractionClassPayload) UnmarshalBinary(data []byte) error {
 // 3. OBJECT MANAGEMENT PAYLOADS
 // ============================================================================
 
-// RegisterObjectInstancePayload registers a new object instance
+// RegisterObjectInstancePayload registers an object instance
+// Layout: [ClassHandle:4, Offset0:4 (ObjectName)] + Heap [ObjectName]
 type RegisterObjectInstancePayload struct {
 	ClassHandle ObjectClassHandle
 	ObjectName  string
 }
 
 func (p RegisterObjectInstancePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+2+len(p.ObjectName))
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ClassHandle))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.ObjectName)))
-	copy(buf[6:], p.ObjectName)
+	const fixedHeaderSize = 8
+	nameLen := uint32(len(p.ObjectName))
+	totalLen := fixedHeaderSize + nameLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], uint32(p.ClassHandle))
+	PutOffset(buf[4:8], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.ObjectName)
+
 	return buf, nil
 }
 
 func (p *RegisterObjectInstancePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ClassHandle = ObjectClassHandle(binary.BigEndian.Uint32(data[0:4]))
-	nameLen := int(binary.BigEndian.Uint16(data[4:6]))
-	if 6+nameLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	p.ClassHandle = ObjectClassHandle(Uint32FromBytes(data[0:4]))
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.ObjectName = string(data[6 : 6+nameLen])
-	return nil
+
+	var err error
+	p.ObjectName, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // DiscoverObjectInstancePayload conveys a discovered remote object instance
+// Layout: [ObjectHandle:4, ClassHandle:4, Offset0:4 (ObjectName)] + Heap [ObjectName]
 type DiscoverObjectInstancePayload struct {
 	ObjectHandle ObjectInstanceHandle
 	ClassHandle  ObjectClassHandle
@@ -429,85 +475,120 @@ type DiscoverObjectInstancePayload struct {
 }
 
 func (p DiscoverObjectInstancePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+4+2+len(p.ObjectName))
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ObjectHandle))
-	binary.BigEndian.PutUint32(buf[4:8], uint32(p.ClassHandle))
-	binary.BigEndian.PutUint16(buf[8:10], uint16(len(p.ObjectName)))
-	copy(buf[10:], p.ObjectName)
+	const fixedHeaderSize = 12
+	nameLen := uint32(len(p.ObjectName))
+	totalLen := fixedHeaderSize + nameLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	PutUint32(buf[4:8], uint32(p.ClassHandle))
+	PutOffset(buf[8:12], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.ObjectName)
+
 	return buf, nil
 }
 
 func (p *DiscoverObjectInstancePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 10 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 12
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[0:4]))
-	p.ClassHandle = ObjectClassHandle(binary.BigEndian.Uint32(data[4:8]))
-	nameLen := int(binary.BigEndian.Uint16(data[8:10]))
-	if 10+nameLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
+	p.ClassHandle = ObjectClassHandle(Uint32FromBytes(data[4:8]))
+	off0 := GetOffset(data[8:12])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.ObjectName = string(data[10 : 10+nameLen])
-	return nil
+
+	var err error
+	p.ObjectName, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // DeleteObjectInstancePayload represents an object instance deletion request
+// Layout: [ObjectHandle:4, Offset0:4 (Tag)] + Heap [Tag]
 type DeleteObjectInstancePayload struct {
 	ObjectHandle ObjectInstanceHandle
 	Tag          []byte
 }
 
 func (p DeleteObjectInstancePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+2+len(p.Tag))
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ObjectHandle))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Tag)))
-	copy(buf[6:], p.Tag)
+	const fixedHeaderSize = 8
+	tagLen := uint32(len(p.Tag))
+	totalLen := fixedHeaderSize + tagLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	PutOffset(buf[4:8], fixedHeaderSize)
+	EncodeSSZBytes(buf, fixedHeaderSize, p.Tag)
+
 	return buf, nil
 }
 
 func (p *DeleteObjectInstancePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[0:4]))
-	tagLen := int(binary.BigEndian.Uint16(data[4:6]))
-	if 6+tagLen > len(data) {
-		return ErrPayloadDataOverflow
+
+	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Tag = make([]byte, tagLen)
-	copy(p.Tag, data[6:6+tagLen])
-	return nil
+
+	var err error
+	p.Tag, err = DecodeSSZBytes(data, off0, totalLen)
+	return err
 }
 
 // RemoveObjectInstancePayload notifies federates of object instance removal
+// Layout: [ObjectHandle:4, Offset0:4 (Tag)] + Heap [Tag]
 type RemoveObjectInstancePayload struct {
 	ObjectHandle ObjectInstanceHandle
 	Tag          []byte
 }
 
 func (p RemoveObjectInstancePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+2+len(p.Tag))
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ObjectHandle))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Tag)))
-	copy(buf[6:], p.Tag)
+	const fixedHeaderSize = 8
+	tagLen := uint32(len(p.Tag))
+	totalLen := fixedHeaderSize + tagLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	PutOffset(buf[4:8], fixedHeaderSize)
+	EncodeSSZBytes(buf, fixedHeaderSize, p.Tag)
+
 	return buf, nil
 }
 
 func (p *RemoveObjectInstancePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[0:4]))
-	tagLen := int(binary.BigEndian.Uint16(data[4:6]))
-	if 6+tagLen > len(data) {
-		return ErrPayloadDataOverflow
+
+	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Tag = make([]byte, tagLen)
-	copy(p.Tag, data[6:6+tagLen])
-	return nil
+
+	var err error
+	p.Tag, err = DecodeSSZBytes(data, off0, totalLen)
+	return err
 }
 
 // UpdateAttributesPayload carries attribute updates (UAV) or reflections (RAV)
+// Layout: [ObjectHandle:4, HasTime:1, Time:8, Offset0:4 (Tag), Offset1:4 (Attributes)]
+// Heap: Tag bytes + Attributes table [Count:4 + (Handle:4, Len:4, Data:N)...]
 type UpdateAttributesPayload struct {
 	ObjectHandle ObjectInstanceHandle
 	Attributes   map[AttributeHandle][]byte
@@ -517,111 +598,104 @@ type UpdateAttributesPayload struct {
 }
 
 func (p UpdateAttributesPayload) MarshalBinary() ([]byte, error) {
-	// 4 bytes ObjectHandle + 1 byte HasTime + (8 bytes se HasTime) + 2 bytes TagLen + len(Tag) + 2 bytes AttrCount
-	totalLen := 4 + 1 + 2 + len(p.Tag) + 2
-	if p.HasTime {
-		totalLen += 8
-	}
+	const fixedHeaderSize = 21 // 4 + 1 + 8 + 4 + 4
+	tagLen := uint32(len(p.Tag))
+
+	attrDataLen := uint32(4) // count
 	for _, val := range p.Attributes {
-		totalLen += 4 + 4 + len(val) // AttrHandle (4) + ValLen (4) + Data
+		attrDataLen += 8 + uint32(len(val)) // handle(4) + len(4) + data
 	}
 
+	totalLen := fixedHeaderSize + tagLen + attrDataLen
 	buf := make([]byte, totalLen)
-	offset := 0
 
-	binary.BigEndian.PutUint32(buf[offset:], uint32(p.ObjectHandle))
-	offset += 4
-
+	PutUint32(buf[0:4], uint32(p.ObjectHandle))
 	if p.HasTime {
-		buf[offset] = 1
-		offset++
-		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(p.Time))
-		offset += 8
+		buf[4] = 1
+		PutFloat64(buf[5:13], p.Time)
 	} else {
-		buf[offset] = 0
-		offset++
+		buf[4] = 0
+		PutFloat64(buf[5:13], 0)
 	}
 
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.Tag)))
-	offset += 2
-	copy(buf[offset:], p.Tag)
-	offset += len(p.Tag)
+	off0 := uint32(fixedHeaderSize)
+	off1 := off0 + tagLen
 
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.Attributes)))
-	offset += 2
+	PutOffset(buf[13:17], off0)
+	PutOffset(buf[17:21], off1)
 
+	EncodeSSZBytes(buf, off0, p.Tag)
+
+	// Serialize attribute table
+	PutUint32(buf[off1:off1+4], uint32(len(p.Attributes)))
+	curOffset := off1 + 4
 	for attr, val := range p.Attributes {
-		binary.BigEndian.PutUint32(buf[offset:], uint32(attr))
-		offset += 4
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(val)))
-		offset += 4
-		copy(buf[offset:], val)
-		offset += len(val)
+		PutUint32(buf[curOffset:curOffset+4], uint32(attr))
+		PutUint32(buf[curOffset+4:curOffset+8], uint32(len(val)))
+		curOffset += 8
+		copy(buf[curOffset:], val)
+		curOffset += uint32(len(val))
 	}
 
 	return buf, nil
 }
 
 func (p *UpdateAttributesPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 7 { // 4 (handle) + 1 (hasTime) + 2 (tagLen)
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 21
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	offset := 0
 
-	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[offset:]))
-	offset += 4
+	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
+	p.HasTime = data[4] == 1
+	p.Time = Float64FromBytes(data[5:13])
 
-	p.HasTime = data[offset] == 1
-	offset++
+	off0 := GetOffset(data[13:17])
+	off1 := GetOffset(data[17:21])
+	totalLen := uint32(len(data))
 
-	if p.HasTime {
-		if offset+8 > len(data) {
-			return ErrPayloadTooShort
+	if err := ValidateOffsets([]uint32{off0, off1}, fixedHeaderSize, totalLen); err != nil {
+		return err
+	}
+
+	var err error
+	p.Tag, err = DecodeSSZBytes(data, off0, off1)
+	if err != nil {
+		return err
+	}
+
+	// Parse attributes table
+	if off1+4 > totalLen {
+		p.Attributes = make(map[AttributeHandle][]byte)
+		return nil
+	}
+
+	count := Uint32FromBytes(data[off1 : off1+4])
+	p.Attributes = make(map[AttributeHandle][]byte, count)
+	curOffset := off1 + 4
+
+	for i := uint32(0); i < count; i++ {
+		if curOffset+8 > totalLen {
+			return ErrSSZBufferTooShort
 		}
-		p.Time = math.Float64frombits(binary.BigEndian.Uint64(data[offset:]))
-		offset += 8
-	}
-
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
-	}
-	tagLen := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+tagLen > len(data) {
-		return ErrPayloadDataOverflow
-	}
-	p.Tag = make([]byte, tagLen)
-	copy(p.Tag, data[offset:offset+tagLen])
-	offset += tagLen
-
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
-	}
-	attrCount := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-
-	p.Attributes = make(map[AttributeHandle][]byte, attrCount)
-	for i := 0; i < attrCount; i++ {
-		if offset+8 > len(data) {
-			return ErrPayloadTooShort
-		}
-		attr := AttributeHandle(binary.BigEndian.Uint32(data[offset:]))
-		offset += 4
-		valLen := int(binary.BigEndian.Uint32(data[offset:]))
-		offset += 4
-		if offset+valLen > len(data) {
-			return ErrPayloadDataOverflow
+		handle := AttributeHandle(Uint32FromBytes(data[curOffset : curOffset+4]))
+		valLen := Uint32FromBytes(data[curOffset+4 : curOffset+8])
+		curOffset += 8
+		if curOffset+valLen > totalLen {
+			return ErrSSZDataOutOfBounds
 		}
 		val := make([]byte, valLen)
-		copy(val, data[offset:offset+valLen])
-		offset += valLen
-		p.Attributes[attr] = val
+		copy(val, data[curOffset:curOffset+valLen])
+		curOffset += valLen
+		p.Attributes[handle] = val
 	}
 
 	return nil
 }
 
 // SendInteractionPayload carries interaction sending or reception
+// Layout: [ClassHandle:4, HasTime:1, Time:8, Offset0:4 (Tag), Offset1:4 (Parameters)]
+// Heap: Tag bytes + Parameters table [Count:4 + (Handle:4, Len:4, Data:N)...]
 type SendInteractionPayload struct {
 	ClassHandle InteractionClassHandle
 	Parameters  map[ParameterHandle][]byte
@@ -631,104 +705,95 @@ type SendInteractionPayload struct {
 }
 
 func (p SendInteractionPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 4 + 1 + 2 + len(p.Tag) + 2
-	if p.HasTime {
-		totalLen += 8
-	}
+	const fixedHeaderSize = 21 // 4 + 1 + 8 + 4 + 4
+	tagLen := uint32(len(p.Tag))
+
+	paramDataLen := uint32(4) // count
 	for _, val := range p.Parameters {
-		totalLen += 4 + 4 + len(val) // ParamHandle (4) + ValLen (4) + Data
+		paramDataLen += 8 + uint32(len(val))
 	}
 
+	totalLen := fixedHeaderSize + tagLen + paramDataLen
 	buf := make([]byte, totalLen)
-	offset := 0
 
-	binary.BigEndian.PutUint32(buf[offset:], uint32(p.ClassHandle))
-	offset += 4
-
+	PutUint32(buf[0:4], uint32(p.ClassHandle))
 	if p.HasTime {
-		buf[offset] = 1
-		offset++
-		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(p.Time))
-		offset += 8
+		buf[4] = 1
+		PutFloat64(buf[5:13], p.Time)
 	} else {
-		buf[offset] = 0
-		offset++
+		buf[4] = 0
+		PutFloat64(buf[5:13], 0)
 	}
 
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.Tag)))
-	offset += 2
-	copy(buf[offset:], p.Tag)
-	offset += len(p.Tag)
+	off0 := uint32(fixedHeaderSize)
+	off1 := off0 + tagLen
 
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(p.Parameters)))
-	offset += 2
+	PutOffset(buf[13:17], off0)
+	PutOffset(buf[17:21], off1)
 
+	EncodeSSZBytes(buf, off0, p.Tag)
+
+	// Serialize parameter table
+	PutUint32(buf[off1:off1+4], uint32(len(p.Parameters)))
+	curOffset := off1 + 4
 	for param, val := range p.Parameters {
-		binary.BigEndian.PutUint32(buf[offset:], uint32(param))
-		offset += 4
-		binary.BigEndian.PutUint32(buf[offset:], uint32(len(val)))
-		offset += 4
-		copy(buf[offset:], val)
-		offset += len(val)
+		PutUint32(buf[curOffset:curOffset+4], uint32(param))
+		PutUint32(buf[curOffset+4:curOffset+8], uint32(len(val)))
+		curOffset += 8
+		copy(buf[curOffset:], val)
+		curOffset += uint32(len(val))
 	}
 
 	return buf, nil
 }
 
 func (p *SendInteractionPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 7 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 21
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	offset := 0
 
-	p.ClassHandle = InteractionClassHandle(binary.BigEndian.Uint32(data[offset:]))
-	offset += 4
+	p.ClassHandle = InteractionClassHandle(Uint32FromBytes(data[0:4]))
+	p.HasTime = data[4] == 1
+	p.Time = Float64FromBytes(data[5:13])
 
-	p.HasTime = data[offset] == 1
-	offset++
+	off0 := GetOffset(data[13:17])
+	off1 := GetOffset(data[17:21])
+	totalLen := uint32(len(data))
 
-	if p.HasTime {
-		if offset+8 > len(data) {
-			return ErrPayloadTooShort
+	if err := ValidateOffsets([]uint32{off0, off1}, fixedHeaderSize, totalLen); err != nil {
+		return err
+	}
+
+	var err error
+	p.Tag, err = DecodeSSZBytes(data, off0, off1)
+	if err != nil {
+		return err
+	}
+
+	if off1+4 > totalLen {
+		p.Parameters = make(map[ParameterHandle][]byte)
+		return nil
+	}
+
+	count := Uint32FromBytes(data[off1 : off1+4])
+	p.Parameters = make(map[ParameterHandle][]byte, count)
+	curOffset := off1 + 4
+
+	for i := uint32(0); i < count; i++ {
+		if curOffset+8 > totalLen {
+			return ErrSSZBufferTooShort
 		}
-		p.Time = math.Float64frombits(binary.BigEndian.Uint64(data[offset:]))
-		offset += 8
-	}
-
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
-	}
-	tagLen := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-	if offset+tagLen > len(data) {
-		return ErrPayloadDataOverflow
-	}
-	p.Tag = make([]byte, tagLen)
-	copy(p.Tag, data[offset:offset+tagLen])
-	offset += tagLen
-
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
-	}
-	paramCount := int(binary.BigEndian.Uint16(data[offset:]))
-	offset += 2
-
-	p.Parameters = make(map[ParameterHandle][]byte, paramCount)
-	for i := 0; i < paramCount; i++ {
-		if offset+8 > len(data) {
-			return ErrPayloadTooShort
-		}
-		param := ParameterHandle(binary.BigEndian.Uint32(data[offset:]))
-		offset += 4
-		valLen := int(binary.BigEndian.Uint32(data[offset:]))
-		offset += 4
-		if offset+valLen > len(data) {
-			return ErrPayloadDataOverflow
+		handle := ParameterHandle(Uint32FromBytes(data[curOffset : curOffset+4]))
+		valLen := Uint32FromBytes(data[curOffset+4 : curOffset+8])
+		curOffset += 8
+		if curOffset+valLen > totalLen {
+			return ErrSSZDataOutOfBounds
 		}
 		val := make([]byte, valLen)
-		copy(val, data[offset:offset+valLen])
-		offset += valLen
-		p.Parameters[param] = val
+		copy(val, data[curOffset:curOffset+valLen])
+		curOffset += valLen
+		p.Parameters[handle] = val
 	}
 
 	return nil
@@ -738,22 +803,23 @@ func (p *SendInteractionPayload) UnmarshalBinary(data []byte) error {
 // 4. TIME MANAGEMENT PAYLOADS
 // ============================================================================
 
-// TimeFloat64Payload common payload conveying a single float64 value (e.g., Lookahead, LogicalTime, GrantTime)
+// TimeFloat64Payload conveys a single float64 time value
+// Layout: [Time:8] (Fixed)
 type TimeFloat64Payload struct {
 	Time float64
 }
 
 func (p TimeFloat64Payload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf[0:8], math.Float64bits(p.Time))
+	PutFloat64(buf[0:8], p.Time)
 	return buf, nil
 }
 
 func (p *TimeFloat64Payload) UnmarshalBinary(data []byte) error {
 	if len(data) < 8 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.Time = math.Float64frombits(binary.BigEndian.Uint64(data[0:8]))
+	p.Time = Float64FromBytes(data[0:8])
 	return nil
 }
 
@@ -762,54 +828,78 @@ func (p *TimeFloat64Payload) UnmarshalBinary(data []byte) error {
 // ============================================================================
 
 // ErrorResponsePayload represents a formal RTI error response
+// Layout: [ErrorCode:2, Offset0:4 (Message)] + Heap [Message]
 type ErrorResponsePayload struct {
 	ErrorCode uint16
 	Message   string
 }
 
 func (p ErrorResponsePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+2+len(p.Message))
-	binary.BigEndian.PutUint16(buf[0:2], p.ErrorCode)
-	binary.BigEndian.PutUint16(buf[2:4], uint16(len(p.Message)))
-	copy(buf[4:], p.Message)
+	const fixedHeaderSize = 6
+	msgLen := uint32(len(p.Message))
+	totalLen := fixedHeaderSize + msgLen
+
+	buf := make([]byte, totalLen)
+	PutUint16(buf[0:2], p.ErrorCode)
+	PutOffset(buf[2:6], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.Message)
+
 	return buf, nil
 }
 
 func (p *ErrorResponsePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 4 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 6
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ErrorCode = binary.BigEndian.Uint16(data[0:2])
-	msgLen := int(binary.BigEndian.Uint16(data[2:4]))
-	if 4+msgLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	p.ErrorCode = Uint16FromBytes(data[0:2])
+	off0 := GetOffset(data[2:6])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Message = string(data[4 : 4+msgLen])
-	return nil
+
+	var err error
+	p.Message, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // SuccessOKPayload carries confirmation with an optional message
+// Layout: [Offset0:4 (Message)] + Heap [Message]
 type SuccessOKPayload struct {
 	Message string
 }
 
 func (p SuccessOKPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+len(p.Message))
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.Message)))
-	copy(buf[2:], p.Message)
+	const fixedHeaderSize = 4
+	msgLen := uint32(len(p.Message))
+	totalLen := fixedHeaderSize + msgLen
+
+	buf := make([]byte, totalLen)
+	PutOffset(buf[0:4], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.Message)
+
 	return buf, nil
 }
 
 func (p *SuccessOKPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 2 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 4
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	msgLen := int(binary.BigEndian.Uint16(data[0:2]))
-	if 2+msgLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	off0 := GetOffset(data[0:4])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Message = string(data[2 : 2+msgLen])
-	return nil
+
+	var err error
+	p.Message, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // ============================================================================
@@ -817,78 +907,85 @@ func (p *SuccessOKPayload) UnmarshalBinary(data []byte) error {
 // ============================================================================
 
 // DivestOwnershipPayload carries the object handle and attribute set to divest
+// Layout: [ObjectHandle:4, Offset0:4 (Attributes)] + Heap [Attributes uint32 list]
 type DivestOwnershipPayload struct {
 	ObjectHandle uint32
 	Attributes   []uint32
 }
 
 func (p DivestOwnershipPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+2+len(p.Attributes)*4)
-	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Attributes)))
-	offset := 6
-	for _, attr := range p.Attributes {
-		binary.BigEndian.PutUint32(buf[offset:offset+4], attr)
-		offset += 4
-	}
+	const fixedHeaderSize = 8
+	attrLen := uint32(len(p.Attributes) * 4)
+	totalLen := fixedHeaderSize + attrLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], p.ObjectHandle)
+	PutOffset(buf[4:8], fixedHeaderSize)
+	EncodeSSZUint32List(buf, fixedHeaderSize, p.Attributes)
+
 	return buf, nil
 }
 
 func (p *DivestOwnershipPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
-	count := int(binary.BigEndian.Uint16(data[4:6]))
-	if 6+count*4 > len(data) {
-		return ErrPayloadDataOverflow
+
+	p.ObjectHandle = Uint32FromBytes(data[0:4])
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Attributes = make([]uint32, count)
-	offset := 6
-	for i := 0; i < count; i++ {
-		p.Attributes[i] = binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-	}
-	return nil
+
+	var err error
+	p.Attributes, err = DecodeSSZUint32List(data, off0, totalLen)
+	return err
 }
 
 // AcquireOwnershipPayload carries the object handle and attributes to acquire
+// Layout: [ObjectHandle:4, Offset0:4 (Attributes)] + Heap [Attributes uint32 list]
 type AcquireOwnershipPayload struct {
 	ObjectHandle uint32
 	Attributes   []uint32
 }
 
 func (p AcquireOwnershipPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+2+len(p.Attributes)*4)
-	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.Attributes)))
-	offset := 6
-	for _, attr := range p.Attributes {
-		binary.BigEndian.PutUint32(buf[offset:offset+4], attr)
-		offset += 4
-	}
+	const fixedHeaderSize = 8
+	attrLen := uint32(len(p.Attributes) * 4)
+	totalLen := fixedHeaderSize + attrLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], p.ObjectHandle)
+	PutOffset(buf[4:8], fixedHeaderSize)
+	EncodeSSZUint32List(buf, fixedHeaderSize, p.Attributes)
+
 	return buf, nil
 }
 
 func (p *AcquireOwnershipPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
-	count := int(binary.BigEndian.Uint16(data[4:6]))
-	if 6+count*4 > len(data) {
-		return ErrPayloadDataOverflow
+
+	p.ObjectHandle = Uint32FromBytes(data[0:4])
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Attributes = make([]uint32, count)
-	offset := 6
-	for i := 0; i < count; i++ {
-		p.Attributes[i] = binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-	}
-	return nil
+
+	var err error
+	p.Attributes, err = DecodeSSZUint32List(data, off0, totalLen)
+	return err
 }
 
 // QueryOwnershipPayload carries the object handle and attribute handle to query
+// Layout: [ObjectHandle:4, AttributeHandle:4] (Fixed)
 type QueryOwnershipPayload struct {
 	ObjectHandle    uint32
 	AttributeHandle uint32
@@ -896,21 +993,22 @@ type QueryOwnershipPayload struct {
 
 func (p QueryOwnershipPayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 8)
-	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
-	binary.BigEndian.PutUint32(buf[4:8], p.AttributeHandle)
+	PutUint32(buf[0:4], p.ObjectHandle)
+	PutUint32(buf[4:8], p.AttributeHandle)
 	return buf, nil
 }
 
 func (p *QueryOwnershipPayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 8 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
-	p.AttributeHandle = binary.BigEndian.Uint32(data[4:8])
+	p.ObjectHandle = Uint32FromBytes(data[0:4])
+	p.AttributeHandle = Uint32FromBytes(data[4:8])
 	return nil
 }
 
 // QueryOwnershipResponsePayload returns ownership status
+// Layout: [ObjectHandle:4, AttributeHandle:4, OwnerHandle:4, IsOwned:1] (Fixed)
 type QueryOwnershipResponsePayload struct {
 	ObjectHandle    uint32
 	AttributeHandle uint32
@@ -920,9 +1018,9 @@ type QueryOwnershipResponsePayload struct {
 
 func (p QueryOwnershipResponsePayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 13)
-	binary.BigEndian.PutUint32(buf[0:4], p.ObjectHandle)
-	binary.BigEndian.PutUint32(buf[4:8], p.AttributeHandle)
-	binary.BigEndian.PutUint32(buf[8:12], p.OwnerHandle)
+	PutUint32(buf[0:4], p.ObjectHandle)
+	PutUint32(buf[4:8], p.AttributeHandle)
+	PutUint32(buf[8:12], p.OwnerHandle)
 	if p.IsOwned {
 		buf[12] = 1
 	} else {
@@ -933,11 +1031,11 @@ func (p QueryOwnershipResponsePayload) MarshalBinary() ([]byte, error) {
 
 func (p *QueryOwnershipResponsePayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 13 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectHandle = binary.BigEndian.Uint32(data[0:4])
-	p.AttributeHandle = binary.BigEndian.Uint32(data[4:8])
-	p.OwnerHandle = binary.BigEndian.Uint32(data[8:12])
+	p.ObjectHandle = Uint32FromBytes(data[0:4])
+	p.AttributeHandle = Uint32FromBytes(data[4:8])
+	p.OwnerHandle = Uint32FromBytes(data[8:12])
 	p.IsOwned = data[12] == 1
 	return nil
 }
@@ -947,58 +1045,63 @@ func (p *QueryOwnershipResponsePayload) UnmarshalBinary(data []byte) error {
 // ============================================================================
 
 // CreateRegionPayload carries dimensions for region creation
+// Layout: [Offset0:4 (Dimensions)] + Heap [Dimensions uint32 list]
 type CreateRegionPayload struct {
 	Dimensions []uint32
 }
 
 func (p CreateRegionPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+len(p.Dimensions)*4)
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.Dimensions)))
-	offset := 2
-	for _, dim := range p.Dimensions {
-		binary.BigEndian.PutUint32(buf[offset:offset+4], dim)
-		offset += 4
-	}
+	const fixedHeaderSize = 4
+	dimLen := uint32(len(p.Dimensions) * 4)
+	totalLen := fixedHeaderSize + dimLen
+
+	buf := make([]byte, totalLen)
+	PutOffset(buf[0:4], fixedHeaderSize)
+	EncodeSSZUint32List(buf, fixedHeaderSize, p.Dimensions)
+
 	return buf, nil
 }
 
 func (p *CreateRegionPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 2 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 4
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	count := int(binary.BigEndian.Uint16(data[0:2]))
-	if 2+count*4 > len(data) {
-		return ErrPayloadDataOverflow
+
+	off0 := GetOffset(data[0:4])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Dimensions = make([]uint32, count)
-	offset := 2
-	for i := 0; i < count; i++ {
-		p.Dimensions[i] = binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-	}
-	return nil
+
+	var err error
+	p.Dimensions, err = DecodeSSZUint32List(data, off0, totalLen)
+	return err
 }
 
 // CreateRegionResponsePayload returns the assigned region handle
+// Layout: [RegionHandle:4] (Fixed)
 type CreateRegionResponsePayload struct {
 	RegionHandle uint32
 }
 
 func (p CreateRegionResponsePayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf[0:4], p.RegionHandle)
+	PutUint32(buf[0:4], p.RegionHandle)
 	return buf, nil
 }
 
 func (p *CreateRegionResponsePayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 4 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.RegionHandle = binary.BigEndian.Uint32(data[0:4])
+	p.RegionHandle = Uint32FromBytes(data[0:4])
 	return nil
 }
 
 // SetRangeBoundsPayload defines discrete grid bounds [lower, upper] for a dimension
+// Layout: [RegionHandle:4, DimensionHandle:4, LowerBound:4, UpperBound:4] (Fixed)
 type SetRangeBoundsPayload struct {
 	RegionHandle    uint32
 	DimensionHandle uint32
@@ -1008,25 +1111,26 @@ type SetRangeBoundsPayload struct {
 
 func (p SetRangeBoundsPayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 16)
-	binary.BigEndian.PutUint32(buf[0:4], p.RegionHandle)
-	binary.BigEndian.PutUint32(buf[4:8], p.DimensionHandle)
-	binary.BigEndian.PutUint32(buf[8:12], p.LowerBound)
-	binary.BigEndian.PutUint32(buf[12:16], p.UpperBound)
+	PutUint32(buf[0:4], p.RegionHandle)
+	PutUint32(buf[4:8], p.DimensionHandle)
+	PutUint32(buf[8:12], p.LowerBound)
+	PutUint32(buf[12:16], p.UpperBound)
 	return buf, nil
 }
 
 func (p *SetRangeBoundsPayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 16 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.RegionHandle = binary.BigEndian.Uint32(data[0:4])
-	p.DimensionHandle = binary.BigEndian.Uint32(data[4:8])
-	p.LowerBound = binary.BigEndian.Uint32(data[8:12])
-	p.UpperBound = binary.BigEndian.Uint32(data[12:16])
+	p.RegionHandle = Uint32FromBytes(data[0:4])
+	p.DimensionHandle = Uint32FromBytes(data[4:8])
+	p.LowerBound = Uint32FromBytes(data[8:12])
+	p.UpperBound = Uint32FromBytes(data[12:16])
 	return nil
 }
 
 // SetMetricBoundsPayload sets continuous ECEF metric bounds for a region
+// Layout: [RegionHandle:4, MinX:8, MaxX:8, MinY:8, MaxY:8, MinZ:8, MaxZ:8] (Fixed)
 type SetMetricBoundsPayload struct {
 	RegionHandle uint32
 	MinX, MaxX   float64
@@ -1035,32 +1139,33 @@ type SetMetricBoundsPayload struct {
 }
 
 func (p SetMetricBoundsPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+6*8)
-	binary.BigEndian.PutUint32(buf[0:4], p.RegionHandle)
-	binary.BigEndian.PutUint64(buf[4:12], math.Float64bits(p.MinX))
-	binary.BigEndian.PutUint64(buf[12:20], math.Float64bits(p.MaxX))
-	binary.BigEndian.PutUint64(buf[20:28], math.Float64bits(p.MinY))
-	binary.BigEndian.PutUint64(buf[28:36], math.Float64bits(p.MaxY))
-	binary.BigEndian.PutUint64(buf[36:44], math.Float64bits(p.MinZ))
-	binary.BigEndian.PutUint64(buf[44:52], math.Float64bits(p.MaxZ))
+	buf := make([]byte, 52)
+	PutUint32(buf[0:4], p.RegionHandle)
+	PutFloat64(buf[4:12], p.MinX)
+	PutFloat64(buf[12:20], p.MaxX)
+	PutFloat64(buf[20:28], p.MinY)
+	PutFloat64(buf[28:36], p.MaxY)
+	PutFloat64(buf[36:44], p.MinZ)
+	PutFloat64(buf[44:52], p.MaxZ)
 	return buf, nil
 }
 
 func (p *SetMetricBoundsPayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 52 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.RegionHandle = binary.BigEndian.Uint32(data[0:4])
-	p.MinX = math.Float64frombits(binary.BigEndian.Uint64(data[4:12]))
-	p.MaxX = math.Float64frombits(binary.BigEndian.Uint64(data[12:20]))
-	p.MinY = math.Float64frombits(binary.BigEndian.Uint64(data[20:28]))
-	p.MaxY = math.Float64frombits(binary.BigEndian.Uint64(data[28:36]))
-	p.MinZ = math.Float64frombits(binary.BigEndian.Uint64(data[36:44]))
-	p.MaxZ = math.Float64frombits(binary.BigEndian.Uint64(data[44:52]))
+	p.RegionHandle = Uint32FromBytes(data[0:4])
+	p.MinX = Float64FromBytes(data[4:12])
+	p.MaxX = Float64FromBytes(data[12:20])
+	p.MinY = Float64FromBytes(data[20:28])
+	p.MaxY = Float64FromBytes(data[28:36])
+	p.MinZ = Float64FromBytes(data[36:44])
+	p.MaxZ = Float64FromBytes(data[44:52])
 	return nil
 }
 
 // SubscribeWithRegionPayload associates a subscription with a spatial region
+// Layout: [ObjectClass:4, RegionHandle:4, Offset0:4 (Attributes)] + Heap [Attributes uint32 list]
 type SubscribeWithRegionPayload struct {
 	ObjectClass  uint32
 	Attributes   []uint32
@@ -1068,38 +1173,42 @@ type SubscribeWithRegionPayload struct {
 }
 
 func (p SubscribeWithRegionPayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 4+4+2+len(p.Attributes)*4)
-	binary.BigEndian.PutUint32(buf[0:4], p.ObjectClass)
-	binary.BigEndian.PutUint32(buf[4:8], p.RegionHandle)
-	binary.BigEndian.PutUint16(buf[8:10], uint16(len(p.Attributes)))
-	offset := 10
-	for _, attr := range p.Attributes {
-		binary.BigEndian.PutUint32(buf[offset:offset+4], attr)
-		offset += 4
-	}
+	const fixedHeaderSize = 12
+	attrLen := uint32(len(p.Attributes) * 4)
+	totalLen := fixedHeaderSize + attrLen
+
+	buf := make([]byte, totalLen)
+	PutUint32(buf[0:4], p.ObjectClass)
+	PutUint32(buf[4:8], p.RegionHandle)
+	PutOffset(buf[8:12], fixedHeaderSize)
+	EncodeSSZUint32List(buf, fixedHeaderSize, p.Attributes)
+
 	return buf, nil
 }
 
 func (p *SubscribeWithRegionPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 10 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 12
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ObjectClass = binary.BigEndian.Uint32(data[0:4])
-	p.RegionHandle = binary.BigEndian.Uint32(data[4:8])
-	count := int(binary.BigEndian.Uint16(data[8:10]))
-	if 10+count*4 > len(data) {
-		return ErrPayloadDataOverflow
+
+	p.ObjectClass = Uint32FromBytes(data[0:4])
+	p.RegionHandle = Uint32FromBytes(data[4:8])
+	off0 := GetOffset(data[8:12])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Attributes = make([]uint32, count)
-	offset := 10
-	for i := 0; i < count; i++ {
-		p.Attributes[i] = binary.BigEndian.Uint32(data[offset : offset+4])
-		offset += 4
-	}
-	return nil
+
+	var err error
+	p.Attributes, err = DecodeSSZUint32List(data, off0, totalLen)
+	return err
 }
 
-// UpdateAttributesSpatialPayload transmits attribute updates tagged with metric ECEF (X, Y, Z) coordinates
+// UpdateAttributesSpatialPayload transmits attribute updates tagged with metric ECEF coordinates
+// Layout: [ObjectHandle:4, X:8, Y:8, Z:8, Offset0:4 (Tag), Offset1:4 (Attributes)]
+// Heap: Tag bytes + Attributes table
 type UpdateAttributesSpatialPayload struct {
 	ObjectHandle ObjectInstanceHandle
 	X, Y, Z      float64
@@ -1108,237 +1217,302 @@ type UpdateAttributesSpatialPayload struct {
 }
 
 func (p UpdateAttributesSpatialPayload) MarshalBinary() ([]byte, error) {
-	totalLen := 4 + 3*8 + 2 + 2 + len(p.Tag)
+	const fixedHeaderSize = 36 // 4 + 8 + 8 + 8 + 4 + 4
+	tagLen := uint32(len(p.Tag))
+
+	attrDataLen := uint32(4) // count
 	for _, val := range p.Attributes {
-		totalLen += 4 + 2 + len(val)
+		attrDataLen += 8 + uint32(len(val))
 	}
 
+	totalLen := fixedHeaderSize + tagLen + attrDataLen
 	buf := make([]byte, totalLen)
-	offset := 0
 
-	binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(p.ObjectHandle))
-	offset += 4
-	binary.BigEndian.PutUint64(buf[offset:offset+8], math.Float64bits(p.X))
-	offset += 8
-	binary.BigEndian.PutUint64(buf[offset:offset+8], math.Float64bits(p.Y))
-	offset += 8
-	binary.BigEndian.PutUint64(buf[offset:offset+8], math.Float64bits(p.Z))
-	offset += 8
+	PutUint32(buf[0:4], uint32(p.ObjectHandle))
+	PutFloat64(buf[4:12], p.X)
+	PutFloat64(buf[12:20], p.Y)
+	PutFloat64(buf[20:28], p.Z)
 
-	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(p.Tag)))
-	offset += 2
-	copy(buf[offset:], p.Tag)
-	offset += len(p.Tag)
+	off0 := uint32(fixedHeaderSize)
+	off1 := off0 + tagLen
 
-	binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(p.Attributes)))
-	offset += 2
+	PutOffset(buf[28:32], off0)
+	PutOffset(buf[32:36], off1)
 
-	for attrHandle, val := range p.Attributes {
-		binary.BigEndian.PutUint32(buf[offset:offset+4], uint32(attrHandle))
-		offset += 4
-		binary.BigEndian.PutUint16(buf[offset:offset+2], uint16(len(val)))
-		offset += 2
-		copy(buf[offset:], val)
-		offset += len(val)
+	EncodeSSZBytes(buf, off0, p.Tag)
+
+	PutUint32(buf[off1:off1+4], uint32(len(p.Attributes)))
+	curOffset := off1 + 4
+	for attr, val := range p.Attributes {
+		PutUint32(buf[curOffset:curOffset+4], uint32(attr))
+		PutUint32(buf[curOffset+4:curOffset+8], uint32(len(val)))
+		curOffset += 8
+		copy(buf[curOffset:], val)
+		curOffset += uint32(len(val))
 	}
 
 	return buf, nil
 }
 
 func (p *UpdateAttributesSpatialPayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 32 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 36
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	offset := 0
-	p.ObjectHandle = ObjectInstanceHandle(binary.BigEndian.Uint32(data[offset : offset+4]))
-	offset += 4
-	p.X = math.Float64frombits(binary.BigEndian.Uint64(data[offset : offset+8]))
-	offset += 8
-	p.Y = math.Float64frombits(binary.BigEndian.Uint64(data[offset : offset+8]))
-	offset += 8
-	p.Z = math.Float64frombits(binary.BigEndian.Uint64(data[offset : offset+8]))
-	offset += 8
 
-	tagLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
-	offset += 2
-	if offset+tagLen > len(data) {
-		return ErrPayloadDataOverflow
+	p.ObjectHandle = ObjectInstanceHandle(Uint32FromBytes(data[0:4]))
+	p.X = Float64FromBytes(data[4:12])
+	p.Y = Float64FromBytes(data[12:20])
+	p.Z = Float64FromBytes(data[20:28])
+
+	off0 := GetOffset(data[28:32])
+	off1 := GetOffset(data[32:36])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0, off1}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.Tag = make([]byte, tagLen)
-	copy(p.Tag, data[offset:offset+tagLen])
-	offset += tagLen
 
-	if offset+2 > len(data) {
-		return ErrPayloadTooShort
+	var err error
+	p.Tag, err = DecodeSSZBytes(data, off0, off1)
+	if err != nil {
+		return err
 	}
-	attrCount := int(binary.BigEndian.Uint16(data[offset : offset+2]))
-	offset += 2
 
-	p.Attributes = make(map[AttributeHandle][]byte, attrCount)
-	for i := 0; i < attrCount; i++ {
-		if offset+6 > len(data) {
-			return ErrPayloadTooShort
+	if off1+4 > totalLen {
+		p.Attributes = make(map[AttributeHandle][]byte)
+		return nil
+	}
+
+	count := Uint32FromBytes(data[off1 : off1+4])
+	p.Attributes = make(map[AttributeHandle][]byte, count)
+	curOffset := off1 + 4
+
+	for i := uint32(0); i < count; i++ {
+		if curOffset+8 > totalLen {
+			return ErrSSZBufferTooShort
 		}
-		handle := AttributeHandle(binary.BigEndian.Uint32(data[offset : offset+4]))
-		offset += 4
-		vLen := int(binary.BigEndian.Uint16(data[offset : offset+2]))
-		offset += 2
-		if offset+vLen > len(data) {
-			return ErrPayloadDataOverflow
+		handle := AttributeHandle(Uint32FromBytes(data[curOffset : curOffset+4]))
+		valLen := Uint32FromBytes(data[curOffset+4 : curOffset+8])
+		curOffset += 8
+		if curOffset+valLen > totalLen {
+			return ErrSSZDataOutOfBounds
 		}
-		val := make([]byte, vLen)
-		copy(val, data[offset:offset+vLen])
-		offset += vLen
+		val := make([]byte, valLen)
+		copy(val, data[curOffset:curOffset+valLen])
+		curOffset += valLen
 		p.Attributes[handle] = val
 	}
+
 	return nil
 }
 
 // ============================================================================
-// 6. OMT / FOM HANDLE RESOLUTION PAYLOADS
+// 8. OMT / FOM HANDLE RESOLUTION PAYLOADS
 // ============================================================================
 
 // GetObjectClassHandlePayload carries the class name to resolve
+// Layout: [Offset0:4 (ClassName)] + Heap [ClassName]
 type GetObjectClassHandlePayload struct {
 	ClassName string
 }
 
 func (p GetObjectClassHandlePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+len(p.ClassName))
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.ClassName)))
-	copy(buf[2:], p.ClassName)
+	const fixedHeaderSize = 4
+	nameLen := uint32(len(p.ClassName))
+	totalLen := fixedHeaderSize + nameLen
+
+	buf := make([]byte, totalLen)
+	PutOffset(buf[0:4], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.ClassName)
+
 	return buf, nil
 }
 
 func (p *GetObjectClassHandlePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 2 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 4
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	nLen := int(binary.BigEndian.Uint16(data[0:2]))
-	if 2+nLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	off0 := GetOffset(data[0:4])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.ClassName = string(data[2 : 2+nLen])
-	return nil
+
+	var err error
+	p.ClassName, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // HandleResponsePayload returns an int32 handle
+// Layout: [Handle:4] (Fixed)
 type HandleResponsePayload struct {
 	Handle int32
 }
 
 func (p HandleResponsePayload) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.Handle))
+	PutInt32(buf[0:4], p.Handle)
 	return buf, nil
 }
 
 func (p *HandleResponsePayload) UnmarshalBinary(data []byte) error {
 	if len(data) < 4 {
-		return ErrPayloadTooShort
+		return ErrSSZBufferTooShort
 	}
-	p.Handle = int32(binary.BigEndian.Uint32(data[0:4]))
+	p.Handle = Int32FromBytes(data[0:4])
 	return nil
 }
 
 // GetAttributeHandlePayload carries class handle and attribute name to resolve
+// Layout: [ClassHandle:4, Offset0:4 (AttributeName)] + Heap [AttributeName]
 type GetAttributeHandlePayload struct {
 	ClassHandle   int32
 	AttributeName string
 }
 
 func (p GetAttributeHandlePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 6+len(p.AttributeName))
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.ClassHandle))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.AttributeName)))
-	copy(buf[6:], p.AttributeName)
+	const fixedHeaderSize = 8
+	nameLen := uint32(len(p.AttributeName))
+	totalLen := fixedHeaderSize + nameLen
+
+	buf := make([]byte, totalLen)
+	PutInt32(buf[0:4], p.ClassHandle)
+	PutOffset(buf[4:8], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.AttributeName)
+
 	return buf, nil
 }
 
 func (p *GetAttributeHandlePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.ClassHandle = int32(binary.BigEndian.Uint32(data[0:4]))
-	nLen := int(binary.BigEndian.Uint16(data[4:6]))
-	if 6+nLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	p.ClassHandle = Int32FromBytes(data[0:4])
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.AttributeName = string(data[6 : 6+nLen])
-	return nil
+
+	var err error
+	p.AttributeName, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // GetDimensionHandlePayload carries dimension name to resolve
+// Layout: [Offset0:4 (DimensionName)] + Heap [DimensionName]
 type GetDimensionHandlePayload struct {
 	DimensionName string
 }
 
 func (p GetDimensionHandlePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+len(p.DimensionName))
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.DimensionName)))
-	copy(buf[2:], p.DimensionName)
+	const fixedHeaderSize = 4
+	nameLen := uint32(len(p.DimensionName))
+	totalLen := fixedHeaderSize + nameLen
+
+	buf := make([]byte, totalLen)
+	PutOffset(buf[0:4], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.DimensionName)
+
 	return buf, nil
 }
 
 func (p *GetDimensionHandlePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 2 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 4
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	nLen := int(binary.BigEndian.Uint16(data[0:2]))
-	if 2+nLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	off0 := GetOffset(data[0:4])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.DimensionName = string(data[2 : 2+nLen])
-	return nil
+
+	var err error
+	p.DimensionName, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // GetInteractionClassHandlePayload carries interaction name to resolve
+// Layout: [Offset0:4 (InteractionName)] + Heap [InteractionName]
 type GetInteractionClassHandlePayload struct {
 	InteractionName string
 }
 
 func (p GetInteractionClassHandlePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 2+len(p.InteractionName))
-	binary.BigEndian.PutUint16(buf[0:2], uint16(len(p.InteractionName)))
-	copy(buf[2:], p.InteractionName)
+	const fixedHeaderSize = 4
+	nameLen := uint32(len(p.InteractionName))
+	totalLen := fixedHeaderSize + nameLen
+
+	buf := make([]byte, totalLen)
+	PutOffset(buf[0:4], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.InteractionName)
+
 	return buf, nil
 }
 
 func (p *GetInteractionClassHandlePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 2 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 4
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	nLen := int(binary.BigEndian.Uint16(data[0:2]))
-	if 2+nLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	off0 := GetOffset(data[0:4])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.InteractionName = string(data[2 : 2+nLen])
-	return nil
+
+	var err error
+	p.InteractionName, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
 
 // GetParameterHandlePayload carries interaction handle and parameter name to resolve
+// Layout: [InteractionHandle:4, Offset0:4 (ParameterName)] + Heap [ParameterName]
 type GetParameterHandlePayload struct {
 	InteractionHandle int32
 	ParameterName     string
 }
 
 func (p GetParameterHandlePayload) MarshalBinary() ([]byte, error) {
-	buf := make([]byte, 6+len(p.ParameterName))
-	binary.BigEndian.PutUint32(buf[0:4], uint32(p.InteractionHandle))
-	binary.BigEndian.PutUint16(buf[4:6], uint16(len(p.ParameterName)))
-	copy(buf[6:], p.ParameterName)
+	const fixedHeaderSize = 8
+	nameLen := uint32(len(p.ParameterName))
+	totalLen := fixedHeaderSize + nameLen
+
+	buf := make([]byte, totalLen)
+	PutInt32(buf[0:4], p.InteractionHandle)
+	PutOffset(buf[4:8], fixedHeaderSize)
+	EncodeSSZString(buf, fixedHeaderSize, p.ParameterName)
+
 	return buf, nil
 }
 
 func (p *GetParameterHandlePayload) UnmarshalBinary(data []byte) error {
-	if len(data) < 6 {
-		return ErrPayloadTooShort
+	const fixedHeaderSize = 8
+	if len(data) < fixedHeaderSize {
+		return ErrSSZBufferTooShort
 	}
-	p.InteractionHandle = int32(binary.BigEndian.Uint32(data[0:4]))
-	nLen := int(binary.BigEndian.Uint16(data[4:6]))
-	if 6+nLen > len(data) {
-		return ErrPayloadStringOverflow
+
+	p.InteractionHandle = Int32FromBytes(data[0:4])
+	off0 := GetOffset(data[4:8])
+	totalLen := uint32(len(data))
+
+	if err := ValidateOffsets([]uint32{off0}, fixedHeaderSize, totalLen); err != nil {
+		return err
 	}
-	p.ParameterName = string(data[6 : 6+nLen])
-	return nil
+
+	var err error
+	p.ParameterName, err = DecodeSSZString(data, off0, totalLen)
+	return err
 }
