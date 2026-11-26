@@ -340,7 +340,7 @@ func DecodeSSZStringList(data []byte, start, end uint32) ([]string, error) {
 
 	subData := data[start:end]
 	firstOffset := Endian.Uint32(subData[0:4])
-	if firstOffset%4 != 0 || firstOffset > byteLen {
+	if firstOffset == 0 || firstOffset%4 != 0 || firstOffset > byteLen {
 		return nil, ErrSSZInvalidOffset
 	}
 	count := firstOffset / 4
@@ -449,7 +449,7 @@ func DecodeSSZAttributeList(data []byte, start, end uint32) (map[AttributeHandle
 
 	subData := data[start:end]
 	firstOffset := Endian.Uint32(subData[0:4])
-	if firstOffset%4 != 0 || firstOffset > byteLen {
+	if firstOffset == 0 || firstOffset%4 != 0 || firstOffset > byteLen {
 		return nil, ErrSSZInvalidOffset
 	}
 	count := firstOffset / 4
@@ -567,7 +567,7 @@ func DecodeSSZParameterList(data []byte, start, end uint32) (map[ParameterHandle
 
 	subData := data[start:end]
 	firstOffset := Endian.Uint32(subData[0:4])
-	if firstOffset%4 != 0 || firstOffset > byteLen {
+	if firstOffset == 0 || firstOffset%4 != 0 || firstOffset > byteLen {
 		return nil, ErrSSZInvalidOffset
 	}
 	count := firstOffset / 4
@@ -665,8 +665,21 @@ func NextPowerOfTwo(n int) int {
 	return p
 }
 
+// zeroHashes stores precomputed Merkle roots of empty subtrees up to depth 64:
+// zeroHashes[0] = [32]byte{} (empty chunk)
+// zeroHashes[i] = HashPair(zeroHashes[i-1], zeroHashes[i-1])
+var zeroHashes [65][32]byte
+
+func init() {
+	for i := 0; i < 64; i++ {
+		zeroHashes[i+1] = HashPair(zeroHashes[i], zeroHashes[i])
+	}
+}
+
 // Merkleize computes the Merkle root of a sequence of 32-byte chunks per Ethereum 2.0 SSZ.
-// If limit > 0, the tree is expanded to the virtual depth required by limit.
+// If limit > 0, the tree is expanded to the virtual depth required by limit using
+// precomputed zero-hashes in O(N + log2(limit)) time and O(N) space, avoiding dense
+// allocation and redundant hashing of empty subtrees.
 func Merkleize(chunks [][32]byte, limit uint64) [32]byte {
 	n := len(chunks)
 	count := n
@@ -678,16 +691,50 @@ func Merkleize(chunks [][32]byte, limit uint64) [32]byte {
 	}
 
 	power := NextPowerOfTwo(count)
-	tree := make([][32]byte, power)
-	copy(tree, chunks)
+	depth := 0
+	for (1 << depth) < power {
+		depth++
+	}
 
-	for size := power; size > 1; size /= 2 {
-		for i := 0; i < size/2; i++ {
-			tree[i] = HashPair(tree[2*i], tree[2*i+1])
+	if n == 0 {
+		return zeroHashes[depth]
+	}
+
+	if n == 1 {
+		root := chunks[0]
+		for level := 0; level < depth; level++ {
+			root = HashPair(root, zeroHashes[level])
+		}
+		return root
+	}
+
+	// Layer-by-layer sparse folding in O(N + log2(limit))
+	layer := make([][32]byte, n)
+	copy(layer, chunks)
+
+	for h := 0; h < depth; h++ {
+		curLen := len(layer)
+		if curLen == 1 {
+			root := layer[0]
+			for level := h; level < depth; level++ {
+				root = HashPair(root, zeroHashes[level])
+			}
+			return root
+		}
+
+		half := curLen / 2
+		for i := 0; i < half; i++ {
+			layer[i] = HashPair(layer[2*i], layer[2*i+1])
+		}
+		if curLen%2 != 0 {
+			layer[half] = HashPair(layer[curLen-1], zeroHashes[h])
+			layer = layer[:half+1]
+		} else {
+			layer = layer[:half]
 		}
 	}
 
-	return tree[0]
+	return layer[0]
 }
 
 // MixInLength mixes the length of a dynamic list into its Merkle root:

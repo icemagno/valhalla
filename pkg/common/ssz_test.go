@@ -348,3 +348,37 @@ func TestSSZMerkleization(t *testing.T) {
 		t.Fatalf("HashPair returned zero hash")
 	}
 }
+
+func TestSSZListFirstOffsetZeroRejection(t *testing.T) {
+	// A non-empty buffer (byteLen >= 4) with firstOffset == 0 followed by trailing garbage
+	// MUST be rejected with ErrSSZInvalidOffset and NOT accepted as an empty list.
+	malicious := make([]byte, 16)
+	Endian.PutUint32(malicious[0:4], 0) // firstOffset = 0
+	for i := 4; i < 16; i++ {
+		malicious[i] = 0xAA // trailing garbage
+	}
+
+	// 1. DecodeSSZStringList
+	if _, err := DecodeSSZStringList(malicious, 0, uint32(len(malicious))); err == nil {
+		t.Fatalf("DecodeSSZStringList accepted non-empty buffer with firstOffset == 0")
+	}
+
+	// 2. DecodeSSZAttributeList
+	if _, err := DecodeSSZAttributeList(malicious, 0, uint32(len(malicious))); err == nil {
+		t.Fatalf("DecodeSSZAttributeList accepted non-empty buffer with firstOffset == 0")
+	}
+
+	// 3. DecodeSSZParameterList
+	if _, err := DecodeSSZParameterList(malicious, 0, uint32(len(malicious))); err == nil {
+		t.Fatalf("DecodeSSZParameterList accepted non-empty buffer with firstOffset == 0")
+	}
+}
+
+func BenchmarkHashTreeRootByteList_1MB(b *testing.B) {
+	data := []byte("AttributeValueBenchmarkDataPayload1234567890")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = HashTreeRootByteList(data, 1024*1024)
+	}
+}
