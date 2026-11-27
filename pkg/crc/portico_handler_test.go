@@ -86,6 +86,24 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 		t.Fatalf("falha enviando 0xFEED: %v", err)
 	}
 
+	// 1.5. Enviar RtiProbe (MessageType 2) como o cliente Portico 3.0 faz logo após o handshake
+	probeObj := wire.NewRtiProbeObject()
+	probePayload, err := wire.SerializePorticoControlMessage(probeObj)
+	if err != nil {
+		t.Fatalf("falha serializando RtiProbe: %v", err)
+	}
+	probeHdr := wire.NewControlRequest(wire.MsgRtiProbe, 100, 0, 0, uint32(len(probePayload)))
+	if err := clientSession.SendPacket(probeHdr, probePayload); err != nil {
+		t.Fatalf("falha enviando RtiProbe: %v", err)
+	}
+	probeResHdr, _, err := readControlResponse()
+	if err != nil {
+		t.Fatalf("falha lendo resposta RtiProbe: %v", err)
+	}
+	if probeResHdr.CallType != wire.CallTypeControlResponseOK {
+		t.Fatalf("esperado ControlResponseOK para RtiProbe, obtido %s", probeResHdr.CallType)
+	}
+
 	// 2. Enviar CreateFederation
 	createObj := wire.NewCreateFederationObject("ExampleFederation")
 	createPayload, err := wire.SerializePorticoControlMessage(createObj)

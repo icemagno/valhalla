@@ -112,7 +112,7 @@ func (ctx *porticoContext) handleFederationManagement(hdr wire.Header, payload [
 
 		// Ingest join-time FOM modules
 		if obj != nil {
-			for _, key := range []string{"rawFomModules", "modules", "fomModuleLocations", "rawFomModuleLocations"} {
+			for _, key := range []string{"rawFomModules", "rawJoinObjectModels", "modules", "fomModuleLocations", "rawFomModuleLocations"} {
 				if val := obj.Get(key); val != nil {
 					ingestPorticoFOMModules(fedExec.OMT(), val)
 				}
