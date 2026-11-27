@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/icemagno/valhalla/pkg/common"
@@ -18,6 +19,8 @@ var (
 	ErrDuplicateInteraction = errors.New("hla omt: interaction name already registered")
 	ErrDuplicateParameter   = errors.New("hla omt: parameter name already exists in interaction")
 	ErrInvalidParentClass   = errors.New("hla omt: invalid or non-existent parent class")
+	ErrAmbiguousClass       = errors.New("hla omt: ambiguous class name matches multiple classes; use fully qualified name")
+	ErrAmbiguousInteraction = errors.New("hla omt: ambiguous interaction name matches multiple classes; use fully qualified name")
 )
 
 // Normative Standard MIM Constants (IEEE 1516-2025)
@@ -49,10 +52,11 @@ type DimensionDef struct {
 
 // ObjectClass defines an object class in the HLA OMT hierarchy
 type ObjectClass struct {
-	Handle       common.ObjectClassHandle
-	Name         string
-	ParentHandle common.ObjectClassHandle
-	Children     []common.ObjectClassHandle
+	Handle        common.ObjectClassHandle
+	Name          string // Simple name, e.g. "Sensor"
+	QualifiedName string // Canonical FQCN, e.g. "HLAobjectRoot.Platform.Sensor"
+	ParentHandle  common.ObjectClassHandle
+	Children      []common.ObjectClassHandle
 
 	// Attributes defined directly in this class
 	Attributes       map[common.AttributeHandle]*AttributeDef
@@ -76,10 +80,11 @@ type ParameterDef struct {
 
 // InteractionClass defines an interaction class in the HLA OMT hierarchy
 type InteractionClass struct {
-	Handle       common.InteractionClassHandle
-	Name         string
-	ParentHandle common.InteractionClassHandle
-	Children     []common.InteractionClassHandle
+	Handle            common.InteractionClassHandle
+	Name              string // Simple name, e.g. "Scan"
+	QualifiedName     string // Canonical FQCN, e.g. "HLAinteractionRoot.Radar.Scan"
+	ParentHandle      common.InteractionClassHandle
+	Children          []common.InteractionClassHandle
 
 	// Parameters defined directly in this interaction
 	Parameters        map[common.ParameterHandle]*ParameterDef
@@ -99,12 +104,14 @@ type OMTRegistry struct {
 	mu sync.RWMutex
 
 	// Object Classes
-	objectClasses     map[common.ObjectClassHandle]*ObjectClass
-	objectNameToClass map[string]common.ObjectClassHandle
+	objectClasses             map[common.ObjectClassHandle]*ObjectClass
+	objectFQCNToClass         map[string]common.ObjectClassHandle
+	objectSimpleNameToHandles map[string][]common.ObjectClassHandle
 
 	// Interaction Classes
-	interactionClasses     map[common.InteractionClassHandle]*InteractionClass
-	interactionNameToClass map[string]common.InteractionClassHandle
+	interactionClasses             map[common.InteractionClassHandle]*InteractionClass
+	interactionFQCNToClass         map[string]common.InteractionClassHandle
+	interactionSimpleNameToHandles map[string][]common.InteractionClassHandle
 
 	// DDM Dimensions
 	dimensions            map[common.DimensionHandle]*DimensionDef
@@ -122,23 +129,26 @@ type OMTRegistry struct {
 // (HLAobjectRoot with HLAprivilegeToDeleteObject, and HLAinteractionRoot)
 func NewOMTRegistry() *OMTRegistry {
 	reg := &OMTRegistry{
-		objectClasses:              make(map[common.ObjectClassHandle]*ObjectClass),
-		objectNameToClass:          make(map[string]common.ObjectClassHandle),
-		interactionClasses:         make(map[common.InteractionClassHandle]*InteractionClass),
-		interactionNameToClass:     make(map[string]common.InteractionClassHandle),
-		dimensions:                 make(map[common.DimensionHandle]*DimensionDef),
-		dimensionNameToHandle:      make(map[string]common.DimensionHandle),
-		nextObjectClassHandle:      1001,
-		nextAttributeHandle:        1001,
-		nextInteractionClassHandle: 1001,
-		nextParameterHandle:        1001,
-		nextDimensionHandle:        1001,
+		objectClasses:                  make(map[common.ObjectClassHandle]*ObjectClass),
+		objectFQCNToClass:              make(map[string]common.ObjectClassHandle),
+		objectSimpleNameToHandles:      make(map[string][]common.ObjectClassHandle),
+		interactionClasses:             make(map[common.InteractionClassHandle]*InteractionClass),
+		interactionFQCNToClass:         make(map[string]common.InteractionClassHandle),
+		interactionSimpleNameToHandles: make(map[string][]common.InteractionClassHandle),
+		dimensions:                     make(map[common.DimensionHandle]*DimensionDef),
+		dimensionNameToHandle:          make(map[string]common.DimensionHandle),
+		nextObjectClassHandle:          1001,
+		nextAttributeHandle:            1001,
+		nextInteractionClassHandle:     1001,
+		nextParameterHandle:            1001,
+		nextDimensionHandle:            1001,
 	}
 
 	// 1. Install HLAobjectRoot with HLAprivilegeToDeleteObject
 	objRoot := &ObjectClass{
 		Handle:           HLAobjectRootHandle,
 		Name:             HLAobjectRootName,
+		QualifiedName:    HLAobjectRootName,
 		ParentHandle:     0,
 		Children:         make([]common.ObjectClassHandle, 0),
 		Attributes:       make(map[common.AttributeHandle]*AttributeDef),
@@ -155,12 +165,14 @@ func NewOMTRegistry() *OMTRegistry {
 	objRoot.AttrNameToHandle[privAttr.Name] = privAttr.Handle
 
 	reg.objectClasses[HLAobjectRootHandle] = objRoot
-	reg.objectNameToClass[HLAobjectRootName] = HLAobjectRootHandle
+	reg.objectFQCNToClass[HLAobjectRootName] = HLAobjectRootHandle
+	reg.objectSimpleNameToHandles[HLAobjectRootName] = []common.ObjectClassHandle{HLAobjectRootHandle}
 
 	// 2. Install HLAinteractionRoot
 	intRoot := &InteractionClass{
 		Handle:            HLAinteractionRootHandle,
 		Name:              HLAinteractionRootName,
+		QualifiedName:     HLAinteractionRootName,
 		ParentHandle:      0,
 		Children:          make([]common.InteractionClassHandle, 0),
 		Parameters:        make(map[common.ParameterHandle]*ParameterDef),
@@ -168,7 +180,8 @@ func NewOMTRegistry() *OMTRegistry {
 		Ancestors:         nil,
 	}
 	reg.interactionClasses[HLAinteractionRootHandle] = intRoot
-	reg.interactionNameToClass[HLAinteractionRootName] = HLAinteractionRootHandle
+	reg.interactionFQCNToClass[HLAinteractionRootName] = HLAinteractionRootHandle
+	reg.interactionSimpleNameToHandles[HLAinteractionRootName] = []common.InteractionClassHandle{HLAinteractionRootHandle}
 
 	// Compute initial Euler intervals
 	reg.recomputeIntervalsLocked()
@@ -181,13 +194,30 @@ func (r *OMTRegistry) AddObjectClass(name string, parentHandle common.ObjectClas
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.objectNameToClass[name]; exists {
-		return nil, ErrDuplicateClass
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("hla omt: empty object class name")
 	}
 
 	parent, exists := r.objectClasses[parentHandle]
 	if !exists {
 		return nil, ErrInvalidParentClass
+	}
+
+	simpleName := name
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		simpleName = name[idx+1:]
+	}
+
+	var fqcn string
+	if parent.QualifiedName == "" || parent.QualifiedName == HLAobjectRootName {
+		fqcn = HLAobjectRootName + "." + simpleName
+	} else {
+		fqcn = parent.QualifiedName + "." + simpleName
+	}
+
+	if _, exists := r.objectFQCNToClass[fqcn]; exists {
+		return nil, ErrDuplicateClass
 	}
 
 	handle := r.nextObjectClassHandle
@@ -199,7 +229,8 @@ func (r *OMTRegistry) AddObjectClass(name string, parentHandle common.ObjectClas
 
 	class := &ObjectClass{
 		Handle:           handle,
-		Name:             name,
+		Name:             simpleName,
+		QualifiedName:    fqcn,
 		ParentHandle:     parentHandle,
 		Children:         make([]common.ObjectClassHandle, 0),
 		Attributes:       make(map[common.AttributeHandle]*AttributeDef),
@@ -209,10 +240,69 @@ func (r *OMTRegistry) AddObjectClass(name string, parentHandle common.ObjectClas
 
 	parent.Children = append(parent.Children, handle)
 	r.objectClasses[handle] = class
-	r.objectNameToClass[name] = handle
+	r.objectFQCNToClass[fqcn] = handle
+	r.objectSimpleNameToHandles[simpleName] = append(r.objectSimpleNameToHandles[simpleName], handle)
 
 	r.recomputeIntervalsLocked()
 	return class, nil
+}
+
+// AddInteractionClass registers a new interaction subclass in the OMT hierarchy
+func (r *OMTRegistry) AddInteractionClass(name string, parentHandle common.InteractionClassHandle) (*InteractionClass, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("hla omt: empty interaction class name")
+	}
+
+	parent, exists := r.interactionClasses[parentHandle]
+	if !exists {
+		return nil, ErrInvalidParentClass
+	}
+
+	simpleName := name
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		simpleName = name[idx+1:]
+	}
+
+	var fqcn string
+	if parent.QualifiedName == "" || parent.QualifiedName == HLAinteractionRootName {
+		fqcn = HLAinteractionRootName + "." + simpleName
+	} else {
+		fqcn = parent.QualifiedName + "." + simpleName
+	}
+
+	if _, exists := r.interactionFQCNToClass[fqcn]; exists {
+		return nil, ErrDuplicateInteraction
+	}
+
+	handle := r.nextInteractionClassHandle
+	r.nextInteractionClassHandle++
+
+	ancestors := make([]common.InteractionClassHandle, 0, len(parent.Ancestors)+1)
+	ancestors = append(ancestors, parentHandle)
+	ancestors = append(ancestors, parent.Ancestors...)
+
+	interaction := &InteractionClass{
+		Handle:            handle,
+		Name:              simpleName,
+		QualifiedName:     fqcn,
+		ParentHandle:      parentHandle,
+		Children:          make([]common.InteractionClassHandle, 0),
+		Parameters:        make(map[common.ParameterHandle]*ParameterDef),
+		ParamNameToHandle: make(map[string]common.ParameterHandle),
+		Ancestors:         ancestors,
+	}
+
+	parent.Children = append(parent.Children, handle)
+	r.interactionClasses[handle] = interaction
+	r.interactionFQCNToClass[fqcn] = handle
+	r.interactionSimpleNameToHandles[simpleName] = append(r.interactionSimpleNameToHandles[simpleName], handle)
+
+	r.recomputeIntervalsLocked()
+	return interaction, nil
 }
 
 // AddAttribute adds a new attribute to an existing object class
@@ -244,44 +334,6 @@ func (r *OMTRegistry) AddAttribute(classHandle common.ObjectClassHandle, name, d
 	return attr, nil
 }
 
-// AddInteractionClass registers a new interaction subclass in the OMT hierarchy
-func (r *OMTRegistry) AddInteractionClass(name string, parentHandle common.InteractionClassHandle) (*InteractionClass, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, exists := r.interactionNameToClass[name]; exists {
-		return nil, ErrDuplicateInteraction
-	}
-
-	parent, exists := r.interactionClasses[parentHandle]
-	if !exists {
-		return nil, ErrInvalidParentClass
-	}
-
-	handle := r.nextInteractionClassHandle
-	r.nextInteractionClassHandle++
-
-	ancestors := make([]common.InteractionClassHandle, 0, len(parent.Ancestors)+1)
-	ancestors = append(ancestors, parentHandle)
-	ancestors = append(ancestors, parent.Ancestors...)
-
-	interaction := &InteractionClass{
-		Handle:            handle,
-		Name:              name,
-		ParentHandle:      parentHandle,
-		Children:          make([]common.InteractionClassHandle, 0),
-		Parameters:        make(map[common.ParameterHandle]*ParameterDef),
-		ParamNameToHandle: make(map[string]common.ParameterHandle),
-		Ancestors:         ancestors,
-	}
-
-	parent.Children = append(parent.Children, handle)
-	r.interactionClasses[handle] = interaction
-	r.interactionNameToClass[name] = handle
-
-	r.recomputeIntervalsLocked()
-	return interaction, nil
-}
 
 // AddParameter adds a parameter to an existing interaction class
 func (r *OMTRegistry) AddParameter(interactionHandle common.InteractionClassHandle, name, datatype string) (*ParameterDef, error) {
@@ -391,15 +443,191 @@ func (r *OMTRegistry) GetObjectClass(handle common.ObjectClassHandle) (*ObjectCl
 	return c, exists
 }
 
-// GetObjectClassByName retrieves object class metadata by name
-func (r *OMTRegistry) GetObjectClassByName(name string) (*ObjectClass, bool) {
+// GetChildObjectClass retrieves a direct child object class of parent by simple name
+func (r *OMTRegistry) GetChildObjectClass(parentHandle common.ObjectClassHandle, name string) (*ObjectClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	h, exists := r.objectNameToClass[name]
+
+	parent, exists := r.objectClasses[parentHandle]
 	if !exists {
 		return nil, false
 	}
+
+	simpleName := name
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		simpleName = name[idx+1:]
+	}
+
+	for _, childHandle := range parent.Children {
+		child := r.objectClasses[childHandle]
+		if child != nil && child.Name == simpleName {
+			return child, true
+		}
+	}
+	return nil, false
+}
+
+// GetChildInteractionClass retrieves a direct child interaction class of parent by simple name
+func (r *OMTRegistry) GetChildInteractionClass(parentHandle common.InteractionClassHandle, name string) (*InteractionClass, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	parent, exists := r.interactionClasses[parentHandle]
+	if !exists {
+		return nil, false
+	}
+
+	simpleName := name
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		simpleName = name[idx+1:]
+	}
+
+	for _, childHandle := range parent.Children {
+		child := r.interactionClasses[childHandle]
+		if child != nil && child.Name == simpleName {
+			return child, true
+		}
+	}
+	return nil, false
+}
+
+// GetObjectClassByFQCN retrieves object class metadata by exact canonical FQCN.
+func (r *OMTRegistry) GetObjectClassByFQCN(fqcn string) (*ObjectClass, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	h, ok := r.objectFQCNToClass[fqcn]
+	if !ok {
+		return nil, false
+	}
 	return r.objectClasses[h], true
+}
+
+// GetInteractionClassByFQCN retrieves interaction class metadata by exact canonical FQCN.
+func (r *OMTRegistry) GetInteractionClassByFQCN(fqcn string) (*InteractionClass, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	h, ok := r.interactionFQCNToClass[fqcn]
+	if !ok {
+		return nil, false
+	}
+	return r.interactionClasses[h], true
+}
+
+// ResolveObjectClass resolves an object class by FQCN, relative qualified name, or unambiguous simple name.
+func (r *OMTRegistry) ResolveObjectClass(name string) (*ObjectClass, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrClassNotFound
+	}
+
+	// 1. Exact FQCN match
+	if h, ok := r.objectFQCNToClass[name]; ok {
+		return r.objectClasses[h], nil
+	}
+
+	// 2. Prepend HLAobjectRoot if missing
+	if !strings.HasPrefix(name, HLAobjectRootName+".") && name != HLAobjectRootName {
+		prefixed := HLAobjectRootName + "." + name
+		if h, ok := r.objectFQCNToClass[prefixed]; ok {
+			return r.objectClasses[h], nil
+		}
+	}
+
+	// 3. Simple name match (if no dots)
+	if !strings.Contains(name, ".") {
+		handles := r.objectSimpleNameToHandles[name]
+		if len(handles) == 1 {
+			return r.objectClasses[handles[0]], nil
+		}
+		if len(handles) > 1 {
+			return nil, ErrAmbiguousClass
+		}
+	}
+
+	// 4. Suffix match (e.g. "Platform.Sensor")
+	suffix := "." + name
+	var matchedHandle common.ObjectClassHandle
+	matchCount := 0
+	for fqcn, handle := range r.objectFQCNToClass {
+		if strings.HasSuffix(fqcn, suffix) {
+			matchedHandle = handle
+			matchCount++
+		}
+	}
+	if matchCount == 1 {
+		return r.objectClasses[matchedHandle], nil
+	}
+	if matchCount > 1 {
+		return nil, ErrAmbiguousClass
+	}
+
+	return nil, ErrClassNotFound
+}
+
+// ResolveInteractionClass resolves an interaction class by FQCN, relative qualified name, or unambiguous simple name.
+func (r *OMTRegistry) ResolveInteractionClass(name string) (*InteractionClass, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrInteractionNotFound
+	}
+
+	// 1. Exact FQCN match
+	if h, ok := r.interactionFQCNToClass[name]; ok {
+		return r.interactionClasses[h], nil
+	}
+
+	// 2. Prepend HLAinteractionRoot if missing
+	if !strings.HasPrefix(name, HLAinteractionRootName+".") && name != HLAinteractionRootName {
+		prefixed := HLAinteractionRootName + "." + name
+		if h, ok := r.interactionFQCNToClass[prefixed]; ok {
+			return r.interactionClasses[h], nil
+		}
+	}
+
+	// 3. Simple name match (if no dots)
+	if !strings.Contains(name, ".") {
+		handles := r.interactionSimpleNameToHandles[name]
+		if len(handles) == 1 {
+			return r.interactionClasses[handles[0]], nil
+		}
+		if len(handles) > 1 {
+			return nil, ErrAmbiguousInteraction
+		}
+	}
+
+	// 4. Suffix match
+	suffix := "." + name
+	var matchedHandle common.InteractionClassHandle
+	matchCount := 0
+	for fqcn, handle := range r.interactionFQCNToClass {
+		if strings.HasSuffix(fqcn, suffix) {
+			matchedHandle = handle
+			matchCount++
+		}
+	}
+	if matchCount == 1 {
+		return r.interactionClasses[matchedHandle], nil
+	}
+	if matchCount > 1 {
+		return nil, ErrAmbiguousInteraction
+	}
+
+	return nil, ErrInteractionNotFound
+}
+
+// GetObjectClassByName retrieves object class metadata by FQCN, relative qualified name, or unambiguous simple name.
+func (r *OMTRegistry) GetObjectClassByName(name string) (*ObjectClass, bool) {
+	cls, err := r.ResolveObjectClass(name)
+	if err != nil {
+		return nil, false
+	}
+	return cls, true
 }
 
 // GetInteractionClass retrieves interaction class metadata by handle
@@ -410,15 +638,13 @@ func (r *OMTRegistry) GetInteractionClass(handle common.InteractionClassHandle) 
 	return i, exists
 }
 
-// GetInteractionClassByName retrieves interaction class metadata by name
+// GetInteractionClassByName retrieves interaction class metadata by FQCN, relative qualified name, or unambiguous simple name.
 func (r *OMTRegistry) GetInteractionClassByName(name string) (*InteractionClass, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	h, exists := r.interactionNameToClass[name]
-	if !exists {
+	inter, err := r.ResolveInteractionClass(name)
+	if err != nil {
 		return nil, false
 	}
-	return r.interactionClasses[h], true
+	return inter, true
 }
 
 // ResolveAttribute searches for an attribute in the class or its ancestors (HLA inheritance)

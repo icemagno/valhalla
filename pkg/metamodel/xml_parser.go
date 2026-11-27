@@ -107,19 +107,18 @@ func mergeObjectClass(omt *core.OMTRegistry, node XMLObjectClass, parentHandle c
 
 	var currentHandle common.ObjectClassHandle
 
-	// Check if this class already exists (e.g. HLAobjectRoot or pre-registered in an earlier module)
-	existing, exists := omt.GetObjectClassByName(name)
-	if exists {
-		currentHandle = existing.Handle
+	if name == core.HLAobjectRootName {
+		currentHandle = core.HLAobjectRootHandle
 	} else {
-		// If it's HLAobjectRoot, its handle is standard 1
-		if name == core.HLAobjectRootName {
-			currentHandle = core.HLAobjectRootHandle
+		if parentHandle == 0 {
+			parentHandle = core.HLAobjectRootHandle
+		}
+
+		// Look up if this class already exists under the parent
+		existing, exists := omt.GetChildObjectClass(parentHandle, name)
+		if exists {
+			currentHandle = existing.Handle
 		} else {
-			// Ensure we have a valid parent
-			if parentHandle == 0 {
-				parentHandle = core.HLAobjectRootHandle
-			}
 			newCls, err := omt.AddObjectClass(name, parentHandle)
 			if err != nil {
 				return fmt.Errorf("failed to add object class '%s': %w", name, err)
@@ -168,16 +167,18 @@ func mergeInteractionClass(omt *core.OMTRegistry, node XMLInteractionClass, pare
 
 	var currentHandle common.InteractionClassHandle
 
-	existing, exists := omt.GetInteractionClassByName(name)
-	if exists {
-		currentHandle = existing.Handle
+	if name == core.HLAinteractionRootName {
+		currentHandle = core.HLAinteractionRootHandle
 	} else {
-		if name == core.HLAinteractionRootName {
-			currentHandle = core.HLAinteractionRootHandle
+		if parentHandle == 0 {
+			parentHandle = core.HLAinteractionRootHandle
+		}
+
+		// Look up if this interaction already exists under the parent
+		existing, exists := omt.GetChildInteractionClass(parentHandle, name)
+		if exists {
+			currentHandle = existing.Handle
 		} else {
-			if parentHandle == 0 {
-				parentHandle = core.HLAinteractionRootHandle
-			}
 			newInter, err := omt.AddInteractionClass(name, parentHandle)
 			if err != nil {
 				return fmt.Errorf("failed to add interaction class '%s': %w", name, err)

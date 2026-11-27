@@ -209,3 +209,166 @@ func TestXMLParser_All14_RPR_FOM_Modules(t *testing.T) {
 		t.Errorf("expected WeaponFire to be subclass of HLAinteractionRoot")
 	}
 }
+
+func TestXMLParser_ClassNamingCollision_MultiBranch(t *testing.T) {
+	xmlData := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<objectModel xmlns="http://standards.ieee.org/IEEE1516-2010">
+  <objects>
+    <objectClass>
+      <name>HLAobjectRoot</name>
+      <objectClass>
+        <name>Platform</name>
+        <objectClass>
+          <name>Sensor</name>
+          <attribute>
+            <name>SensorRange</name>
+            <dataType>HLAfloat32BE</dataType>
+          </attribute>
+        </objectClass>
+      </objectClass>
+      <objectClass>
+        <name>Environment</name>
+        <objectClass>
+          <name>Sensor</name>
+          <attribute>
+            <name>AmbientTemp</name>
+            <dataType>HLAfloat32BE</dataType>
+          </attribute>
+        </objectClass>
+      </objectClass>
+    </objectClass>
+  </objects>
+  <interactions>
+    <interactionClass>
+      <name>HLAinteractionRoot</name>
+      <interactionClass>
+        <name>Radar</name>
+        <interactionClass>
+          <name>Scan</name>
+          <parameter>
+            <name>Frequency</name>
+            <dataType>HLAfloat32BE</dataType>
+          </parameter>
+        </interactionClass>
+      </interactionClass>
+      <interactionClass>
+        <name>Sonar</name>
+        <interactionClass>
+          <name>Scan</name>
+          <parameter>
+            <name>Depth</name>
+            <dataType>HLAfloat32BE</dataType>
+          </parameter>
+        </interactionClass>
+      </interactionClass>
+    </interactionClass>
+  </interactions>
+</objectModel>`)
+
+	omt := core.NewOMTRegistry()
+	if err := metamodel.ParseFOMXML(omt, xmlData); err != nil {
+		t.Fatalf("falha ao realizar parsing de XML com nomes colidentes em ramos distintos: %v", err)
+	}
+
+	// 1. Obter classes por FQCN
+	platformSensor, ok := omt.GetObjectClassByName("HLAobjectRoot.Platform.Sensor")
+	if !ok {
+		t.Fatalf("classe HLAobjectRoot.Platform.Sensor não encontrada")
+	}
+	envSensor, ok := omt.GetObjectClassByName("HLAobjectRoot.Environment.Sensor")
+	if !ok {
+		t.Fatalf("classe HLAobjectRoot.Environment.Sensor não encontrada")
+	}
+
+	if platformSensor.Handle == envSensor.Handle {
+		t.Fatalf("Platform.Sensor e Environment.Sensor não podem compartilhar o mesmo handle (%d)", platformSensor.Handle)
+	}
+
+	// 2. Atributos devem ser isolados em suas respectivas classes
+	if _, err := omt.ResolveAttributeByName(platformSensor.Handle, "SensorRange"); err != nil {
+		t.Fatalf("SensorRange deve existir em Platform.Sensor: %v", err)
+	}
+	if _, err := omt.ResolveAttributeByName(platformSensor.Handle, "AmbientTemp"); err == nil {
+		t.Fatalf("AmbientTemp NÃO deve existir em Platform.Sensor")
+	}
+	if _, err := omt.ResolveAttributeByName(envSensor.Handle, "AmbientTemp"); err != nil {
+		t.Fatalf("AmbientTemp deve existir em Environment.Sensor: %v", err)
+	}
+	if _, err := omt.ResolveAttributeByName(envSensor.Handle, "SensorRange"); err == nil {
+		t.Fatalf("SensorRange NÃO deve existir em Environment.Sensor")
+	}
+
+	// 3. Interações por FQCN
+	radarScan, ok := omt.GetInteractionClassByName("HLAinteractionRoot.Radar.Scan")
+	if !ok {
+		t.Fatalf("interação HLAinteractionRoot.Radar.Scan não encontrada")
+	}
+	sonarScan, ok := omt.GetInteractionClassByName("HLAinteractionRoot.Sonar.Scan")
+	if !ok {
+		t.Fatalf("interação HLAinteractionRoot.Sonar.Scan não encontrada")
+	}
+
+	if radarScan.Handle == sonarScan.Handle {
+		t.Fatalf("Radar.Scan e Sonar.Scan não podem compartilhar o mesmo handle (%d)", radarScan.Handle)
+	}
+}
+
+func TestXMLParser_ExtensionFOM_TargetedClassMerge(t *testing.T) {
+	baseXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<objectModel xmlns="http://standards.ieee.org/IEEE1516-2010">
+  <objects>
+    <objectClass>
+      <name>HLAobjectRoot</name>
+      <objectClass>
+        <name>Platform</name>
+        <objectClass>
+          <name>Sensor</name>
+          <attribute>
+            <name>BaseSensitivity</name>
+            <dataType>HLAfloat32BE</dataType>
+          </attribute>
+        </objectClass>
+      </objectClass>
+    </objectClass>
+  </objects>
+</objectModel>`)
+
+	extXML := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<objectModel xmlns="http://standards.ieee.org/IEEE1516-2010">
+  <objects>
+    <objectClass>
+      <name>HLAobjectRoot</name>
+      <objectClass>
+        <name>Platform</name>
+        <objectClass>
+          <name>Sensor</name>
+          <attribute>
+            <name>ExtendedFrequency</name>
+            <dataType>HLAfloat32BE</dataType>
+          </attribute>
+        </objectClass>
+      </objectClass>
+    </objectClass>
+  </objects>
+</objectModel>`)
+
+	omt := core.NewOMTRegistry()
+	if err := metamodel.ParseFOMXML(omt, baseXML); err != nil {
+		t.Fatalf("falha ao ingerir base XML: %v", err)
+	}
+	if err := metamodel.ParseFOMXML(omt, extXML); err != nil {
+		t.Fatalf("falha ao ingerir extension XML: %v", err)
+	}
+
+	sensor, ok := omt.GetObjectClassByName("Platform.Sensor")
+	if !ok {
+		t.Fatalf("Platform.Sensor não encontrado")
+	}
+
+	if _, err := omt.ResolveAttributeByName(sensor.Handle, "BaseSensitivity"); err != nil {
+		t.Fatalf("BaseSensitivity deve existir em Platform.Sensor: %v", err)
+	}
+	if _, err := omt.ResolveAttributeByName(sensor.Handle, "ExtendedFrequency"); err != nil {
+		t.Fatalf("ExtendedFrequency deve ser mesclado em Platform.Sensor: %v", err)
+	}
+}
