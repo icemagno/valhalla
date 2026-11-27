@@ -218,6 +218,9 @@ if pNum, err := strconv.Atoi(parts[1]); err == nil {
 ```
 Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída pelo sistema operacional (`127.0.0.1:0`), `pNum + 1` resulta na tentativa de bind na porta `127.0.0.1:1`. Em ambientes Unix/Linux sem privilégios de root, a inicialização do Web Gateway falha silenciosamente.
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commit `a456026`)  
+> Implementada derivação segura de portas para o Web Gateway do CRC em `pkg/crc/server.go` utilizando `net.SplitHostPort` e `net.JoinHostPort`, garantindo suporte completo a IPv4, IPv6 (`[::1]:0`) e interfaces genéricas (`:0`). Quando portas dinâmicas (`pNum == 0`) ou no teto de representação (`pNum >= 65535`) são solicitadas, o Web Gateway agora permanece em porta efêmera (`:0`), instruindo o sistema operacional a atribuir uma porta dinâmica desprivilegiada (>1024), eliminando qualquer tentativa de bind na porta privilegiada `:1`. Implementado fallback automático para `:0` em `s.webGateway.Start()` caso a porta derivada colida e adicionados os métodos thread-safe `Server.WebAddr()` e `Server.WebGateway()`. Removidos os workarounds de instâncias duplicadas de WebGateway nos testes de integração. Validado com testes unitários em `pkg/crc/server_test.go` (`TestServer_WebGateway_EphemeralPortNeverBindsToPort1`, `TestServer_WebGateway_StartWithEphemeralPort_EndToEnd` via HTTP `/api/v1/status`), testes ponta-a-ponta (`TestHLA4_WebProfile_11Stages`, `TestCrossProtocol_PorticoToWeb_ReflectAttributes`) e `go test -race ./...` com 100% PASS e 0 data races.
+
 ---
 
 ## 📊 Matriz de Risco e Prioridade de Correção
@@ -257,5 +260,7 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **2.2** | Motor Anti-Stall em Background no CRC e Protocolo de Heartbeat Implícito e Explícito | `8726ea5` | **✅ CORRIGIDO** |
 | **3.3** | Fila Elástica e Eliminação de Descarte Silencioso de Callbacks no LRC com Alerta de Saturação | `9bb73d2`, `db39373` | **✅ CORRIGIDO** |
 | **3.4** | Fallback Síncrono de Logs ERROR/CRITICAL sob Saturação e Bloqueio Efetivo de Flush | `5a68331` | **✅ CORRIGIDO** |
+| **4.2** | Despacho Cruzado entre Dialetos (Nativo VAL4 ↔ Portico JOS ↔ Web JSON-WS) sem Corrupção | `e78c33d`, `cc1a47c` | **✅ CORRIGIDO** |
 | **5.2** | Eliminação de Alocações em EvokeCallback via sync.Pool de Timers e Fast-Paths Não-Bloqueantes | `4830cfa` | **✅ CORRIGIDO** |
+| **5.4** | Eliminação do Bind Indevido na Porta Privilegiada :1 pelo Web Gateway sob Portas Efêmeras | `a456026` | **✅ CORRIGIDO** |
 
