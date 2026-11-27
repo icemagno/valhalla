@@ -185,7 +185,7 @@ func (c *Client) MaxQueueCapacity() int {
 
 // QueueLength returns the current number of queued callbacks awaiting processing
 func (c *Client) QueueLength() int {
-	return int(atomic.LoadInt64(&c.queueLen)) + len(c.inQueue)
+	return int(atomic.LoadInt64(&c.queueLen)) + len(c.inQueue) + len(c.callbacks)
 }
 
 // IsQueueSaturated indicates whether the callback queue reached its safety ceiling
@@ -227,13 +227,13 @@ func (c *Client) queueLoop() {
 				atomic.AddUint64(&c.droppedCount, 1)
 			} else {
 				buffer = append(buffer, item)
-				atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+				atomic.StoreInt64(&c.queueLen, int64(len(buffer)))
 			}
 
 		case outChan <- nextItem:
 			buffer[0] = callbackItem{} // Release reference for GC
 			buffer = buffer[1:]
-			atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+			atomic.StoreInt64(&c.queueLen, int64(len(buffer)))
 			if len(buffer) == 0 && cap(buffer) > 4096 {
 				buffer = nil
 			}
@@ -251,7 +251,7 @@ func (c *Client) queueLoop() {
 						atomic.AddUint64(&c.droppedCount, 1)
 					} else {
 						buffer = append(buffer, item)
-						atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+						atomic.StoreInt64(&c.queueLen, int64(len(buffer)))
 					}
 				default:
 					break drainInQueue
@@ -264,7 +264,7 @@ func (c *Client) queueLoop() {
 				case c.callbacks <- buffer[0]:
 					buffer[0] = callbackItem{}
 					buffer = buffer[1:]
-					atomic.StoreInt64(&c.queueLen, int64(len(buffer)+len(c.callbacks)))
+					atomic.StoreInt64(&c.queueLen, int64(len(buffer)))
 				case <-time.After(500 * time.Millisecond):
 					// Consumer stopped reading or abandoned queue; terminate
 					return
