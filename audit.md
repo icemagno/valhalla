@@ -186,6 +186,9 @@ A alegação de *"multiplexação sem gateways intermediários"* oculta um defei
 ### ⚠️ 4.3. Colisão de Nomes de Classes na OMT ([pkg/metamodel/xml_parser.go](pkg/metamodel/xml_parser.go#L111))
 O registro de OMT indexa as classes pelo seu nome simples (`omt.objectNameToClass[name]`). No padrão IEEE 1516 e no RPR-FOM, classes podem compartilhar nomes simples em sub-ramos distintos (ex.: `A.Sensor` e `B.Sensor`). No parser do Valhalla, a segunda classe registrada causará `ErrDuplicateClass` ou substituirá indevidamente a classe original.
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commit `f299929`)  
+> Implementada indexação canônica por FQCN na OMT e resolução hierárquica por pai no parser XML. Classes e interações em `pkg/crc/core/omt_registry.go` agora armazenam `QualifiedName` (FQCN completo, ex.: `HLAobjectRoot.Platform.Sensor` vs. `HLAobjectRoot.Environment.Sensor`) com índices especializados `objectFQCNToClass` / `interactionFQCNToClass` e `objectSimpleNameToHandles` / `interactionSimpleNameToHandles`. Nomes curtos idênticos em ramos distintos coexistem com handles independentes e intervalos de Euler Tour isolados, enquanto duplicatas verdadeiras sob o mesmo pai continuam retornando `ErrDuplicateClass` e `ErrDuplicateInteraction`. A resolução suporta busca por FQCN canônico, nome qualificado relativo ou nome simples não-ambíguo via `ResolveObjectClass`, `ResolveInteractionClass`, `GetObjectClassByFQCN` e `GetChildObjectClass`. No parser XML (`pkg/metamodel/xml_parser.go`), a busca global plana por nome simples foi substituída por `GetChildObjectClass(parentHandle, name)` e `GetChildInteractionClass(parentHandle, name)`, eliminando fusões indevidas de atributos/parâmetros entre ramos distintos e preservando extensões modulares multi-FOM. Validado com 100% PASS sob `go test -race ./...` e 0 data races.
+
 ### ⚠️ 4.4. Mapeamento Frágil de Erros via Strings na C-ABI ([pkg/cabi/cabi.go](pkg/cabi/cabi.go#L38-L66))
 A conversão de erros Go para códigos de status da C-ABI é realizada através de busca textual com `strings.Contains(msg, ...)` em vez de erros tipados (`errors.Is` / `errors.As`). Pequenas alterações em textos descritivos quebram o lançamento de exceções nos SDKs C++ e Java.
 
@@ -274,5 +277,10 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **3.4** | Fallback Síncrono de Logs ERROR/CRITICAL sob Saturação e Bloqueio Efetivo de Flush | `5a68331` | **✅ CORRIGIDO** |
 | **4.2** | Despacho Cruzado entre Dialetos (Nativo VAL4 ↔ Portico JOS ↔ Web JSON-WS) sem Corrupção | `e78c33d`, `cc1a47c` | **✅ CORRIGIDO** |
 | **5.2** | Eliminação de Alocações em EvokeCallback via sync.Pool de Timers e Fast-Paths Não-Bloqueantes | `4830cfa` | **✅ CORRIGIDO** |
+| **5.3** | Eliminação de Latência Forçada de 50 ms no Multiplexador e Classificação Estrita de Dialetos | `c0a1238` | **✅ CORRIGIDO** |
 | **5.4** | Eliminação do Bind Indevido na Porta Privilegiada :1 pelo Web Gateway sob Portas Efêmeras | `a456026` | **✅ CORRIGIDO** |
+| **1.5** | Correção de Alegações de UDP Framing (TCP Linear + WebSockets; UDP movido para Roadmap) | `292be6c` | **✅ CORRIGIDO** |
+| **1.6** | Temporizadores de Alta Precisão Multiplataforma (QPC / CLOCK_MONOTONIC) e Remoção de P50 < 1 µs | `3edf7b6` | **✅ CORRIGIDO** |
+| **1.7** | Ingestão e Validação Modular Ponta-a-Ponta dos 14 Módulos Normativos do SISO RPR-FOM v2.0 | `4c96732` | **✅ CORRIGIDO** |
+| **4.3** | Indexação Canônica FQCN na OMT e Resolução Hierárquica por Pai no Parser XML (Zero Colisão) | `f299929` | **✅ CORRIGIDO** |
 
