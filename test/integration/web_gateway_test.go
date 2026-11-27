@@ -16,27 +16,14 @@ import (
 )
 
 func TestHLA4_WebProfile_11Stages(t *testing.T) {
-	// 1. Start CRC Executive on dynamic ports
+	// 1. Start CRC Executive on dynamic ports (automatically binds WebGateway to an unprivileged dynamic port)
 	server := crc.NewServer("127.0.0.1:0")
-	server.SetWebAddr("127.0.0.1:0")
-
 	if err := server.Start(); err != nil {
 		t.Fatalf("Failed to start CRC server: %v", err)
 	}
 	defer func() { _ = server.Stop() }()
 
-	// Wait for server to bind
-	time.Sleep(100 * time.Millisecond)
-
-	// Since WebGateway is on a separate port or configured, let's test directly with dedicated WebGateway
-	fedMgr := server.FederationManager()
-	webGW := crc.NewWebGateway("127.0.0.1:0", fedMgr)
-	if err := webGW.Start(); err != nil {
-		t.Fatalf("Failed to start WebGateway: %v", err)
-	}
-	defer func() { _ = webGW.Stop() }()
-
-	wsPort := webGW.Addr().(*net.TCPAddr).Port
+	wsPort := server.WebAddr().(*net.TCPAddr).Port
 
 	time.Sleep(100 * time.Millisecond)
 

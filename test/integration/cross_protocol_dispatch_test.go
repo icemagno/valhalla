@@ -225,15 +225,8 @@ func TestCrossProtocol_PorticoToWeb_ReflectAttributes(t *testing.T) {
 		}
 	}
 
-	// 2. Connect Web federate via WebGateway
-	fedMgr := server.FederationManager()
-	webGW := crc.NewWebGateway("127.0.0.1:0", fedMgr)
-	if err := webGW.Start(); err != nil {
-		t.Fatalf("Failed to start WebGateway: %v", err)
-	}
-	defer func() { _ = webGW.Stop() }()
-
-	webAddr := webGW.Addr().String()
+	// 2. Connect Web federate via server's built-in WebGateway
+	webAddr := server.WebAddr().String()
 	wsConn, err := net.Dial("tcp", webAddr)
 	if err != nil {
 		t.Fatalf("Failed to connect to Web gateway: %v", err)

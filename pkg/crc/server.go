@@ -20,12 +20,13 @@ var (
 
 // Server represents the Valhalla Central RTI Component (CRC) executive supporting tri-protocol multiplexing
 type Server struct {
-	addr        string
-	webAddr     string
-	listener    net.Listener
-	fedManager  *FederationManager
-	peekTimeout time.Duration
-	webGateway  *WebGateway
+	addr            string
+	webAddr         string
+	webAddrExplicit bool
+	listener        net.Listener
+	fedManager      *FederationManager
+	peekTimeout     time.Duration
+	webGateway      *WebGateway
 
 	conns   map[net.Conn]struct{}
 	connsMu sync.Mutex
@@ -50,18 +51,39 @@ func NewServer(addr string) *Server {
 	}
 
 	webAddr := ":52296"
-	parts := strings.Split(addr, ":")
-	if len(parts) == 2 {
-		if pNum, err := strconv.Atoi(parts[1]); err == nil {
-			webAddr = fmt.Sprintf("%s:%d", parts[0], pNum+1)
+	if host, portStr, err := net.SplitHostPort(addr); err == nil {
+		if pNum, err := strconv.Atoi(portStr); err == nil {
+			if pNum == 0 {
+				// Ephemeral port: keep Web Gateway on an ephemeral port (0) as well.
+				// Never increment 0 to 1 (which attempts binding to privileged port 1).
+				webAddr = net.JoinHostPort(host, "0")
+			} else if pNum < 65535 {
+				webAddr = net.JoinHostPort(host, strconv.Itoa(pNum+1))
+			} else {
+				webAddr = net.JoinHostPort(host, "0")
+			}
+		}
+	} else {
+		parts := strings.Split(addr, ":")
+		if len(parts) == 2 {
+			if pNum, err := strconv.Atoi(parts[1]); err == nil {
+				if pNum == 0 {
+					webAddr = fmt.Sprintf("%s:0", parts[0])
+				} else if pNum < 65535 {
+					webAddr = fmt.Sprintf("%s:%d", parts[0], pNum+1)
+				} else {
+					webAddr = fmt.Sprintf("%s:0", parts[0])
+				}
+			}
 		}
 	}
 
 	return &Server{
-		addr:        addr,
-		webAddr:     webAddr,
-		fedManager:  NewFederationManager(),
-		peekTimeout: 50 * time.Millisecond,
+		addr:              addr,
+		webAddr:           webAddr,
+		webAddrExplicit:   false,
+		fedManager:        NewFederationManager(),
+		peekTimeout:       50 * time.Millisecond,
 		conns:             make(map[net.Conn]struct{}),
 		antiStallTimeout:  2 * time.Second,
 		antiStallInterval: 200 * time.Millisecond,
@@ -78,6 +100,7 @@ func (s *Server) SetWebAddr(webAddr string) {
 		webAddr = ":" + webAddr
 	}
 	s.webAddr = webAddr
+	s.webAddrExplicit = true
 }
 
 // SetAntiStall configures the stall timeout and monitor interval for the Anti-Stall resilience engine
@@ -126,6 +149,16 @@ func (s *Server) Start() error {
 	s.webGateway = NewWebGateway(s.webAddr, s.fedManager)
 	if err := s.webGateway.Start(); err != nil {
 		logCRC.Error("Failed to start Web Gateway on %s: %v", s.webAddr, err)
+		if !s.webAddrExplicit {
+			fallbackAddr := ":0"
+			if host, _, err := net.SplitHostPort(s.webAddr); err == nil && host != "" {
+				fallbackAddr = net.JoinHostPort(host, "0")
+			}
+			s.webGateway = NewWebGateway(fallbackAddr, s.fedManager)
+			if err := s.webGateway.Start(); err != nil {
+				logCRC.Error("Failed to start Web Gateway on fallback %s: %v", fallbackAddr, err)
+			}
+		}
 	}
 
 	s.wg.Add(1)
@@ -267,6 +300,23 @@ func (s *Server) Addr() net.Addr {
 	defer s.mu.Unlock()
 	if s.listener != nil {
 		return s.listener.Addr()
+	}
+	return nil
+}
+
+// WebGateway returns the WebGateway instance associated with the server
+func (s *Server) WebGateway() *WebGateway {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.webGateway
+}
+
+// WebAddr returns the actual listening address of the Web Gateway, or nil if not running
+func (s *Server) WebAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.webGateway != nil {
+		return s.webGateway.Addr()
 	}
 	return nil
 }

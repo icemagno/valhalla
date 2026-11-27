@@ -1,7 +1,10 @@
 package crc
 
 import (
+	"fmt"
 	"net"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,4 +140,98 @@ func TestCRCServer_DualProtocolMultiplexing(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond)
+}
+
+func TestServer_WebGateway_EphemeralPortNeverBindsToPort1(t *testing.T) {
+	testCases := []struct {
+		name        string
+		inputAddr   string
+		expectedWeb string
+	}{
+		{
+			name:        "IPv4 localhost ephemeral",
+			inputAddr:   "127.0.0.1:0",
+			expectedWeb: "127.0.0.1:0",
+		},
+		{
+			name:        "All interfaces ephemeral",
+			inputAddr:   ":0",
+			expectedWeb: ":0",
+		},
+		{
+			name:        "IPv6 localhost ephemeral",
+			inputAddr:   "[::1]:0",
+			expectedWeb: "[::1]:0",
+		},
+		{
+			name:        "Max port boundary rollover",
+			inputAddr:   ":65535",
+			expectedWeb: ":0",
+		},
+		{
+			name:        "Standard fixed port increment",
+			inputAddr:   ":52295",
+			expectedWeb: ":52296",
+		},
+		{
+			name:        "IPv4 fixed port increment",
+			inputAddr:   "192.168.1.100:8000",
+			expectedWeb: "192.168.1.100:8001",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := NewServer(tc.inputAddr)
+			if srv.webAddr == "127.0.0.1:1" || strings.HasSuffix(srv.webAddr, ":1") {
+				t.Fatalf("VULNERABILITY: NewServer derived privileged port 1 for WebGateway: %s (input: %s)", srv.webAddr, tc.inputAddr)
+			}
+			if srv.webAddr != tc.expectedWeb {
+				t.Errorf("Expected webAddr %q, got %q (input: %s)", tc.expectedWeb, srv.webAddr, tc.inputAddr)
+			}
+		})
+	}
+}
+
+func TestServer_WebGateway_StartWithEphemeralPort_EndToEnd(t *testing.T) {
+	srv := NewServer("127.0.0.1:0")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer srv.Stop()
+
+	crcAddr := srv.Addr()
+	if crcAddr == nil {
+		t.Fatal("Server.Addr() returned nil")
+	}
+	crcTCP := crcAddr.(*net.TCPAddr)
+	if crcTCP.Port <= 1024 {
+		t.Errorf("CRC port %d is not in unprivileged ephemeral range (>1024)", crcTCP.Port)
+	}
+
+	webAddr := srv.WebAddr()
+	if webAddr == nil {
+		t.Fatal("Server.WebAddr() returned nil - WebGateway failed to start")
+	}
+	webTCP := webAddr.(*net.TCPAddr)
+	if webTCP.Port <= 1024 {
+		t.Errorf("WebGateway port %d is not in unprivileged ephemeral range (>1024)", webTCP.Port)
+	}
+	if webTCP.Port == 1 {
+		t.Fatalf("VULNERABILITY: WebGateway bound to privileged port 1!")
+	}
+	if webTCP.Port == crcTCP.Port {
+		t.Errorf("WebGateway port %d collided with CRC port %d", webTCP.Port, crcTCP.Port)
+	}
+
+	// Verify HTTP /api/v1/status responds on the dynamic WebGateway port
+	resp, err := http.Get(fmt.Sprintf("http://%s/api/v1/status", webAddr.String()))
+	if err != nil {
+		t.Fatalf("Failed to reach WebGateway /api/v1/status on %s: %v", webAddr.String(), err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected HTTP 200 OK from WebGateway, got %d", resp.StatusCode)
+	}
 }
