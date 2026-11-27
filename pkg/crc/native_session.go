@@ -67,15 +67,14 @@ func (s *NativeSession) SendMessage(hdr NativeHeader, payload []byte) error {
 	hdr.PayloadLen = uint32(len(payload))
 	buf := WriteNativeHeader(hdr)
 
-	if _, err := s.conn.Write(buf[:]); err != nil {
+	if len(payload) == 0 {
+		_, err := s.conn.Write(buf[:])
 		return err
 	}
-	if len(payload) > 0 {
-		if _, err := s.conn.Write(payload); err != nil {
-			return err
-		}
-	}
-	return nil
+	// Single writev / coalesced write to eliminate double-write syscalls
+	buffers := net.Buffers{buf[:], payload}
+	_, err := buffers.WriteTo(s.conn)
+	return err
 }
 
 // SendNotification sends an asynchronous native notification to the federate

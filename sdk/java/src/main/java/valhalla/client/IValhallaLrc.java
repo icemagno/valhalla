@@ -6,6 +6,7 @@ import com.sun.jna.Pointer;
 import com.sun.jna.Structure;
 import com.sun.jna.ptr.ByteByReference;
 import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.LongByReference;
 
 import java.util.Arrays;
 import java.util.List;
@@ -27,6 +28,9 @@ public interface IValhallaLrc extends Library {
     int VALHALLA_ERR_FEDERATES_JOINED = 12;
     int VALHALLA_ERR_FEDERATE_NAME_IN_USE = 13;
     int VALHALLA_ERR_INTERACTION_NOT_FOUND = 14;
+    int VALHALLA_ERR_ALREADY_MEMBER = 15;
+    int VALHALLA_ERR_OBJECT_NAME_IN_USE = 16;
+    int VALHALLA_ERR_DELETE_PRIVILEGE_NOT_HELD = 17;
 
     interface DiscoverObjectCallback extends Callback {
         void invoke(int theObject, int theObjectClass, String objectName, Pointer userData);
@@ -142,9 +146,12 @@ public interface IValhallaLrc extends Library {
     int valhalla_send_interaction(Pointer amb, int interactionClass, int[] paramHandles, Pointer[] paramValues, int[] paramLens, int paramCount, byte[] tag, int tagLen);
 
     int valhalla_enable_time_regulation(Pointer amb, double lookahead);
+    int valhalla_disable_time_regulation(Pointer amb);
     int valhalla_enable_time_constrained(Pointer amb);
+    int valhalla_disable_time_constrained(Pointer amb);
     int valhalla_time_advance_request(Pointer amb, double time);
     int valhalla_next_message_request(Pointer amb, double time);
+    int valhalla_flush_queue_request(Pointer amb, double time);
     int valhalla_heartbeat(Pointer amb);
 
     int valhalla_divest_ownership(Pointer amb, int objectHandle, int[] attrHandles, int attrCount);
@@ -158,4 +165,6 @@ public interface IValhallaLrc extends Library {
     int valhalla_update_attributes_spatial(Pointer amb, int objectHandle, int[] attrHandles, Pointer[] attrValues, int[] attrLens, int attrCount, double x, double y, double z, byte[] tag, int tagLen);
 
     int valhalla_evoke_callback(Pointer amb, double timeoutSeconds, ByteByReference outEvoked);
+    int valhalla_evoke_multiple_callbacks(Pointer amb, double minTimeoutSeconds, double maxTimeoutSeconds);
+    int valhalla_get_callback_queue_status(Pointer amb, IntByReference outLength, ByteByReference outSaturated, LongByReference outDropped);
 }

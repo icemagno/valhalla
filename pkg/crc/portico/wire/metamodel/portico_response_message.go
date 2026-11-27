@@ -1,5 +1,7 @@
 package metamodel
 
+import "io"
+
 // ClassDescResponseMessage representa a resposta canônica padrão do Portico
 // SUID oficial: 98121116105109L
 var ClassDescResponseMessage = &ClassDesc{
@@ -19,6 +21,13 @@ var ClassDescResponseMessage = &ClassDesc{
 			b = 0x01
 		}
 		w.WriteBlockData([]byte{b})
+		if isErr {
+			if exc, ok := obj.Get("exception").(string); ok && exc != "" {
+				if err := w.WriteObject(exc); err != nil {
+					return err
+				}
+			}
+		}
 		w.WriteByte(TC_ENDBLOCKDATA)
 		return nil
 	},
@@ -27,8 +36,24 @@ var ClassDescResponseMessage = &ClassDesc{
 		if err != nil {
 			return err
 		}
+		isErr := false
 		if len(blk) > 0 {
-			obj.Set("isError", blk[0] != 0)
+			isErr = blk[0] != 0
+			obj.Set("isError", isErr)
+		}
+		if isErr {
+			// Optional trailing exception string before TC_ENDBLOCKDATA
+			val, err := r.ReadObject()
+			if err == io.EOF {
+				// TC_ENDBLOCKDATA already consumed by ReadObject
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if s, ok := val.(string); ok {
+				obj.Set("exception", s)
+			}
 		}
 		_, _ = r.ReadByte() // Consumir TC_ENDBLOCKDATA
 		return nil

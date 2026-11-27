@@ -32,7 +32,7 @@ func init() {
 // NewTimeAdvanceGrant constrói uma instância de TimeAdvanceGrant para o federado alvo
 func NewTimeAdvanceGrant(targetFederate int32, time float64) *JavaObject {
 	obj := NewJavaObject(ClassDescTimeAdvanceGrant)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", true)
 	obj.Set("sourceFederate", int32(0))
 	obj.Set("targetFederate", targetFederate)

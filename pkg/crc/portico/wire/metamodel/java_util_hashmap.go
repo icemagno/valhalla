@@ -5,7 +5,63 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
+
+func canonicalMapSortKey(v any, depth int) string {
+	if depth > 8 {
+		return fmt.Sprintf("%T", v)
+	}
+	switch x := v.(type) {
+	case nil:
+		return "nil"
+	case string:
+		return "str:" + x
+	case int32:
+		return fmt.Sprintf("int32:%011d", int64(x)+2147483648)
+	case int64:
+		return fmt.Sprintf("int64:%020d", uint64(x)^uint64(1<<63))
+	case *JavaObject:
+		if x == nil {
+			return "obj:nil"
+		}
+		if iv, ok := x.Get("value").(int32); ok && len(x.Fields) == 1 {
+			return fmt.Sprintf("int32:%011d", int64(iv)+2147483648)
+		}
+		var b strings.Builder
+		b.WriteString("obj:")
+		if x.Class != nil {
+			b.WriteString(x.Class.Name)
+		}
+		b.WriteByte('{')
+		fkeys := make([]string, 0, len(x.Fields))
+		for fk := range x.Fields {
+			fkeys = append(fkeys, fk)
+		}
+		sort.Strings(fkeys)
+		for i, fk := range fkeys {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(fk)
+			b.WriteByte('=')
+			b.WriteString(canonicalMapSortKey(x.Fields[fk], depth+1))
+		}
+		b.WriteByte('}')
+		return b.String()
+	case *JavaEnum:
+		if x == nil {
+			return "enum:nil"
+		}
+		clsName := ""
+		if x.Class != nil {
+			clsName = x.Class.Name
+		}
+		return "enum:" + clsName + ":" + x.Name
+	default:
+		return fmt.Sprintf("%T:%v", v, v)
+	}
+}
 
 const maxMetamodelCollectionSize = 100000
 
@@ -60,12 +116,7 @@ var ClassDescHashMap = &ClassDesc{
 			}
 			items := make([]kvEntry, 0, len(m))
 			for k, v := range m {
-				sk := fmt.Sprintf("%T:%v", k, k)
-				if jo, ok := k.(*JavaObject); ok {
-					if iv, ok2 := jo.Get("value").(int32); ok2 {
-						sk = fmt.Sprintf("int32:%011d", int64(iv)+2147483648)
-					}
-				}
+				sk := canonicalMapSortKey(k, 0)
 				items = append(items, kvEntry{sortKey: sk, key: k, val: v})
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].sortKey < items[j].sortKey })

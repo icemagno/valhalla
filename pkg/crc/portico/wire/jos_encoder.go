@@ -14,6 +14,7 @@ type JOSEncoder struct {
 	writtenHdr bool
 	refMap     map[string]uint32
 	nextHandle uint32
+	err        error
 }
 
 // NewJOSEncoder inicializa um novo codificador JOS
@@ -64,9 +65,19 @@ func (e *JOSEncoder) WriteDouble(v float64) {
 	binary.Write(e.w, binary.BigEndian, math.Float64bits(v))
 }
 
-// WriteString escreve uma string Java como TC_STRING ou TC_REFERENCE
+// WriteString escreve uma string Java como TC_STRING ou TC_REFERENCE, registrando erro sticky se exceder MaxUint16.
 func (e *JOSEncoder) WriteString(s string) {
-	e.writeString(s)
+	if e.err != nil {
+		return
+	}
+	if err := e.writeString(s); err != nil {
+		e.err = err
+	}
+}
+
+// Err retorna qualquer erro sticky acumulado durante CustomWrite.
+func (e *JOSEncoder) Err() error {
+	return e.err
 }
 
 // WriteBlockData escreve um bloco opaco de dados binários (TC_BLOCKDATA ou TC_BLOCKDATALONG se > 255B)
@@ -90,23 +101,27 @@ func (e *JOSEncoder) WriteObject(obj any) error {
 		return nil
 	}
 
+	var err error
 	switch v := obj.(type) {
 	case string:
-		e.writeString(v)
-		return nil
+		err = e.writeString(v)
 	case *JavaObject:
-		return e.writeJavaObject(v)
+		err = e.writeJavaObject(v)
 	case *JavaEnum:
-		return e.writeJavaEnum(v)
+		err = e.writeJavaEnum(v)
 	case []byte:
 		if v == nil {
 			e.w.WriteByte(TC_NULL)
-			return nil
+		} else {
+			err = e.writeByteArray(v)
 		}
-		return e.writeByteArray(v)
 	default:
 		return fmt.Errorf("jos encoder: tipo nao suportado para serializacao direta: %T", obj)
 	}
+	if err != nil {
+		return err
+	}
+	return e.err
 }
 
 // writeJavaEnum serializa uma constante Enum Java (TC_ENUM)
@@ -129,22 +144,30 @@ func (e *JOSEncoder) writeJavaEnum(en *JavaEnum) error {
 	e.assignHandle(refKey)
 	// Java readEnum strictly requires TC_STRING (0x74) or TC_LONGSTRING (0x7C), never TC_REFERENCE (0x71)
 	e.w.WriteByte(TC_STRING)
-	e.writeUTF(en.Name)
+	if err := e.writeUTF(en.Name); err != nil {
+		return err
+	}
 	e.assignHandle(fmt.Sprintf("enum_name:%d", e.nextHandle))
 	return nil
 }
 
 // writeString escreve uma string Java como TC_STRING ou TC_REFERENCE se já poolada
-func (e *JOSEncoder) writeString(s string) {
+func (e *JOSEncoder) writeString(s string) error {
 	refKey := "str:" + s
 	if handle, exists := e.refMap[refKey]; exists {
 		e.writeReference(handle)
-		return
+		return nil
 	}
 
+	if len(s) > math.MaxUint16 {
+		return fmt.Errorf("jos encoder: string length %d exceeds uint16 maximum (%d)", len(s), math.MaxUint16)
+	}
 	e.w.WriteByte(TC_STRING)
-	e.writeUTF(s)
+	if err := e.writeUTF(s); err != nil {
+		return err
+	}
 	e.assignHandle(refKey)
+	return nil
 }
 
 func (e *JOSEncoder) writeReference(handle uint32) {
@@ -159,9 +182,13 @@ func (e *JOSEncoder) assignHandle(key string) uint32 {
 	return h
 }
 
-func (e *JOSEncoder) writeUTF(s string) {
+func (e *JOSEncoder) writeUTF(s string) error {
+	if len(s) > math.MaxUint16 {
+		return fmt.Errorf("jos encoder: UTF string length %d exceeds uint16 maximum (%d)", len(s), math.MaxUint16)
+	}
 	binary.Write(e.w, binary.BigEndian, uint16(len(s)))
 	e.w.WriteString(s)
+	return nil
 }
 
 // writeJavaObject serializa a instância do objeto Java (TC_OBJECT) e sua hierarquia
@@ -231,8 +258,13 @@ func (e *JOSEncoder) writeClassDesc(cls *ClassDesc) error {
 		return nil
 	}
 
+	if len(cls.Fields) > math.MaxUint16 {
+		return fmt.Errorf("jos encoder: class %q field count %d exceeds uint16 maximum", cls.Name, len(cls.Fields))
+	}
 	e.w.WriteByte(TC_CLASSDESC)
-	e.writeUTF(cls.Name)
+	if err := e.writeUTF(cls.Name); err != nil {
+		return err
+	}
 	binary.Write(e.w, binary.BigEndian, cls.SerialVersionUID)
 	e.w.WriteByte(cls.Flags)
 	binary.Write(e.w, binary.BigEndian, uint16(len(cls.Fields)))
@@ -243,9 +275,13 @@ func (e *JOSEncoder) writeClassDesc(cls *ClassDesc) error {
 	// Descrever campos declarados
 	for _, field := range cls.Fields {
 		e.w.WriteByte(byte(field.Type))
-		e.writeUTF(field.Name)
+		if err := e.writeUTF(field.Name); err != nil {
+			return err
+		}
 		if field.Type == TypeObject || field.Type == TypeArray {
-			e.writeString(field.ClassName)
+			if err := e.writeString(field.ClassName); err != nil {
+				return err
+			}
 		}
 	}
 

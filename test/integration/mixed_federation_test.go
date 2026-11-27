@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,17 @@ import (
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
+
+type mixedRecorderAmb struct {
+	lrc.NullFederateAmbassador
+	onReflect func(obj int32, attrs map[int32][]byte)
+}
+
+func (m *mixedRecorderAmb) ReflectAttributeValues(obj int32, attrs map[int32][]byte, tag []byte) {
+	if m.onReflect != nil {
+		m.onReflect(obj, attrs)
+	}
+}
 
 func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 	// 1. Iniciar servidor soberano CRC do Valhalla
@@ -91,9 +103,19 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 	t.Logf("WelcomePack do Thor contem ObjectModel sintetizado com sucesso: version=%v, oclasses=%v",
 		fomObj.Get("version"), fomObj.Get("oclasses"))
 
-	// 3. Conectar Federado Nativo Valhalla (usando pkg/lrc sobre VAL4)
+	// 3. Conectar Federado Nativo Valhalla (usando pkg/lrc sobre VAL4) com recorder real
 	ambValhalla := lrc.NewRTIambassador()
-	fedAmb := &lrc.NullFederateAmbassador{}
+	var valRecMu sync.Mutex
+	var valReceivedAttr string
+	fedAmb := &mixedRecorderAmb{
+		onReflect: func(obj int32, attrs map[int32][]byte) {
+			valRecMu.Lock()
+			if v, ok := attrs[int32(common.HLAprivilegeToDeleteObjectHandle)]; ok {
+				valReceivedAttr = string(v)
+			}
+			valRecMu.Unlock()
+		},
+	}
 
 	if err := ambValhalla.Connect(fedAmb, crcAddr); err != nil {
 		t.Fatalf("Valhalla Connect falhou: %v", err)
@@ -130,7 +152,31 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 		t.Fatalf("Valhalla SynchronizationPointAchieved falhou: %v", err)
 	}
 
-	// 5. Valhalla registra objeto e atualiza atributos
+	// 4.5. Pub/Sub bilateral conforme IEEE 1516-2025
+	if err := ambValhalla.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+		t.Fatalf("Valhalla Publish falhou: %v", err)
+	}
+	if err := ambValhalla.SubscribeObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+		t.Fatalf("Valhalla Subscribe falhou: %v", err)
+	}
+	thorPubObj := metamodel.NewPublishObjectClass(int32(common.HLAobjectRootHandle), []any{metamodel.NewJavaInteger(int32(common.HLAprivilegeToDeleteObjectHandle))})
+	thorPubPayload, _ := wire.SerializePorticoControlMessage(thorPubObj)
+	if err := clientThor.SendPacket(wire.NewControlRequest(wire.MsgPublishObjectClass, 10, uint16(wpInfo.FederateHandle), 0, uint32(len(thorPubPayload))), thorPubPayload); err != nil {
+		t.Fatalf("Thor Publish falhou: %v", err)
+	}
+	thorSubObj := metamodel.NewSubscribeObjectClass(int32(common.HLAobjectRootHandle), []any{metamodel.NewJavaInteger(int32(common.HLAprivilegeToDeleteObjectHandle))})
+	thorSubPayload, _ := wire.SerializePorticoControlMessage(thorSubObj)
+	if err := clientThor.SendPacket(wire.NewControlRequest(wire.MsgSubscribeObjectClass, 11, uint16(wpInfo.FederateHandle), 0, uint32(len(thorSubPayload))), thorSubPayload); err != nil {
+		t.Fatalf("Thor Subscribe falhou: %v", err)
+	}
+	// Drain pending sync/pub/sub responses on Thor
+	for {
+		if _, _, err := clientThor.ReadPacketTimeout(50 * time.Millisecond); err != nil {
+			break
+		}
+	}
+
+	// 5. Valhalla registra objeto e atualiza atributos -> Thor DEVE receber MsgReflectAttributes
 	objHandle, err := ambValhalla.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "ValhallaUAV_01")
 	if err != nil {
 		t.Fatalf("Valhalla RegisterObjectInstance falhou: %v", err)
@@ -140,10 +186,25 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 	}
 
 	err = ambValhalla.UpdateAttributeValues(objHandle, map[int32][]byte{
-		562: []byte("Posicao:Lat-23.5_Long-46.6"),
+		int32(common.HLAprivilegeToDeleteObjectHandle): []byte("Posicao:Lat-23.5_Long-46.6"),
 	}, nil)
 	if err != nil {
 		t.Fatalf("Valhalla UpdateAttributeValues falhou: %v", err)
+	}
+
+	// Verify Thor receives ReflectAttributes from Valhalla
+	thorGotReflect := false
+	for i := 0; i < 5 && !thorGotReflect; i++ {
+		h, _, rerr := clientThor.ReadPacketTimeout(1 * time.Second)
+		if rerr != nil {
+			break
+		}
+		if h.MessageType == wire.MsgReflectAttributes {
+			thorGotReflect = true
+		}
+	}
+	if !thorGotReflect {
+		t.Fatalf("Thor did not receive MsgReflectAttributes from Valhalla")
 	}
 
 	// 5.1. Thor registra um objeto através do protocolo binário JOS Portico
@@ -170,9 +231,9 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 		t.Fatalf("esperava sucesso no RegisterObject do Thor, obteve: %+v", regObj)
 	}
 
-	// 5.2. Thor atualiza atributos do objeto
+	// 5.2. Thor atualiza atributos do objeto -> Valhalla DEVE receber a reflexão com o payload exato!
 	uavPayload, err := wire.NewUpdateAttributesMsg(2, map[int32][]byte{
-		562: []byte("ThorShipCoords:Lat-12.0_Long-38.5"),
+		int32(common.HLAprivilegeToDeleteObjectHandle): []byte("ThorShipCoords:Lat-12.0_Long-38.5"),
 	}, nil)
 	if err != nil {
 		t.Fatalf("falha ao serializar UpdateAttributes do Thor: %v", err)
@@ -182,6 +243,24 @@ func TestMixedFederation_ThorAndValhalla(t *testing.T) {
 		t.Fatalf("falha ao enviar UpdateAttributes do Thor: %v", err)
 	}
 	_, _, _ = clientThor.ReadPacketTimeout(1 * time.Second)
+
+	// Evocar callbacks no Valhalla até receber o payload exato do Thor
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_, _ = ambValhalla.EvokeCallback(20 * time.Millisecond)
+		valRecMu.Lock()
+		got := valReceivedAttr
+		valRecMu.Unlock()
+		if got == "ThorShipCoords:Lat-12.0_Long-38.5" {
+			break
+		}
+	}
+	valRecMu.Lock()
+	gotAttr := valReceivedAttr
+	valRecMu.Unlock()
+	if gotAttr != "ThorShipCoords:Lat-12.0_Long-38.5" {
+		t.Fatalf("Valhalla did not receive Thor attribute reflection: got %q", gotAttr)
+	}
 
 	// 6. Desingresso limpo
 	_ = ambValhalla.ResignFederationExecution()

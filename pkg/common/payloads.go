@@ -23,11 +23,16 @@ type FederationExecutionPayload struct {
 }
 
 func (p FederationExecutionPayload) MarshalBinary() ([]byte, error) {
-	nameLen := uint32(len(p.FederationName))
-	fomSize := SizeSSZStringList(p.FOMModules)
 	const fixedHeaderSize = 8
-
-	totalLen := fixedHeaderSize + nameLen + fomSize
+	fomSize, err := CheckedSSZStringListSize(p.FOMModules)
+	if err != nil {
+		return nil, err
+	}
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.FederationName)) + uint64(fomSize))
+	if err != nil {
+		return nil, err
+	}
+	nameLen := uint32(len(p.FederationName))
 	buf := make([]byte, totalLen)
 
 	off0 := uint32(fixedHeaderSize)
@@ -82,11 +87,12 @@ type JoinFederationPayload struct {
 
 func (p JoinFederationPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 12
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.FederateName)) + uint64(len(p.FederateType)) + uint64(len(p.FederationName)))
+	if err != nil {
+		return nil, err
+	}
 	nameLen := uint32(len(p.FederateName))
 	typeLen := uint32(len(p.FederateType))
-	fedLen := uint32(len(p.FederationName))
-
-	totalLen := fixedHeaderSize + nameLen + typeLen + fedLen
 	buf := make([]byte, totalLen)
 
 	off0 := uint32(fixedHeaderSize)
@@ -192,10 +198,11 @@ type RegisterSyncPointPayload struct {
 
 func (p RegisterSyncPointPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Label)) + uint64(len(p.Tag)))
+	if err != nil {
+		return nil, err
+	}
 	labelLen := uint32(len(p.Label))
-	tagLen := uint32(len(p.Tag))
-
-	totalLen := fixedHeaderSize + labelLen + tagLen
 	buf := make([]byte, totalLen)
 
 	off0 := uint32(fixedHeaderSize)
@@ -245,8 +252,10 @@ type SyncPointLabelPayload struct {
 
 func (p SyncPointLabelPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 4
-	labelLen := uint32(len(p.Label))
-	totalLen := fixedHeaderSize + labelLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Label)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutOffset(buf[0:4], fixedHeaderSize)
@@ -281,12 +290,14 @@ type SyncPointFailurePayload struct {
 
 func (p SyncPointFailurePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Label)) + uint64(len(p.Reason)))
+	if err != nil {
+		return nil, err
+	}
 	labelLen := uint32(len(p.Label))
-	reasonLen := uint32(len(p.Reason))
 
 	off0 := uint32(fixedHeaderSize)
 	off1 := off0 + labelLen
-	totalLen := off1 + reasonLen
 
 	buf := make([]byte, totalLen)
 	PutOffset(buf[0:4], off0)
@@ -332,8 +343,10 @@ type PublishObjectClassPayload struct {
 
 func (p PublishObjectClassPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	attrListSize := uint32(len(p.AttributeHandles) * 4)
-	totalLen := fixedHeaderSize + attrListSize
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.AttributeHandles))*4)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ClassHandle))
@@ -383,8 +396,10 @@ type SubscribeObjectClassPayload struct {
 
 func (p SubscribeObjectClassPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 9
-	attrListSize := uint32(len(p.AttributeHandles) * 4)
-	totalLen := fixedHeaderSize + attrListSize
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.AttributeHandles))*4)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ClassHandle))
@@ -480,9 +495,3 @@ func (p *SubscribeInteractionClassPayload) UnmarshalBinary(data []byte) error {
 	p.Active, err = DecodeBool(data[4])
 	return err
 }
-
-// ============================================================================
-// 3. OBJECT MANAGEMENT PAYLOADS
-// ============================================================================
-
-// RegisterObjectInstancePayload registers an object instance

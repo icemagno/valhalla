@@ -24,10 +24,16 @@ func (ctx *nativeContext) handleDDMManagement(hdr NativeHeader, payload []byte) 
 			}
 			return true, nil
 		}
-		regionHandle := ctx.currentFed.CreateRegion()
-		respData, _ := common.CreateRegionResponsePayload{
+		regionHandle := ctx.currentFed.CreateRegionWithDimensions(ctx.federateID, req.Dimensions)
+		respData, err := common.CreateRegionResponsePayload{
 			RegionHandle: regionHandle,
 		}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
@@ -266,7 +272,13 @@ func (ctx *nativeContext) handleMetadataManagement(hdr NativeHeader, payload []b
 			}
 			return true, nil
 		}
-		respPayload, _ := common.HandleResponsePayload{Handle: int32(cls.Handle)}.MarshalBinary()
+		respPayload, err := common.HandleResponsePayload{Handle: int32(cls.Handle)}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
 			Version:    NativeProtocolVer,
@@ -303,7 +315,13 @@ func (ctx *nativeContext) handleMetadataManagement(hdr NativeHeader, payload []b
 			}
 			return true, nil
 		}
-		respPayload, _ := common.HandleResponsePayload{Handle: int32(attr.Handle)}.MarshalBinary()
+		respPayload, err := common.HandleResponsePayload{Handle: int32(attr.Handle)}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
 			Version:    NativeProtocolVer,
@@ -340,7 +358,13 @@ func (ctx *nativeContext) handleMetadataManagement(hdr NativeHeader, payload []b
 			}
 			return true, nil
 		}
-		respPayload, _ := common.HandleResponsePayload{Handle: int32(dim.Handle)}.MarshalBinary()
+		respPayload, err := common.HandleResponsePayload{Handle: int32(dim.Handle)}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
 			Version:    NativeProtocolVer,

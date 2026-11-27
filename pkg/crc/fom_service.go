@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/logger"
 	fomparser "github.com/icemagno/valhalla/pkg/metamodel"
 )
@@ -108,34 +107,8 @@ func IngestFOMIntoFederation(fed *FederationExecution, fomRef string) error {
 	return nil
 }
 
-// IngestCanonicalDefaults loads default FOMs for recognized standard federation executions.
+// IngestCanonicalDefaults is a no-op by default; FOM modules should be passed explicitly
+// via CreateFederationExecutionWithFOM or Join-time FOM module locations.
 func IngestCanonicalDefaults(fed *FederationExecution) {
-	if fed == nil {
-		return
-	}
-
-	if fed.Name == "ExampleFederation" {
-		for _, mod := range []string{"RestaurantProcesses.xml", "RestaurantFood.xml", "RestaurantDrinks.xml", "RestaurantSoup.xml"} {
-			_ = IngestFOMIntoFederation(fed, mod)
-		}
-	} else if fed.Name == "ValhallaAdvancedFed" || fed.Name == "ValhallaHomologFederation" {
-		_ = IngestFOMIntoFederation(fed, "ValhallaAdvanced.xml")
-	}
-}
-
-// EnsureClassAndAttrInOMT ensures that a dynamically requested class/attribute exists in the OMT.
-func EnsureClassAndAttrInOMT(omt *core.OMTRegistry, className string, attrName string) (int32, int32, error) {
-	// Look up class
-	cls, ok := omt.GetObjectClassByName(className)
-	if !ok {
-		return 0, 0, core.ErrClassNotFound
-	}
-
-	// Look up attribute
-	attr, err := omt.ResolveAttributeByName(cls.Handle, attrName)
-	if err != nil {
-		return int32(cls.Handle), 0, err
-	}
-
-	return int32(cls.Handle), int32(attr.Handle), nil
+	_ = fed
 }

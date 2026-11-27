@@ -67,6 +67,21 @@ func TestDomainService_RegisterAndBroadcastObject(t *testing.T) {
 	fed, _, sess2 := setupTestFederation(t)
 
 	cls, _ := fed.OMT().GetObjectClassByName("TestClass")
+	attr1, _ := fed.OMT().ResolveAttributeByName(cls.Handle, "Attr1")
+
+	// Normative HLA-4 check: registering without publishing MUST fail with ErrNotPublished
+	if _, err := fed.RegisterAndBroadcastObject(int32(cls.Handle), "UnpublishedEntity", 1); err != core.ErrNotPublished {
+		t.Fatalf("expected ErrNotPublished when registering without publishing, got: %v", err)
+	}
+
+	// Fed1 publishes, Fed2 subscribes
+	if err := fed.Router().PublishObjectClass(1, cls.Handle, []common.AttributeHandle{attr1.Handle}); err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
+	if err := fed.Router().SubscribeObjectClass(2, cls.Handle, []common.AttributeHandle{attr1.Handle}, true); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
 	obj, err := fed.RegisterAndBroadcastObject(int32(cls.Handle), "Entity1", 1)
 	if err != nil {
 		t.Fatalf("RegisterAndBroadcastObject failed: %v", err)
@@ -93,6 +108,10 @@ func TestDomainService_DeleteAndBroadcastObject(t *testing.T) {
 	fed, _, sess2 := setupTestFederation(t)
 
 	cls, _ := fed.OMT().GetObjectClassByName("TestClass")
+	attr1, _ := fed.OMT().ResolveAttributeByName(cls.Handle, "Attr1")
+	_ = fed.Router().PublishObjectClass(1, cls.Handle, []common.AttributeHandle{attr1.Handle})
+	_ = fed.Router().SubscribeObjectClass(2, cls.Handle, []common.AttributeHandle{attr1.Handle}, true)
+
 	obj, err := fed.RegisterAndBroadcastObject(int32(cls.Handle), "EntityToDelete", 1)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
@@ -136,12 +155,13 @@ func TestDomainService_UpdateAndRouteAttributes(t *testing.T) {
 	fed, _, sess2 := setupTestFederation(t)
 
 	cls, _ := fed.OMT().GetObjectClassByName("TestClass")
+	attr1, _ := fed.OMT().ResolveAttributeByName(cls.Handle, "Attr1")
+	_ = fed.Router().PublishObjectClass(1, cls.Handle, []common.AttributeHandle{attr1.Handle})
+
 	obj, err := fed.RegisterAndBroadcastObject(int32(cls.Handle), "EntityUpdate", 1)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
-
-	attr1, _ := fed.OMT().ResolveAttributeByName(cls.Handle, "Attr1")
 
 	// Fed2 subscribes to Attr1
 	if err := fed.Router().SubscribeObjectClass(2, cls.Handle, []common.AttributeHandle{attr1.Handle}, true); err != nil {
@@ -186,6 +206,15 @@ func TestDomainService_RouteInteraction(t *testing.T) {
 	fed, _, sess2 := setupTestFederation(t)
 
 	interCls, _ := fed.OMT().GetInteractionClassByName("TestInteraction")
+
+	// Normative HLA-4 check: sending interaction without publishing MUST fail with ErrNotPublished
+	if err := fed.RouteInteraction(1, interCls.Handle, nil, nil, false, 0); err != core.ErrNotPublished {
+		t.Fatalf("expected ErrNotPublished when sending unpublished interaction, got: %v", err)
+	}
+
+	if err := fed.Router().PublishInteractionClass(1, interCls.Handle); err != nil {
+		t.Fatalf("PublishInteractionClass failed: %v", err)
+	}
 
 	// Fed2 subscribes to TestInteraction
 	if err := fed.Router().SubscribeInteractionClass(2, interCls.Handle, true); err != nil {

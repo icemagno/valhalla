@@ -205,9 +205,15 @@ func (r SpatialRegion) ContainsPoint(x, y, z uint32) bool {
 // This eliminates coordinate decoding (Compact1By2) and floating-point conversions.
 func (r *SpatialRegion) ContainsMorton(code uint64) bool {
 	if !r.boundsComputed {
-		r.RecomputeMortonBounds()
+		// Compute on a stack copy to keep ContainsMorton strictly read-only and race-free
+		tmp := *r
+		tmp.RecomputeMortonBounds()
+		return tmp.containsMortonPrecomputed(code)
 	}
+	return r.containsMortonPrecomputed(code)
+}
 
+func (r *SpatialRegion) containsMortonPrecomputed(code uint64) bool {
 	// 1. Bitwise common octree ancestor check (fast reject for points in other octants)
 	if r.PrefixMask != 0 && (code&r.PrefixMask) != r.Prefix {
 		return false

@@ -2,6 +2,7 @@ package core
 
 import (
 	"container/heap"
+	"errors"
 	"math"
 	"sort"
 	"sync"
@@ -97,21 +98,40 @@ type TimeGrantEvent struct {
 	Messages []TSOMessage
 }
 
+const (
+	// DefaultMaxTSOQueueSize caps per-federate pending TSO events to prevent OOM DoS
+	DefaultMaxTSOQueueSize = 100000
+)
+
+var (
+	// ErrTSOQueueFull is returned when a destination federate's TSO queue reaches capacity
+	ErrTSOQueueFull = errors.New("hla time: destination TSO queue capacity exceeded")
+)
+
 // TimeManager coordinates logical time advancement, LBTS calculations, and TSO message queues
 type TimeManager struct {
-	mu          sync.RWMutex
-	federates   map[common.FederateHandle]*FederateTimeStatus
-	tsoQueues   map[common.FederateHandle]*tsoHeap
-	seqCounter  uint64
-	defaultTimeout time.Duration
+	mu              sync.RWMutex
+	federates       map[common.FederateHandle]*FederateTimeStatus
+	tsoQueues       map[common.FederateHandle]*tsoHeap
+	seqCounter      uint64
+	maxTSOQueueSize int
 }
 
 // NewTimeManager creates an initialized TimeManager instance
 func NewTimeManager() *TimeManager {
 	return &TimeManager{
-		federates:      make(map[common.FederateHandle]*FederateTimeStatus),
-		tsoQueues:      make(map[common.FederateHandle]*tsoHeap),
-		defaultTimeout: 5 * time.Second,
+		federates:       make(map[common.FederateHandle]*FederateTimeStatus),
+		tsoQueues:       make(map[common.FederateHandle]*tsoHeap),
+		maxTSOQueueSize: DefaultMaxTSOQueueSize,
+	}
+}
+
+// SetMaxTSOQueueSize configures the maximum number of queued TSO messages per federate
+func (tm *TimeManager) SetMaxTSOQueueSize(limit int) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if limit > 0 {
+		tm.maxTSOQueueSize = limit
 	}
 }
 
@@ -357,6 +377,9 @@ func (tm *TimeManager) EnqueueTSOMessage(msg TSOMessage) ([]TimeGrantEvent, erro
 	if !ok {
 		return nil, common.ErrFederateNotFound
 	}
+	if tm.maxTSOQueueSize > 0 && q.Len() >= tm.maxTSOQueueSize {
+		return nil, ErrTSOQueueFull
+	}
 
 	tm.seqCounter++
 	msg.SequenceNum = tm.seqCounter
@@ -400,7 +423,8 @@ func (tm *TimeManager) calculateLBTSLocked(handle common.FederateHandle) float64
 }
 
 // evaluateAdvancementsLocked iterates over advancing federates in deterministic handle order
-// and produces TimeGrantEvents.
+// and produces TimeGrantEvents. Uses an O(N) two-minimum LBTS precomputation per pass so
+// each federate's LBTS lookup is O(1) instead of O(N).
 func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 	var events []TimeGrantEvent
 
@@ -413,13 +437,54 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 	for {
 		progress := false
 
+		// Precompute the two smallest impending times across all regulating, non-quarantined federates in O(N).
+		min1 := math.MaxFloat64
+		var min1Handle common.FederateHandle
+		min2 := math.MaxFloat64
+		for _, h := range handles {
+			f := tm.federates[h]
+			if f == nil || !f.IsRegulating || f.Quarantined {
+				continue
+			}
+			impending := f.TargetTime + f.Lookahead
+			if f.State == TimeStateGranted {
+				impending = f.CurrentTime + f.Lookahead
+			}
+			if impending < min1 {
+				min2 = min1
+				min1 = impending
+				min1Handle = h
+			} else if impending < min2 {
+				min2 = impending
+			}
+		}
+
+		updateMinOnGrant := func(h common.FederateHandle, f *FederateTimeStatus) {
+			if !f.IsRegulating || f.Quarantined {
+				return
+			}
+			impending := f.CurrentTime + f.Lookahead
+			if h == min1Handle {
+				min1 = impending
+			} else if impending < min1 {
+				min2 = min1
+				min1 = impending
+				min1Handle = h
+			} else if impending < min2 {
+				min2 = impending
+			}
+		}
+
 		for _, handle := range handles {
 			fed := tm.federates[handle]
 			if fed == nil || fed.State == TimeStateGranted {
 				continue
 			}
 
-			lbts := tm.calculateLBTSLocked(handle)
+			lbts := min1
+			if handle == min1Handle {
+				lbts = min2
+			}
 			q := tm.tsoQueues[handle]
 
 			switch fed.State {
@@ -430,6 +495,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
 					fed.LastHeartbeat = time.Now()
+					updateMinOnGrant(handle, fed)
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -445,6 +511,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
 					fed.LastHeartbeat = time.Now()
+					updateMinOnGrant(handle, fed)
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -456,6 +523,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					fed.CurrentTime = lbts
 					fed.State = TimeStateGranted
 					fed.LastHeartbeat = time.Now()
+					updateMinOnGrant(handle, fed)
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     lbts,
@@ -473,6 +541,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 						fed.CurrentTime = earliest
 						fed.State = TimeStateGranted
 						fed.LastHeartbeat = time.Now()
+						updateMinOnGrant(handle, fed)
 						events = append(events, TimeGrantEvent{
 							Federate: handle,
 							Time:     earliest,
@@ -488,6 +557,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
 					fed.LastHeartbeat = time.Now()
+					updateMinOnGrant(handle, fed)
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -505,6 +575,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 						fed.CurrentTime = earliest
 						fed.State = TimeStateGranted
 						fed.LastHeartbeat = time.Now()
+						updateMinOnGrant(handle, fed)
 						events = append(events, TimeGrantEvent{
 							Federate: handle,
 							Time:     earliest,
@@ -519,6 +590,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					fed.CurrentTime = fed.TargetTime
 					fed.State = TimeStateGranted
 					fed.LastHeartbeat = time.Now()
+					updateMinOnGrant(handle, fed)
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     fed.TargetTime,
@@ -530,6 +602,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					fed.CurrentTime = lbts
 					fed.State = TimeStateGranted
 					fed.LastHeartbeat = time.Now()
+					updateMinOnGrant(handle, fed)
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     lbts,
@@ -546,6 +619,7 @@ func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 					fed.CurrentTime = effective
 					fed.State = TimeStateGranted
 					fed.LastHeartbeat = time.Now()
+					updateMinOnGrant(handle, fed)
 					events = append(events, TimeGrantEvent{
 						Federate: handle,
 						Time:     effective,

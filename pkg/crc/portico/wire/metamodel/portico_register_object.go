@@ -53,7 +53,7 @@ var ClassDescRegisterObject = &ClassDesc{
 		_ = binary.Write(&buf, binary.BigEndian, ts)
 
 		immediate := false
-		if v, ok := obj.Get("immediate").(bool); ok {
+		if v, ok := obj.Get("isAsync").(bool); ok {
 			immediate = v
 		}
 		if immediate {
@@ -100,7 +100,7 @@ var ClassDescRegisterObject = &ClassDesc{
 		obj.Set("targetFederation", int32(binary.BigEndian.Uint32(blk[9:13])))
 		tsBits := binary.BigEndian.Uint64(blk[13:21])
 		obj.Set("timestamp", math.Float64frombits(tsBits))
-		obj.Set("immediate", blk[21] != 0)
+		obj.Set("isAsync", blk[21] != 0)
 
 		// RegisterObject fields
 		classHandle := int32(binary.BigEndian.Uint32(blk[22:26]))
@@ -195,7 +195,7 @@ var ClassDescDeleteObject = &ClassDesc{
 		_ = binary.Write(&buf, binary.BigEndian, ts)
 
 		immediate := false
-		if v, ok := obj.Get("immediate").(bool); ok {
+		if v, ok := obj.Get("isAsync").(bool); ok {
 			immediate = v
 		}
 		if immediate {
@@ -238,7 +238,7 @@ var ClassDescDeleteObject = &ClassDesc{
 		obj.Set("targetFederation", int32(binary.BigEndian.Uint32(blk[9:13])))
 		tsBits := binary.BigEndian.Uint64(blk[13:21])
 		obj.Set("timestamp", math.Float64frombits(tsBits))
-		obj.Set("immediate", blk[21] != 0)
+		obj.Set("isAsync", blk[21] != 0)
 
 		objHandle := int32(binary.BigEndian.Uint32(blk[22:26]))
 		obj.Set("objectHandle", objHandle)
@@ -281,7 +281,7 @@ func NewRegisterObject(classHandle int32, objectName string) *JavaObject {
 // NewDiscoverObject builds a DiscoverObject notification ready for delivery to federates
 func NewDiscoverObject(objectHandle, classHandle int32, objectName string) *JavaObject {
 	obj := NewJavaObject(ClassDescDiscoverObject)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", true)
 	obj.Set("sourceFederate", int32(0))
 	obj.Set("targetFederate", int32(-1))
@@ -296,7 +296,7 @@ func NewDiscoverObject(objectHandle, classHandle int32, objectName string) *Java
 // NewDeleteObject builds a DeleteObject notification ready for delivery to federates
 func NewDeleteObject(objectHandle int32, tag []byte) *JavaObject {
 	obj := NewJavaObject(ClassDescDeleteObject)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", true)
 	obj.Set("sourceFederate", int32(0))
 	obj.Set("targetFederate", int32(-1))

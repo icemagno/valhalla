@@ -135,15 +135,15 @@ func TestPorticoHandler_DeleteObjectInstance_ErrorPropagation(t *testing.T) {
 
 	// Read welcome bundle (8 bytes: 0xCAFE + length)
 	buf := make([]byte, 8)
-	if _, err := conn.Read(buf); err != nil {
+	if _, err := io.ReadFull(conn, buf); err != nil {
 		t.Fatalf("Read welcome failed: %v", err)
 	}
 	msgBuf := make([]byte, len(PorticoWelcomeMsg))
-	if _, err := conn.Read(msgBuf); err != nil {
+	if _, err := io.ReadFull(conn, msgBuf); err != nil {
 		t.Fatalf("Read welcome msg failed: %v", err)
 	}
 	var srvFeed [4]byte
-	if _, err := conn.Read(srvFeed[:]); err != nil {
+	if _, err := io.ReadFull(conn, srvFeed[:]); err != nil {
 		t.Fatalf("Read 0xFEED failed: %v", err)
 	}
 	// Reply with client handshake (0xFEED)

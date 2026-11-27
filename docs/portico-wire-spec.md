@@ -92,35 +92,32 @@ Federate handle of the recipient (or 0 for broadcasts).
 
 ---
 
-## 4. Portico Message Type Enumeration
+## 4. Portico Message Type Enumeration (Authoritative `pkg/crc/portico/wire/header.go`)
 
 | Code | Constant Name | Description |
 | :--- | :--- | :--- |
-| `1` | `CREATE_FEDERATION` | Request/Response to create a federation execution |
-| `2` | `DESTROY_FEDERATION` | Request/Response to destroy a federation execution |
-| `3` | `JOIN_FEDERATION` | Request to join / Response returns WelcomePack |
-| `4` | `RESIGN_FEDERATION` | Resign from federation |
-| `5` | `REGISTER_SYNC_POINT` | Register synchronization point label |
-| `6` | `ANNOUNCE_SYNC_POINT` | Notification broadcasting sync point label |
-| `7` | `ACHIEVE_SYNC_POINT` | Federate notifies local sync point achieved |
-| `8` | `SYNC_POINT_ACHIEVED` | Internal notification of achievement |
-| `9` | `FEDERATION_SYNCHRONIZED` | Collective barrier reached |
-| `10`| `PUBLISH_OBJECT_CLASS` | Publish object class attributes |
-| `11`| `SUBSCRIBE_OBJECT_CLASS` | Subscribe to object class attributes |
-| `12`| `PUBLISH_INTERACTION_CLASS` | Publish interaction class |
-| `13`| `SUBSCRIBE_INTERACTION_CLASS` | Subscribe to interaction class |
-| `14`| `REGISTER_OBJECT` | Instantiate a new object instance |
-| `15`| `DISCOVER_OBJECT` | Notification of discovered object instance |
-| `16`| `UPDATE_ATTRIBUTES` | Attribute value update |
-| `17`| `REFLECT_ATTRIBUTES` | Attribute value reflection notification |
-| `18`| `SEND_INTERACTION` | Send interaction event |
-| `19`| `RECEIVE_INTERACTION` | Receive interaction notification |
-| `20`| `ENABLE_TIME_REGULATION` | Request to enable time regulation |
-| `21`| `ENABLE_TIME_CONSTRAINED` | Request to enable time constraint |
-| `22`| `TIME_ADVANCE_REQUEST` | Advance logical time request (TAR) |
-| `23`| `TIME_ADVANCE_GRANT` | Time advance grant notification (TAG) |
-| `24`| `SUCCESS_RESP` | Generic success acknowledgment |
-| `25`| `ERROR_RESP` | Error response with exception message string |
+| `0` | `MsgConnect` | Connect to RTI executive |
+| `1` | `MsgDisconnect` | Disconnect from RTI executive |
+| `2` | `MsgRtiProbe` | RTI probe / liveness check |
+| `3` | `MsgCreateFederation` | Request/Response to create a federation execution |
+| `4` | `MsgJoinFederation` | Request to join / Response returns WelcomePack |
+| `5` | `MsgResignFederation` | Resign from federation |
+| `6` | `MsgDestroyFederation` | Request/Response to destroy a federation execution |
+| `14` | `MsgSuccessResponse` | Control success response |
+| `15` | `MsgErrorResponse` | Control error response |
+| `40` | `MsgRegisterSyncPoint` | Register synchronization point label |
+| `42` | `MsgAnnounceSyncPoint` | Notification broadcasting sync point label |
+| `43` | `MsgAchieveSyncPoint` | Federate notifies local sync point achieved |
+| `44` | `MsgFederationSynchronized` | Collective barrier reached |
+| `50` | `MsgPublishObjectClass` | Publish object class attributes |
+| `51` | `MsgPublishInteractionClass` | Publish interaction class |
+| `54` | `MsgSubscribeObjectClass` | Subscribe to object class attributes |
+| `55` | `MsgSubscribeInteractionClass` | Subscribe to interaction class |
+| `60` | `MsgRegisterObject` | Instantiate a new object instance |
+| `61` | `MsgDiscoverObject` | Notification of discovered object instance |
+| `64` | `MsgDeleteObject` | Delete an object instance |
+| `254` | `MsgUpdateAttributes` / `MsgReflectAttributes` | Real-time attribute value update / reflection |
+| `255` | `MsgSendInteraction` / `MsgReceiveInteraction` | Real-time interaction send / receipt |
 
 ---
 

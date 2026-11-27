@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"net"
 	"strings"
@@ -44,6 +45,13 @@ func TestCrossProtocol_NativeToPortico_DeleteObject(t *testing.T) {
 	joinObj := wire.NewJoinFederationObject(fedName, "ThorMember", "ThorType")
 	joinPayload, _ := wire.SerializePorticoControlMessage(joinObj)
 	_ = clientThor.SendPacket(wire.NewControlRequest(wire.MsgJoinFederation, 2, 0, 0, uint32(len(joinPayload))), joinPayload)
+	_, welcomePayload, _ := clientThor.ReadPacketTimeout(2 * time.Second)
+	wpInfo, _ := wire.ParseWelcomePack(welcomePayload)
+
+	// Thor subscribes to HLAobjectRoot to receive DiscoverObject and RemoveObjectInstance
+	subObj := metamodel.NewSubscribeObjectClass(int32(common.HLAobjectRootHandle), []any{metamodel.NewJavaInteger(int32(common.HLAprivilegeToDeleteObjectHandle))})
+	subPayload, _ := wire.SerializePorticoControlMessage(subObj)
+	_ = clientThor.SendPacket(wire.NewControlRequest(wire.MsgSubscribeObjectClass, 3, uint16(wpInfo.FederateHandle), 0, uint32(len(subPayload))), subPayload)
 	_, _, _ = clientThor.ReadPacketTimeout(2 * time.Second)
 
 	// 2. Connect Native federate (Valhalla)
@@ -59,7 +67,10 @@ func TestCrossProtocol_NativeToPortico_DeleteObject(t *testing.T) {
 		t.Fatalf("Valhalla Join failed: %v", err)
 	}
 
-	// 3. Valhalla registers an object
+	// 3. Valhalla publishes and registers an object
+	if err := ambValhalla.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+		t.Fatalf("Valhalla PublishObjectClassAttributes failed: %v", err)
+	}
 	objHandle, err := ambValhalla.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "TargetAsset_01")
 	if err != nil {
 		t.Fatalf("Valhalla RegisterObjectInstance failed: %v", err)
@@ -177,6 +188,17 @@ func TestCrossProtocol_NativeToPortico_ReflectAttributes(t *testing.T) {
 		t.Fatalf("PROTOCOL CORRUPTION: Thor received MessageType %d (%s), expected wire.MsgReflectAttributes (254)!",
 			hdr.MessageType, hdr.MessageType.String())
 	}
+
+	ravObj, err := wire.DeserializePorticoControlMessage(payload)
+	if err != nil {
+		t.Fatalf("Failed to deserialize Portico ReflectAttributes payload: %v", err)
+	}
+	if oid, ok := ravObj.Get("objectId").(int32); !ok || oid != objHandle {
+		t.Fatalf("Expected objectId %d in Portico ReflectAttributes, got %v", objHandle, ravObj.Get("objectId"))
+	}
+	if !bytes.Contains(payload, updateData) {
+		t.Fatalf("Expected Portico ReflectAttributes payload to contain %q", string(updateData))
+	}
 }
 
 // TestCrossProtocol_PorticoToWeb_ReflectAttributes verifies that when a Portico federate
@@ -211,7 +233,9 @@ func TestCrossProtocol_PorticoToWeb_ReflectAttributes(t *testing.T) {
 	_, welcomePayload, _ := clientThor.ReadPacketTimeout(2 * time.Second)
 	wpInfo, _ := wire.ParseWelcomePack(welcomePayload)
 
-	_ = clientThor.SendPacket(wire.NewControlRequest(wire.MsgPublishObjectClass, 3, uint16(wpInfo.FederateHandle), 0, 0), nil)
+	pubObj := metamodel.NewPublishObjectClass(int32(common.HLAobjectRootHandle), []any{metamodel.NewJavaInteger(int32(common.HLAprivilegeToDeleteObjectHandle))})
+	pubPayload, _ := wire.SerializePorticoControlMessage(pubObj)
+	_ = clientThor.SendPacket(wire.NewControlRequest(wire.MsgPublishObjectClass, 3, uint16(wpInfo.FederateHandle), 0, uint32(len(pubPayload))), pubPayload)
 	_, _, _ = clientThor.ReadPacketTimeout(1 * time.Second)
 
 	regPayload, _ := wire.NewRegisterObjectMsg(int32(common.HLAobjectRootHandle), "ThorShip")
@@ -308,6 +332,11 @@ func TestCrossProtocol_PorticoToWeb_ReflectAttributes(t *testing.T) {
 		}
 		if cb != "reflectAttributeValues" {
 			t.Fatalf("Expected callback 'reflectAttributeValues', got %q", cb)
+		}
+		params, _ := notif["params"].(map[string]interface{})
+		attrs, _ := params["attributes"].(map[string]interface{})
+		if attrs["1"] != "Speed:120_Heading:090" {
+			t.Fatalf("Expected reflected attribute value 'Speed:120_Heading:090', got %v", attrs["1"])
 		}
 		gotReflect = true
 	}

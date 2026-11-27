@@ -242,13 +242,13 @@ func TestHLA4_WebProfile_11Stages(t *testing.T) {
 		},
 	})
 
-	// Verify error propagation on invalid object handle (Item 3.2 remediation)
+	// Verify exact error propagation on invalid object handle
 	errCode := callActionExpectError("updateAttributeValues", map[string]interface{}{
 		"objectHandle": 999999,
 		"attributes":   map[string]string{"1": "val"},
 	})
-	if errCode != "ObjectInstanceNotKnown" && errCode != "UpdateAttributesFailed" {
-		t.Fatalf("Expected ObjectInstanceNotKnown or UpdateAttributesFailed, got %s", errCode)
+	if errCode != "ObjectInstanceNotKnown" {
+		t.Fatalf("Expected exact error ObjectInstanceNotKnown, got %s", errCode)
 	}
 
 	// -------------------------------------------------------------------------

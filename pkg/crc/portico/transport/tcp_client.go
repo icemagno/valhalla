@@ -70,6 +70,16 @@ func (c *TCPClient) Connect(timeout time.Duration) error {
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
 
+	if timeout > 0 {
+		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+			_ = c.conn.Close()
+			c.conn = nil
+			c.reader = nil
+			c.writer = nil
+			return fmt.Errorf("falha ao configurar deadline de handshake: %w", err)
+		}
+	}
+
 	// Executa a negociacao de handshake exigida pelo TcpClientProxy.java do Portico
 	if err := c.performHandshake(); err != nil {
 		_ = c.conn.Close()
@@ -77,6 +87,10 @@ func (c *TCPClient) Connect(timeout time.Duration) error {
 		c.reader = nil
 		c.writer = nil
 		return err
+	}
+
+	if timeout > 0 {
+		_ = conn.SetDeadline(time.Time{})
 	}
 
 	c.connected = true
@@ -180,29 +194,26 @@ func (c *TCPClient) SendPacket(hdr wire.Header, payload []byte) error {
 		return ErrNotConnected
 	}
 
+	if len(payload) > 0x00FFFFFF {
+		return fmt.Errorf("%w: %d bytes (max 16777215)", ErrBundleTooLarge, len(payload))
+	}
+
 	hdr.PayloadLength = uint32(len(payload))
 	bundleLength := int32(wire.HeaderLength + len(payload))
 
-	// 1. Escrever Magic de Bundle (0xCAFE)
-	if err := binary.Write(writer, binary.BigEndian, MagicTCPBundle); err != nil {
-		return fmt.Errorf("falha ao escrever magic 0xCAFE: %w", err)
-	}
-
-	// 2. Escrever tamanho total do bundle (Header + Payload)
-	if err := binary.Write(writer, binary.BigEndian, bundleLength); err != nil {
-		return fmt.Errorf("falha ao escrever tamanho do bundle: %w", err)
-	}
-
-	// 3. Escrever o cabecalho de 12 bytes
-	var hdrBuf [wire.HeaderLength]byte
-	if err := hdr.MarshalTo(hdrBuf[:]); err != nil {
+	// Montar e validar todo o cabeçalho (8B TCP bundle + 12B Portico) antes de escrever no stream
+	var frameHdr [8 + wire.HeaderLength]byte
+	if err := hdr.MarshalTo(frameHdr[8:]); err != nil {
 		return fmt.Errorf("falha ao serializar cabecalho Portico: %w", err)
 	}
-	if _, err := writer.Write(hdrBuf[:]); err != nil {
-		return fmt.Errorf("falha ao enviar cabecalho: %w", err)
+	binary.BigEndian.PutUint32(frameHdr[0:4], uint32(MagicTCPBundle))
+	binary.BigEndian.PutUint32(frameHdr[4:8], uint32(bundleLength))
+
+	if _, err := writer.Write(frameHdr[:]); err != nil {
+		return fmt.Errorf("falha ao enviar cabecalho de bundle: %w", err)
 	}
 
-	// 4. Escrever o payload (se houver)
+	// Escrever o payload (se houver)
 	if len(payload) > 0 {
 		if _, err := writer.Write(payload); err != nil {
 			return fmt.Errorf("falha ao enviar payload: %w", err)

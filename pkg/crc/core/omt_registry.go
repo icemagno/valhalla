@@ -123,6 +123,9 @@ type OMTRegistry struct {
 	nextInteractionClassHandle common.InteractionClassHandle
 	nextParameterHandle        common.ParameterHandle
 	nextDimensionHandle        common.DimensionHandle
+
+	// Lazy Euler Tour recomputation flag (avoids O(N^2) DFS during bulk FOM ingestion)
+	intervalsDirty bool
 }
 
 // NewOMTRegistry initializes the OMT registry, pre-populating native Standard MIM
@@ -243,7 +246,7 @@ func (r *OMTRegistry) AddObjectClass(name string, parentHandle common.ObjectClas
 	r.objectFQCNToClass[fqcn] = handle
 	r.objectSimpleNameToHandles[simpleName] = append(r.objectSimpleNameToHandles[simpleName], handle)
 
-	r.recomputeIntervalsLocked()
+	r.intervalsDirty = true
 	return class, nil
 }
 
@@ -301,7 +304,7 @@ func (r *OMTRegistry) AddInteractionClass(name string, parentHandle common.Inter
 	r.interactionFQCNToClass[fqcn] = handle
 	r.interactionSimpleNameToHandles[simpleName] = append(r.interactionSimpleNameToHandles[simpleName], handle)
 
-	r.recomputeIntervalsLocked()
+	r.intervalsDirty = true
 	return interaction, nil
 }
 
@@ -407,9 +410,29 @@ func (r *OMTRegistry) eulerTourInteractions(handle common.InteractionClassHandle
 	*counter++
 }
 
+// FinalizeHierarchy explicitly recomputes Euler Tour intervals if any classes were added.
+func (r *OMTRegistry) FinalizeHierarchy() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.intervalsDirty {
+		r.recomputeIntervalsLocked()
+		r.intervalsDirty = false
+	}
+}
+
 // IsSubclassOfObject determines in O(1) CPU time whether child is the same or a subclass of ancestor
 func (r *OMTRegistry) IsSubclassOfObject(child, ancestor common.ObjectClassHandle) bool {
 	r.mu.RLock()
+	for r.intervalsDirty {
+		r.mu.RUnlock()
+		r.mu.Lock()
+		if r.intervalsDirty {
+			r.recomputeIntervalsLocked()
+			r.intervalsDirty = false
+		}
+		r.mu.Unlock()
+		r.mu.RLock()
+	}
 	defer r.mu.RUnlock()
 
 	c, cExists := r.objectClasses[child]
@@ -424,6 +447,16 @@ func (r *OMTRegistry) IsSubclassOfObject(child, ancestor common.ObjectClassHandl
 // IsSubclassOfInteraction determines in O(1) CPU time whether child is the same or a subclass of ancestor
 func (r *OMTRegistry) IsSubclassOfInteraction(child, ancestor common.InteractionClassHandle) bool {
 	r.mu.RLock()
+	for r.intervalsDirty {
+		r.mu.RUnlock()
+		r.mu.Lock()
+		if r.intervalsDirty {
+			r.recomputeIntervalsLocked()
+			r.intervalsDirty = false
+		}
+		r.mu.Unlock()
+		r.mu.RLock()
+	}
 	defer r.mu.RUnlock()
 
 	c, cExists := r.interactionClasses[child]
@@ -433,6 +466,30 @@ func (r *OMTRegistry) IsSubclassOfInteraction(child, ancestor common.Interaction
 	}
 
 	return a.IntervalLeft <= c.IntervalLeft && c.IntervalRight <= a.IntervalRight
+}
+
+// GetObjectClassAttributeHandles returns a race-free snapshot of all direct and inherited attribute handles for a class.
+func (r *OMTRegistry) GetObjectClassAttributeHandles(handle common.ObjectClassHandle) ([]common.AttributeHandle, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	cls, exists := r.objectClasses[handle]
+	if !exists {
+		return nil, false
+	}
+
+	handles := make([]common.AttributeHandle, 0, len(cls.Attributes))
+	for _, a := range cls.Attributes {
+		handles = append(handles, a.Handle)
+	}
+	for _, ancH := range cls.Ancestors {
+		if anc, ok := r.objectClasses[ancH]; ok {
+			for _, a := range anc.Attributes {
+				handles = append(handles, a.Handle)
+			}
+		}
+	}
+	return handles, true
 }
 
 // GetObjectClass retrieves object class metadata by handle

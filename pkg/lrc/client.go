@@ -253,8 +253,17 @@ func (c *Client) queueLoop() {
 			buffer[0] = callbackItem{} // Release reference for GC
 			buffer = buffer[1:]
 			atomic.StoreInt64(&c.queueLen, int64(len(buffer)))
-			if len(buffer) == 0 && cap(buffer) > 4096 {
-				buffer = nil
+			if len(buffer) == 0 {
+				if cap(buffer) > 4096 {
+					buffer = nil
+				} else {
+					buffer = buffer[:0]
+				}
+			} else if cap(buffer) > 256 && len(buffer) <= cap(buffer)/4 {
+				// Compact to release retained backing array under sustained traffic
+				compacted := make([]callbackItem, len(buffer))
+				copy(compacted, buffer)
+				buffer = compacted
 			}
 
 		case <-c.closedChan:
@@ -314,6 +323,9 @@ func (c *Client) readLoop() {
 
 		var payload []byte
 		if hdr.PayloadLen > 0 {
+			if hdr.PayloadLen > common.MaxNativePayloadLen {
+				return
+			}
 			payload = make([]byte, hdr.PayloadLen)
 			if _, err := io.ReadFull(c.conn, payload); err != nil {
 				return

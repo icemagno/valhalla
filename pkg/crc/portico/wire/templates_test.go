@@ -35,8 +35,15 @@ func TestTemplates_BuildWelcomePackAndSuccess(t *testing.T) {
 	}
 
 	errResp := BuildErrorResponsePayload("test error")
-	if len(errResp) != 83 {
-		t.Errorf("tamanho esperado de ErrorResponse (ResponseMessage) 83, obtido %d", len(errResp))
+	decErr, err := DeserializePorticoControlMessage(errResp)
+	if err != nil {
+		t.Fatalf("falha ao deserializar ErrorResponse: %v", err)
+	}
+	if isErr, _ := decErr.Get("isError").(bool); !isErr {
+		t.Errorf("esperava isError=true em ErrorResponse")
+	}
+	if exc, _ := decErr.Get("exception").(string); exc != "test error" {
+		t.Errorf("esperava exception='test error', obtido %q", exc)
 	}
 	regResp := BuildRegisterObjectResponsePayload(10, 1034, "Thor_Soda")
 	if len(regResp) == 0 {

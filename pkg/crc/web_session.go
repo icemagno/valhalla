@@ -16,19 +16,30 @@ import (
 	"github.com/icemagno/valhalla/pkg/common"
 )
 
+const defaultWebWriteTimeout = 2 * time.Second
+
 // WebSession represents an active WebSocket client session in the Valhalla CRC
 type WebSession struct {
-	mu         sync.Mutex
-	conn       net.Conn
-	federateID int32
-	closed     bool
+	mu           sync.Mutex
+	conn         net.Conn
+	federateID   int32
+	closed       bool
+	writeTimeout time.Duration
 }
 
 // NewWebSession creates a new WebSession wrapping a hijacked net.Conn
 func NewWebSession(conn net.Conn) *WebSession {
 	return &WebSession{
-		conn: conn,
+		conn:         conn,
+		writeTimeout: defaultWebWriteTimeout,
 	}
+}
+
+func (s *WebSession) effectiveWriteTimeout() time.Duration {
+	if s.writeTimeout > 0 {
+		return s.writeTimeout
+	}
+	return defaultWebWriteTimeout
 }
 
 // FederateID returns the assigned federate handle ID
@@ -90,13 +101,19 @@ func (s *WebSession) SendNotificationWithMerkle(msgType uint8, payload []byte, m
 		for k, v := range uav.Attributes {
 			strAttrs[strconv.Itoa(int(k))] = string(v)
 		}
+		params := map[string]interface{}{
+			"object":     int32(uav.ObjectHandle),
+			"attributes": strAttrs,
+			"tag":        string(uav.Tag),
+			"hasTime":    uav.HasTime,
+			"timestamp":  uav.Time,
+		}
+		if merkleRoot != ([32]byte{}) {
+			params["merkleRoot"] = fmt.Sprintf("%x", merkleRoot)
+		}
 		notif = map[string]interface{}{
 			"callback": "reflectAttributeValues",
-			"params": map[string]interface{}{
-				"object":     int32(uav.ObjectHandle),
-				"attributes": strAttrs,
-				"tag":        string(uav.Tag),
-			},
+			"params":   params,
 		}
 
 	case common.NativeMsgRemoveObjectInstance:
@@ -127,6 +144,8 @@ func (s *WebSession) SendNotificationWithMerkle(msgType uint8, payload []byte, m
 				"interactionClass": int32(inter.ClassHandle),
 				"parameters":       strParams,
 				"tag":              string(inter.Tag),
+				"hasTime":          inter.HasTime,
+				"timestamp":        inter.Time,
 			},
 		}
 
@@ -186,6 +205,8 @@ func (s *WebSession) SendNotificationWithMerkle(msgType uint8, payload []byte, m
 		return err
 	}
 
+	_ = s.conn.SetWriteDeadline(time.Now().Add(s.effectiveWriteTimeout()))
+	defer func() { _ = s.conn.SetWriteDeadline(time.Time{}) }()
 	return writeWebSocketTextFrame(s.conn, data)
 }
 
@@ -202,6 +223,8 @@ func (s *WebSession) SendJSON(v interface{}) error {
 	if err != nil {
 		return err
 	}
+	_ = s.conn.SetWriteDeadline(time.Now().Add(s.effectiveWriteTimeout()))
+	defer func() { _ = s.conn.SetWriteDeadline(time.Time{}) }()
 	return writeWebSocketTextFrame(s.conn, data)
 }
 
@@ -214,6 +237,7 @@ func (s *WebSession) Close() error {
 	}
 	s.closed = true
 	if s.conn != nil {
+		_ = s.conn.SetWriteDeadline(time.Now().Add(250 * time.Millisecond))
 		_ = writeWebSocketCloseFrame(s.conn)
 		return s.conn.Close()
 	}
@@ -247,18 +271,26 @@ func (s *WebSession) SendRemoveObject(objHandle int32, tag []byte) error {
 	})
 }
 
-func (s *WebSession) SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, _ bool, _ float64, _ [32]byte) error {
+func (s *WebSession) SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, hasTime bool, timestamp float64, merkleRoot [32]byte) error {
 	strAttrs := make(map[string]string, len(attrs))
 	for k, v := range attrs {
 		strAttrs[strconv.Itoa(int(k))] = string(v)
 	}
+	params := map[string]interface{}{
+		"object":     objHandle,
+		"attributes": strAttrs,
+		"tag":        string(tag),
+	}
+	if hasTime {
+		params["hasTime"] = true
+		params["timestamp"] = timestamp
+	}
+	if merkleRoot != ([32]byte{}) {
+		params["merkleRoot"] = fmt.Sprintf("%x", merkleRoot)
+	}
 	return s.SendJSON(map[string]interface{}{
 		"callback": "reflectAttributeValues",
-		"params": map[string]interface{}{
-			"object":     objHandle,
-			"attributes": strAttrs,
-			"tag":        string(tag),
-		},
+		"params":   params,
 	})
 }
 
@@ -324,10 +356,12 @@ func writeWebSocketTextFrame(w io.Writer, payload []byte) error {
 		header[1] = 127
 		binary.BigEndian.PutUint64(header[2:], uint64(n))
 	}
-	if _, err := w.Write(header); err != nil {
+	if len(payload) == 0 {
+		_, err := w.Write(header)
 		return err
 	}
-	_, err := w.Write(payload)
+	buffers := net.Buffers{header, payload}
+	_, err := buffers.WriteTo(w)
 	return err
 }
 

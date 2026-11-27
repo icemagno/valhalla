@@ -672,8 +672,8 @@ Audited official Portico source classes (`openlvc/portico`):
      * Added `InteractionClassNotDefined.java`
    * Refined `ValhallaRtiAmbassador.checkStatus(int status, String operation)` in Java SDK to translate all C-ABI status codes directly into exact normative IEEE 1516e standard exception classes (`ObjectClassNotDefined`, `AttributeNotDefined`, `FederationExecutionAlreadyExists`, `ObjectInstanceNotKnown`, etc.).
 
-3. **Complete English Documentation & Code Comment Normalization:**
-   * Systematically translated all Portuguese inline comments, package documentation, and type descriptors into formal, publication-grade English across:
+3. **Core Package English Documentation & Code Comment Normalization:**
+   * Translated Portuguese inline comments, package documentation, and type descriptors into English across core runtime files (note: legacy Portico wire helpers and older test files still contain Portuguese comments):
      * `pkg/crc/models.go`
      * `pkg/crc/federation_manager.go`
      * `pkg/crc/native_handler.go`

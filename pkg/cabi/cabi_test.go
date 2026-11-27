@@ -1,4 +1,4 @@
-//go:build cabi_test
+//go:build !cshared
 
 // Project Valhalla - Sovereign HLA-4 Run-Time Infrastructure
 // Lead Developer: Carlos Magno Oliveira de Abreu (@icemagno / magno.mabreu@gmail.com)
@@ -31,8 +31,11 @@ const (
 	ValhallaErrObjectNotFound = 10
 	ValhallaErrNotMember   = 11
 	ValhallaErrFederatesJoined = 12
-	ValhallaErrFederateNameInUse = 13
-	ValhallaErrInteractionNotFound = 14
+	ValhallaErrFederateNameInUse     = 13
+	ValhallaErrInteractionNotFound   = 14
+	ValhallaErrAlreadyMember         = 15
+	ValhallaErrObjectNameInUse       = 16
+	ValhallaErrDeletePrivilegeNotHeld = 17
 )
 
 func TestCABI_NullPointerSafety(t *testing.T) {
@@ -81,10 +84,11 @@ func TestCABI_TypedErrorMapping(t *testing.T) {
 		{"direct object not known", common.ErrObjectInstanceNotKnown, ValhallaErrObjectNotFound},
 		{"wrapped object not known", fmt.Errorf("reflect error: %w", common.ErrObjectInstanceNotKnown), ValhallaErrObjectNotFound},
 		{"direct attribute not owned", common.ErrAttributeNotOwned, ValhallaErrNotOwner},
-		{"wrapped delete priv not held", fmt.Errorf("delete failed: %w", common.ErrDeletePrivilegeNotHeld), ValhallaErrNotOwner},
+		{"wrapped delete priv not held", fmt.Errorf("delete failed: %w", common.ErrDeletePrivilegeNotHeld), ValhallaErrDeletePrivilegeNotHeld},
+		{"direct object name in use", common.ErrObjectInstanceNameInUse, ValhallaErrObjectNameInUse},
 		{"direct not member", common.ErrFederateNotExecutionMember, ValhallaErrNotMember},
 		{"wrapped lrc not member", fmt.Errorf("membership required: %w", lrc.ErrFederateNotExecutionMember), ValhallaErrNotMember},
-		{"wrapped lrc already member", fmt.Errorf("cannot join twice: %w", lrc.ErrFederateAlreadyExecutionMember), ValhallaErrNotMember},
+		{"wrapped lrc already member", fmt.Errorf("cannot join twice: %w", lrc.ErrFederateAlreadyExecutionMember), ValhallaErrAlreadyMember},
 		{"direct not connected", lrc.ErrNotConnected, ValhallaErrNotConnected},
 		{"wrapped connection closed", fmt.Errorf("socket EOF: %w", lrc.ErrConnectionClosed), ValhallaErrNotConnected},
 		{"invalid parent class", common.ErrInvalidParentClass, ValhallaErrInvalidArg},

@@ -3,7 +3,7 @@
 > **Project:** Project Valhalla (Portico-Compatible HLA-4 Run-Time Infrastructure)  
 > **Lead Developer & Creator:** Carlos Magno Oliveira de Abreu (<magno.mabreu@gmail.com>)  
 > **License:** Apache License, Version 2.0  
-> **Primary Language:** Go (Golang) — with optional zero-copy C-ABI/FFI extensions where SIMD or hardware acceleration is strictly required.  
+> **Primary Language:** Go (Golang) — with optional C-ABI/FFI shared-library bindings (`include/valhalla_lrc.h`) for C, C++, and Java integration.
 > **Primary Objective:** Deliver a sovereign, ultra-high-performance RTI based on **IEEE 1516-2025 (HLA-4)**, integrating deterministic blockchain-grade serialization (**SSZ**), state verification via **Sparse Merkle Trees**, 3D Morton Space-Filling Curves for zero-overhead **Data Distribution Management (DDM)**, post-quantum key exchange (**ML-KEM / Kyber [Roadmap]**), and **100% native wire compatibility with Portico RTI** (no proxies, adapters, or third-party gateways), validated against **RPR-FOM v2.0**.  
 > **Secondary Objective:** Systematically solve legacy simulation bottlenecks (cloud-native deployment, game engine frame-loop integration, fine-grained multi-level security, and fault-tolerant time advancement).  
 > **Methodology:** Strict Test-Driven Development (TDD), zero-allocation hot paths, race-free concurrency audits, and empirical latency benchmarking.
@@ -116,7 +116,7 @@ flowchart TD
 ---
 
 ### SPRINT 3: SSZ Engine, Merkle Trees & Bitset Matching
-> **Goal:** Implement zero-copy SSZ serialization, Sparse Merkle Tree state verification, and Euler Tour bitset matching.
+> **Goal:** Implement canonical SSZ serialization, Sparse Merkle Tree state verification, and Euler Tour bitset matching.
 
 #### Tasks
 * **Task 3.1: Canonical SSZ Encoder/Decoder**
@@ -184,7 +184,7 @@ flowchart TD
   * Integrate kinematic Dead Reckoning (DR) thresholding for high-speed orbital and hypersonic entities (LEO satellites at 7.8 km/s and ICBMs at Mach 20+).
 
 #### TDD Verification
-1. **Test T6.1:** Bitwise Morton encoding/decoding accuracy down to millimeter precision.
+1. **Test T6.1:** Bitwise 21-bit-per-axis 3D Morton encoding/decoding accuracy (~9.54 m cell resolution across the ±10,000 km ECEF cube).
 2. **Test T6.2:** Spatial filtering benchmark: confirm $< 2\ \text{ns}$ per spatial intersection check.
 3. **Test T6.3:** Ballistic dead reckoning simulation: verify zero packet loss for high-velocity trajectories.
 

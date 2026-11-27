@@ -47,7 +47,7 @@ func NewSendInteraction(interactionId int32, params map[any]any, tag []byte) *Ja
 // NewReceiveInteraction builds a ReceiveInteraction notification ready for delivery to federates
 func NewReceiveInteraction(interactionId int32, params map[any]any, tag []byte) *JavaObject {
 	obj := NewJavaObject(ClassDescReceiveInteraction)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", true)
 	obj.Set("sourceFederate", int32(0))
 	obj.Set("targetFederate", int32(-1))

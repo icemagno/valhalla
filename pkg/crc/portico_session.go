@@ -91,14 +91,14 @@ func (s *PorticoSession) SendPacket(hdr wire.Header, payload []byte) error {
 
 // SendControlResponseOK sends a successful control response for a received request
 func (s *PorticoSession) SendControlResponseOK(reqID uint16, msgType wire.MessageType, payload []byte) error {
-	target := uint16(s.id)
+	target := uint16(atomic.LoadInt32(&s.id))
 	if msgType == wire.MsgJoinFederation {
 		target = 0xFFFF
 	}
 	hdr := wire.Header{
 		Flags:         0,
 		PayloadLength: uint32(len(payload)),
-		FederationID:  uint8(s.fedHandle),
+		FederationID:  uint8(atomic.LoadInt32(&s.fedHandle)),
 		CallType:      wire.CallTypeControlResponseOK,
 		MessageType:   msgType,
 		RequestId:     reqID,
@@ -114,12 +114,12 @@ func (s *PorticoSession) SendControlResponseErr(reqID uint16, msgType wire.Messa
 	hdr := wire.Header{
 		Flags:         0,
 		PayloadLength: uint32(len(payload)),
-		FederationID:  uint8(s.fedHandle),
+		FederationID:  uint8(atomic.LoadInt32(&s.fedHandle)),
 		CallType:      wire.CallTypeControlResponseErr,
 		MessageType:   msgType,
 		RequestId:     reqID,
 		SourceHandle:  0,
-		TargetHandle:  uint16(s.id),
+		TargetHandle:  uint16(atomic.LoadInt32(&s.id)),
 	}
 	return s.SendPacket(hdr, payload)
 }
@@ -165,7 +165,7 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 		for k, v := range uav.Attributes {
 			attrsMap[int32(k)] = v
 		}
-		p, err := wire.BuildReflectAttributesPayload(int32(uav.ObjectHandle), attrsMap, uav.Tag)
+		p, err := wire.BuildReflectAttributesWithTimePayload(int32(uav.ObjectHandle), attrsMap, uav.Tag, uav.HasTime, uav.Time)
 		if err != nil {
 			return fmt.Errorf("portico session: build ReflectAttributes payload failed: %w", err)
 		}
@@ -181,7 +181,7 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 		for k, v := range inter.Parameters {
 			paramsMap[int32(k)] = v
 		}
-		p, err := wire.BuildReceiveInteractionPayload(int32(inter.ClassHandle), paramsMap, inter.Tag)
+		p, err := wire.BuildReceiveInteractionWithTimePayload(int32(inter.ClassHandle), paramsMap, inter.Tag, inter.HasTime, inter.Time)
 		if err != nil {
 			return fmt.Errorf("portico session: build ReceiveInteraction payload failed: %w", err)
 		}
@@ -248,7 +248,7 @@ func (s *PorticoSession) sendWireNotification(wireMsgType wire.MessageType, wire
 		MessageType:   wireMsgType,
 		RequestId:     0,
 		SourceHandle:  0,
-		TargetHandle:  uint16(s.id),
+		TargetHandle:  uint16(atomic.LoadInt32(&s.id)),
 	}
 	return s.SendPacket(hdr, wirePayload)
 }
@@ -342,24 +342,24 @@ func (s *PorticoSession) SendRemoveObject(objHandle int32, tag []byte) error {
 	return s.sendWireNotification(wire.MsgDeleteObject, p)
 }
 
-func (s *PorticoSession) SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, _ bool, _ float64, _ [32]byte) error {
+func (s *PorticoSession) SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, hasTime bool, timestamp float64, _ [32]byte) error {
 	attrsMap := make(map[int32][]byte, len(attrs))
 	for k, v := range attrs {
 		attrsMap[int32(k)] = v
 	}
-	p, err := wire.BuildReflectAttributesPayload(objHandle, attrsMap, tag)
+	p, err := wire.BuildReflectAttributesWithTimePayload(objHandle, attrsMap, tag, hasTime, timestamp)
 	if err != nil {
 		return fmt.Errorf("portico session: build ReflectAttributes payload failed: %w", err)
 	}
 	return s.sendWireNotification(wire.MsgReflectAttributes, p)
 }
 
-func (s *PorticoSession) SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, _ bool, _ float64) error {
+func (s *PorticoSession) SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, hasTime bool, timestamp float64) error {
 	paramsMap := make(map[int32][]byte, len(params))
 	for k, v := range params {
 		paramsMap[int32(k)] = v
 	}
-	p, err := wire.BuildReceiveInteractionPayload(classHandle, paramsMap, tag)
+	p, err := wire.BuildReceiveInteractionWithTimePayload(classHandle, paramsMap, tag, hasTime, timestamp)
 	if err != nil {
 		return fmt.Errorf("portico session: build ReceiveInteraction payload failed: %w", err)
 	}

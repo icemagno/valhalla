@@ -28,6 +28,21 @@ func valhalla_enable_time_regulation(amb C.ValhallaAmbassador, lookahead C.doubl
 	return C.VALHALLA_OK
 }
 
+//export valhalla_disable_time_regulation
+func valhalla_disable_time_regulation(amb C.ValhallaAmbassador) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	if err := ctx.amb.DisableTimeRegulation(); err != nil {
+		return mapErrorToStatusCode(err)
+	}
+	return C.VALHALLA_OK
+}
+
 //export valhalla_enable_time_constrained
 func valhalla_enable_time_constrained(amb C.ValhallaAmbassador) C.int32_t {
 	if amb == nil {
@@ -38,6 +53,21 @@ func valhalla_enable_time_constrained(amb C.ValhallaAmbassador) C.int32_t {
 		return C.VALHALLA_ERR_NOT_CONNECTED
 	}
 	if err := ctx.amb.EnableTimeConstrained(); err != nil {
+		return mapErrorToStatusCode(err)
+	}
+	return C.VALHALLA_OK
+}
+
+//export valhalla_disable_time_constrained
+func valhalla_disable_time_constrained(amb C.ValhallaAmbassador) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	if err := ctx.amb.DisableTimeConstrained(); err != nil {
 		return mapErrorToStatusCode(err)
 	}
 	return C.VALHALLA_OK
@@ -73,6 +103,21 @@ func valhalla_next_message_request(amb C.ValhallaAmbassador, time C.double) C.in
 	return C.VALHALLA_OK
 }
 
+//export valhalla_flush_queue_request
+func valhalla_flush_queue_request(amb C.ValhallaAmbassador, time C.double) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	if err := ctx.amb.FlushQueueRequest(float64(time)); err != nil {
+		return mapErrorToStatusCode(err)
+	}
+	return C.VALHALLA_OK
+}
+
 //export valhalla_heartbeat
 func valhalla_heartbeat(amb C.ValhallaAmbassador) C.int32_t {
 	if amb == nil {
@@ -90,7 +135,7 @@ func valhalla_heartbeat(amb C.ValhallaAmbassador) C.int32_t {
 
 //export valhalla_divest_ownership
 func valhalla_divest_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || !validateCABICount(int32(attrCount)) || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -113,7 +158,7 @@ func valhalla_divest_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t,
 
 //export valhalla_acquire_ownership
 func valhalla_acquire_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || !validateCABICount(int32(attrCount)) || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -158,7 +203,7 @@ func valhalla_query_ownership(amb C.ValhallaAmbassador, objectHandle, attrHandle
 
 //export valhalla_create_region
 func valhalla_create_region(amb C.ValhallaAmbassador, dimensions *C.int32_t, dimCount C.int32_t, outRegionHandle *C.uint32_t) C.int32_t {
-	if amb == nil || outRegionHandle == nil || dimCount < 0 || (dimCount > 0 && dimensions == nil) {
+	if amb == nil || outRegionHandle == nil || !validateCABICount(int32(dimCount)) || (dimCount > 0 && dimensions == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -215,7 +260,7 @@ func valhalla_set_metric_bounds(amb C.ValhallaAmbassador, regionHandle C.uint32_
 
 //export valhalla_subscribe_with_region
 func valhalla_subscribe_with_region(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t, regionHandle C.uint32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || !validateCABICount(int32(attrCount)) || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -238,7 +283,7 @@ func valhalla_subscribe_with_region(amb C.ValhallaAmbassador, classHandle C.int3
 
 //export valhalla_update_attributes_spatial
 func valhalla_update_attributes_spatial(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrValues **C.uint8_t, attrLens *C.int32_t, attrCount C.int32_t, x, y, z C.double, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || !validateCABICount(int32(attrCount)) || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || !validateCABITagLen(int32(tagLen)) || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -253,8 +298,8 @@ func valhalla_update_attributes_spatial(amb C.ValhallaAmbassador, objectHandle C
 		cLns := unsafe.Slice(attrLens, count)
 		for i := 0; i < count; i++ {
 			h := int32(cHdls[i])
-			ln := int(cLns[i])
-			if ln < 0 {
+			ln := int32(cLns[i])
+			if !validateCABIValueLen(ln) {
 				return C.VALHALLA_ERR_INVALID_ARG
 			}
 			if ln > 0 && cVals[i] != nil {
@@ -280,10 +325,11 @@ func valhalla_evoke_callback(amb C.ValhallaAmbassador, timeoutSeconds C.double, 
 	if amb == nil || outEvoked == nil || math.IsNaN(tSec) || math.IsInf(tSec, 0) || tSec < 0 {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
-	ctx, exists := getContext(amb)
+	ctx, exists := acquireContextForEvoke(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
 	}
+	defer ctx.evokeWg.Done()
 	evoked, err := ctx.amb.EvokeCallback(time.Duration(float64(timeoutSeconds) * float64(time.Second)))
 	if err != nil {
 		return mapErrorToStatusCode(err)
@@ -291,6 +337,44 @@ func valhalla_evoke_callback(amb C.ValhallaAmbassador, timeoutSeconds C.double, 
 	if outEvoked != nil {
 		*outEvoked = C.bool(evoked)
 	}
+	return C.VALHALLA_OK
+}
+
+//export valhalla_evoke_multiple_callbacks
+func valhalla_evoke_multiple_callbacks(amb C.ValhallaAmbassador, minTimeoutSeconds C.double, maxTimeoutSeconds C.double) C.int32_t {
+	minSec := float64(minTimeoutSeconds)
+	maxSec := float64(maxTimeoutSeconds)
+	if amb == nil || math.IsNaN(minSec) || math.IsInf(minSec, 0) || minSec < 0 ||
+		math.IsNaN(maxSec) || math.IsInf(maxSec, 0) || maxSec < 0 || maxSec < minSec {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
+	ctx, exists := acquireContextForEvoke(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	defer ctx.evokeWg.Done()
+	if err := ctx.amb.EvokeMultipleCallbacks(
+		time.Duration(minSec*float64(time.Second)),
+		time.Duration(maxSec*float64(time.Second)),
+	); err != nil {
+		return mapErrorToStatusCode(err)
+	}
+	return C.VALHALLA_OK
+}
+
+//export valhalla_get_callback_queue_status
+func valhalla_get_callback_queue_status(amb C.ValhallaAmbassador, outLength *C.int32_t, outSaturated *C.bool, outDropped *C.uint64_t) C.int32_t {
+	if amb == nil || outLength == nil || outSaturated == nil || outDropped == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
+	ctx, exists := getContext(amb)
+	if !exists {
+		return C.VALHALLA_ERR_NOT_CONNECTED
+	}
+	length, saturated, dropped := ctx.amb.GetCallbackQueueStatus()
+	*outLength = C.int32_t(length)
+	*outSaturated = C.bool(saturated)
+	*outDropped = C.uint64_t(dropped)
 	return C.VALHALLA_OK
 }
 

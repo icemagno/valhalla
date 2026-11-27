@@ -127,7 +127,13 @@ func TestRTIambassador_FullNativeLifecycle(t *testing.T) {
 	}
 	fedAmb.mu.Unlock()
 
-	// 7. Registrar objeto
+	// 7. Publicar e registrar objeto (conforme IEEE 1516-2025)
+	if err := amb.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+		t.Fatalf("PublishObjectClassAttributes falhou: %v", err)
+	}
+	if err := amb.PublishInteractionClass(int32(common.HLAinteractionRootHandle)); err != nil {
+		t.Fatalf("PublishInteractionClass falhou: %v", err)
+	}
 	objHandle, err := amb.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "Valkyrie_01")
 	if err != nil {
 		t.Fatalf("RegisterObjectInstance falhou: %v", err)
@@ -193,7 +199,9 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("JoinWithoutCreation_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("Connect failed: %v", err)
+		}
 		defer amb.Disconnect()
 
 		_, err := amb.JoinFederationExecution("NodeA", "InexistentFed")
@@ -204,7 +212,9 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("DuplicateCreation_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("Connect failed: %v", err)
+		}
 		defer amb.Disconnect()
 
 		if err := amb.CreateFederationExecution("UniqueFed"); err != nil {
@@ -217,12 +227,15 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("DestroyWithActiveFederates_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("setup Connect falhou: %v", err)
+		}
 		defer amb.Disconnect()
 
-		_ = amb.CreateFederationExecution("ActiveFed")
-		_, err := amb.JoinFederationExecution("ActiveNode", "ActiveFed")
-		if err != nil {
+		if err := amb.CreateFederationExecution("ActiveFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb.JoinFederationExecution("ActiveNode", "ActiveFed"); err != nil {
 			t.Fatalf("falha no join: %v", err)
 		}
 
@@ -235,32 +248,42 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 	t.Run("DuplicateFederateName_Fails", func(t *testing.T) {
 		_ = server // reuso
 		amb1 := lrc.NewRTIambassador()
-		_ = amb1.Connect(nil, addr)
+		if err := amb1.Connect(nil, addr); err != nil {
+			t.Fatalf("setup amb1.Connect falhou: %v", err)
+		}
 		defer amb1.Disconnect()
 
-		_ = amb1.CreateFederationExecution("DupNameFed")
-		_, err := amb1.JoinFederationExecution("SameNodeName", "DupNameFed")
-		if err != nil {
+		if err := amb1.CreateFederationExecution("DupNameFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb1.JoinFederationExecution("SameNodeName", "DupNameFed"); err != nil {
 			t.Fatalf("primeiro join falhou: %v", err)
 		}
 
 		amb2 := lrc.NewRTIambassador()
-		_ = amb2.Connect(nil, addr)
+		if err := amb2.Connect(nil, addr); err != nil {
+			t.Fatalf("setup amb2.Connect falhou: %v", err)
+		}
 		defer amb2.Disconnect()
 
-		_, err = amb2.JoinFederationExecution("SameNodeName", "DupNameFed")
-		if err == nil {
+		if _, err := amb2.JoinFederationExecution("SameNodeName", "DupNameFed"); err == nil {
 			t.Fatal("esperava erro ao ingressar segundo federado com o mesmo nome, obteve nil")
 		}
 	})
 
 	t.Run("AchieveUnannouncedSyncPoint_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("setup Connect falhou: %v", err)
+		}
 		defer amb.Disconnect()
 
-		_ = amb.CreateFederationExecution("SyncFed")
-		_, _ = amb.JoinFederationExecution("SyncNode", "SyncFed")
+		if err := amb.CreateFederationExecution("SyncFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb.JoinFederationExecution("SyncNode", "SyncFed"); err != nil {
+			t.Fatalf("setup Join falhou: %v", err)
+		}
 
 		err := amb.SynchronizationPointAchieved("PontoFantasmaNaoRegistrado")
 		if err == nil {
@@ -270,11 +293,17 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("DuplicateSyncPoint_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("setup Connect falhou: %v", err)
+		}
 		defer amb.Disconnect()
 
-		_ = amb.CreateFederationExecution("SyncDupFed")
-		_, _ = amb.JoinFederationExecution("SyncDupNode", "SyncDupFed")
+		if err := amb.CreateFederationExecution("SyncDupFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb.JoinFederationExecution("SyncDupNode", "SyncDupFed"); err != nil {
+			t.Fatalf("setup Join falhou: %v", err)
+		}
 
 		if err := amb.RegisterFederationSynchronizationPoint("PontoUnico", nil); err != nil {
 			t.Fatalf("primeiro registro de ponto falhou: %v", err)
@@ -287,11 +316,17 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("DuplicateTimeRegulation_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("setup Connect falhou: %v", err)
+		}
 		defer amb.Disconnect()
 
-		_ = amb.CreateFederationExecution("TimeFed")
-		_, _ = amb.JoinFederationExecution("TimeNode", "TimeFed")
+		if err := amb.CreateFederationExecution("TimeFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb.JoinFederationExecution("TimeNode", "TimeFed"); err != nil {
+			t.Fatalf("setup Join falhou: %v", err)
+		}
 
 		if err := amb.EnableTimeRegulation(0.1); err != nil {
 			t.Fatalf("primeira habilitacao de tempo falhou: %v", err)
@@ -304,11 +339,17 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("InvalidLookahead_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("setup Connect falhou: %v", err)
+		}
 		defer amb.Disconnect()
 
-		_ = amb.CreateFederationExecution("LookaheadFed")
-		_, _ = amb.JoinFederationExecution("LookNode", "LookaheadFed")
+		if err := amb.CreateFederationExecution("LookaheadFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb.JoinFederationExecution("LookNode", "LookaheadFed"); err != nil {
+			t.Fatalf("setup Join falhou: %v", err)
+		}
 
 		if err := amb.EnableTimeRegulation(-1.0); err == nil {
 			t.Fatal("esperava erro com lookahead negativo, obteve nil")
@@ -317,11 +358,20 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("DuplicateObjectName_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("setup Connect falhou: %v", err)
+		}
 		defer amb.Disconnect()
 
-		_ = amb.CreateFederationExecution("ObjDupFed")
-		_, _ = amb.JoinFederationExecution("ObjNode", "ObjDupFed")
+		if err := amb.CreateFederationExecution("ObjDupFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb.JoinFederationExecution("ObjNode", "ObjDupFed"); err != nil {
+			t.Fatalf("setup Join falhou: %v", err)
+		}
+		if err := amb.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+			t.Fatalf("setup Publish falhou: %v", err)
+		}
 
 		_, err := amb.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "VesselAlpha")
 		if err != nil {
@@ -336,11 +386,17 @@ func TestRTIambassador_NegativeScenarios_StrictConformity(t *testing.T) {
 
 	t.Run("UndefinedClassOrAttribute_Fails", func(t *testing.T) {
 		amb := lrc.NewRTIambassador()
-		_ = amb.Connect(nil, addr)
+		if err := amb.Connect(nil, addr); err != nil {
+			t.Fatalf("setup Connect falhou: %v", err)
+		}
 		defer amb.Disconnect()
 
-		_ = amb.CreateFederationExecution("UndefinedClassFed")
-		_, _ = amb.JoinFederationExecution("DeclNode", "UndefinedClassFed")
+		if err := amb.CreateFederationExecution("UndefinedClassFed"); err != nil {
+			t.Fatalf("setup CreateFederationExecution falhou: %v", err)
+		}
+		if _, err := amb.JoinFederationExecution("DeclNode", "UndefinedClassFed"); err != nil {
+			t.Fatalf("setup Join falhou: %v", err)
+		}
 
 		// Publicar classe inexistente (9999)
 		err := amb.PublishObjectClassAttributes(9999, []int32{1})
@@ -391,7 +447,9 @@ func TestRTIambassador_DeclarationAndPubSubRouting(t *testing.T) {
 
 	// 1. Criar federação
 	ambAdmin := lrc.NewRTIambassador()
-	_ = ambAdmin.Connect(nil, addr)
+	if err := ambAdmin.Connect(nil, addr); err != nil {
+		t.Fatalf("ambAdmin.Connect failed: %v", err)
+	}
 	_ = ambAdmin.CreateFederationExecution("PubSubFed")
 	_ = ambAdmin.Disconnect()
 
@@ -520,27 +578,38 @@ func TestRTIambassador_ObjectLifecycle_DeleteAndRemove(t *testing.T) {
 
 	// 1. Criar federação
 	ambAdmin := lrc.NewRTIambassador()
-	_ = ambAdmin.Connect(nil, addr)
+	if err := ambAdmin.Connect(nil, addr); err != nil {
+		t.Fatalf("ambAdmin.Connect failed: %v", err)
+	}
 	_ = ambAdmin.CreateFederationExecution("LifecycleFed")
 	_ = ambAdmin.Disconnect()
 
 	// 2. Conectar Proprietário (Owner)
 	ambOwner := lrc.NewRTIambassador()
-	_ = ambOwner.Connect(nil, addr)
+	if err := ambOwner.Connect(nil, addr); err != nil {
+		t.Fatalf("ambOwner.Connect failed: %v", err)
+	}
 	defer ambOwner.Disconnect()
 	_, _ = ambOwner.JoinFederationExecution("OwnerFed", "LifecycleFed")
 
 	// 3. Conectar Observador (Watcher)
 	watcherAmb := &mockAmbassador{}
 	ambWatcher := lrc.NewRTIambassador()
-	_ = ambWatcher.Connect(watcherAmb, addr)
+	if err := ambWatcher.Connect(watcherAmb, addr); err != nil {
+		t.Fatalf("ambWatcher.Connect failed: %v", err)
+	}
 	defer ambWatcher.Disconnect()
 	_, _ = ambWatcher.JoinFederationExecution("WatcherFed", "LifecycleFed")
 
 	// Watcher assina HLAobjectRoot
-	_ = ambWatcher.SubscribeObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)})
+	if err := ambWatcher.SubscribeObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+		t.Fatalf("Watcher subscribe falhou: %v", err)
+	}
 
-	// 4. Owner registra objeto
+	// 4. Owner publica e registra objeto
+	if err := ambOwner.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+		t.Fatalf("Owner publish falhou: %v", err)
+	}
 	objHandle, err := ambOwner.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "TargetMissile")
 	if err != nil {
 		t.Fatalf("falha ao registrar objeto: %v", err)
@@ -601,16 +670,23 @@ func TestRTIambassador_CatchUpDiscovery(t *testing.T) {
 
 	// 1. Criar federação
 	ambAdmin := lrc.NewRTIambassador()
-	_ = ambAdmin.Connect(nil, addr)
+	if err := ambAdmin.Connect(nil, addr); err != nil {
+		t.Fatalf("ambAdmin.Connect failed: %v", err)
+	}
 	_ = ambAdmin.CreateFederationExecution("CatchUpFed")
 	_ = ambAdmin.Disconnect()
 
 	// 2. Early Fed cria entidade ANTES do segundo federado subscrever
 	ambEarly := lrc.NewRTIambassador()
-	_ = ambEarly.Connect(nil, addr)
+	if err := ambEarly.Connect(nil, addr); err != nil {
+		t.Fatalf("ambEarly.Connect failed: %v", err)
+	}
 	defer ambEarly.Disconnect()
 	_, _ = ambEarly.JoinFederationExecution("EarlyNode", "CatchUpFed")
 
+	if err := ambEarly.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)}); err != nil {
+		t.Fatalf("Early publish falhou: %v", err)
+	}
 	earlyObj, err := ambEarly.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "PreExistingCarrier")
 	if err != nil {
 		t.Fatalf("falha ao registrar entidade inicial: %v", err)
@@ -619,7 +695,9 @@ func TestRTIambassador_CatchUpDiscovery(t *testing.T) {
 	// 3. Late Fed ingressa e assina a classe POSTERIORMENTE
 	lateAmb := &mockAmbassador{}
 	ambLate := lrc.NewRTIambassador()
-	_ = ambLate.Connect(lateAmb, addr)
+	if err := ambLate.Connect(lateAmb, addr); err != nil {
+		t.Fatalf("ambLate.Connect failed: %v", err)
+	}
 	defer ambLate.Disconnect()
 	_, _ = ambLate.JoinFederationExecution("LateNode", "CatchUpFed")
 

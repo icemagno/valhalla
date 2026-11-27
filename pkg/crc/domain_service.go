@@ -1,22 +1,76 @@
 package crc
 
 import (
+	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
-// RegisterAndBroadcastObject registers an object instance and broadcasts DiscoverObject to all other federates.
+// dispatchTimeGrants delivers queued TSO messages and TimeAdvanceGrant notifications
+// using the protocol-agnostic DomainEventSink interface whenever supported.
+func dispatchTimeGrants(currentFed *FederationExecution, grants []core.TimeGrantEvent) {
+	for _, grant := range grants {
+		fed, ok := currentFed.GetFederate(int32(grant.Federate))
+		if !ok || fed.Session == nil {
+			continue
+		}
+		// Deliver any queued TSO messages first in strictly non-decreasing time order
+		for _, msg := range grant.Messages {
+			if err := fed.Session.SendNotificationWithMerkle(msg.MsgType, msg.Payload, msg.MerkleRoot); err != nil {
+				logCRCDomain.Warn("failed to deliver TSO message %d to federate %d: %v", msg.MsgType, grant.Federate, err)
+			}
+		}
+		// Deliver TimeAdvanceGrant via DomainEventSink when available (single-pass per protocol)
+		if sink, ok := fed.Session.(DomainEventSink); ok {
+			if err := sink.SendTimeAdvanceGrant(grant.Time); err != nil {
+				logCRCDomain.Warn("failed to deliver TimeAdvanceGrant to federate %d: %v", grant.Federate, err)
+			}
+			continue
+		}
+		grantPayload, err := common.TimeFloat64Payload{Time: grant.Time}.MarshalBinary()
+		if err != nil {
+			logCRCDomain.Error("failed to marshal TimeFloat64Payload: %v", err)
+			continue
+		}
+		if err := fed.Session.SendNotification(NativeMsgTimeAdvanceGrant, grantPayload); err != nil {
+			logCRCDomain.Warn("failed to deliver TimeAdvanceGrant to federate %d: %v", grant.Federate, err)
+		}
+	}
+}
+
+// RegisterAndBroadcastObject validates publication, registers an object instance,
+// and dispatches DiscoverObject strictly to subscribers of the object class hierarchy.
 func (f *FederationExecution) RegisterAndBroadcastObject(classHandle int32, name string, ownerID int32) (*ObjectInstance, error) {
+	if f.Router() != nil && f.OMT() != nil {
+		if _, ok := f.OMT().GetObjectClass(common.ObjectClassHandle(classHandle)); ok {
+			if !f.Router().IsObjectClassPublished(common.FederateHandle(ownerID), common.ObjectClassHandle(classHandle)) {
+				return nil, core.ErrNotPublished
+			}
+		}
+	}
+
 	obj, err := f.RegisterObjectInstance(classHandle, name, ownerID)
 	if err != nil {
 		return nil, err
 	}
 
+	var targetIDs []common.FederateHandle
+	if f.Router() != nil && f.OMT() != nil {
+		if _, ok := f.OMT().GetObjectClass(common.ObjectClassHandle(obj.ClassHandle)); ok {
+			targetIDs = f.Router().GetObjectClassSubscribers(common.ObjectClassHandle(obj.ClassHandle))
+		}
+	}
+
 	var fallbackSSZ []byte
-	for _, fed := range f.GetAllFederates() {
-		if fed.ID == ownerID || fed.Session == nil {
+	for _, subID := range targetIDs {
+		if int32(subID) == ownerID {
+			continue
+		}
+		fed, ok := f.GetFederate(int32(subID))
+		if !ok || fed.Session == nil {
 			continue
 		}
 		if sink, ok := fed.Session.(DomainEventSink); ok {
@@ -77,16 +131,28 @@ func (f *FederationExecution) DispatchCatchUpDiscovery(session Session, classHan
 	return nil
 }
 
-// DeleteAndBroadcastObject validates delete privilege, deletes the instance, and broadcasts RemoveObjectInstance.
+// DeleteAndBroadcastObject validates delete privilege, deletes the instance,
+// and dispatches RemoveObjectInstance strictly to subscribers of the object class hierarchy.
 func (f *FederationExecution) DeleteAndBroadcastObject(objHandle int32, federateID int32, tag []byte) (*ObjectInstance, error) {
 	obj, err := f.DeleteObjectInstance(objHandle, federateID, tag)
 	if err != nil {
 		return nil, err
 	}
 
+	var targetIDs []common.FederateHandle
+	if f.Router() != nil && f.OMT() != nil {
+		if _, ok := f.OMT().GetObjectClass(common.ObjectClassHandle(obj.ClassHandle)); ok {
+			targetIDs = f.Router().GetObjectClassSubscribers(common.ObjectClassHandle(obj.ClassHandle))
+		}
+	}
+
 	var fallbackSSZ []byte
-	for _, fed := range f.GetAllFederates() {
-		if fed.ID == federateID || fed.Session == nil {
+	for _, subID := range targetIDs {
+		if int32(subID) == federateID {
+			continue
+		}
+		fed, ok := f.GetFederate(int32(subID))
+		if !ok || fed.Session == nil {
 			continue
 		}
 		if sink, ok := fed.Session.(DomainEventSink); ok {
@@ -128,11 +194,23 @@ func (f *FederationExecution) UpdateAndRouteAttributes(
 		return [32]byte{}, common.ErrObjectInstanceNotKnown
 	}
 
-	// 1. Verify attribute ownership
+	// 1. Verify attribute ownership (owned by sender, and not divested/unowned) and publication (IEEE 1516-2025)
 	if f.ownershipMgr != nil {
 		for attrHandle := range attrs {
-			if owner, isOwned := f.ownershipMgr.QueryAttributeOwnership(objHandle, attrHandle); isOwned && owner != common.FederateHandle(senderID) {
+			owner, isOwned := f.ownershipMgr.QueryAttributeOwnership(objHandle, attrHandle)
+			if isOwned {
+				if owner != common.FederateHandle(senderID) {
+					return [32]byte{}, core.ErrNotAttributeOwner
+				}
+			} else if f.ownershipMgr.IsAttributeDivested(objHandle, attrHandle) {
 				return [32]byte{}, core.ErrNotAttributeOwner
+			}
+		}
+	}
+	if f.router != nil {
+		for attrHandle := range attrs {
+			if !f.router.IsAttributePublished(common.FederateHandle(senderID), common.ObjectClassHandle(obj.ClassHandle), attrHandle) {
+				return [32]byte{}, core.ErrNotPublished
 			}
 		}
 	}
@@ -194,8 +272,14 @@ func (f *FederationExecution) UpdateAndRouteAttributes(
 		return sszPayload, nil
 	}
 
-	// 6. Dispatch to subscribers (TSO or RO, single-pass per protocol)
+	// 6. Dispatch to subscribers in strictly deterministic ascending handle order
+	orderedSubs := make([]common.FederateHandle, 0, len(targetSubs))
 	for subID := range targetSubs {
+		orderedSubs = append(orderedSubs, subID)
+	}
+	sort.Slice(orderedSubs, func(i, j int) bool { return orderedSubs[i] < orderedSubs[j] })
+
+	for _, subID := range orderedSubs {
 		subFed, ok := f.GetFederate(int32(subID))
 		if !ok || subFed.Session == nil {
 			continue
@@ -216,6 +300,9 @@ func (f *FederationExecution) UpdateAndRouteAttributes(
 			})
 			if err != nil {
 				logCRCDomain.Warn("failed to enqueue TSO message for federate %d: %v", subID, err)
+				if errors.Is(err, common.ErrInvalidLogicalTime) || errors.Is(err, core.ErrTSOQueueFull) {
+					return globalRoot, err
+				}
 			} else if len(grants) > 0 {
 				dispatchTimeGrants(f, grants)
 			}
@@ -246,6 +333,13 @@ func (f *FederationExecution) RouteInteraction(
 	hasTime bool,
 	timestamp float64,
 ) error {
+	if f.Router() != nil && f.OMT() != nil {
+		if _, ok := f.OMT().GetInteractionClass(classHandle); ok {
+			if !f.Router().IsInteractionClassPublished(common.FederateHandle(senderID), classHandle) {
+				return core.ErrNotPublished
+			}
+		}
+	}
 	subs := f.Router().GetInteractionSubscribers(classHandle)
 
 	var sszPayload []byte
@@ -290,6 +384,9 @@ func (f *FederationExecution) RouteInteraction(
 			})
 			if err != nil {
 				logCRCDomain.Warn("failed to enqueue TSO interaction for federate %d: %v", subID, err)
+				if errors.Is(err, common.ErrInvalidLogicalTime) || errors.Is(err, core.ErrTSOQueueFull) {
+					return err
+				}
 			} else if len(grants) > 0 {
 				dispatchTimeGrants(f, grants)
 			}

@@ -106,42 +106,84 @@ func TestIntegration_TimeManagement_LockstepAndTSO(t *testing.T) {
 		t.Fatalf("amb2 EnableTimeConstrained failed: %v", err)
 	}
 
-	// 5. Coordinated Advance Step 1: Advance to 1.0
-	// Amb1 requests 1.0
-	if err := amb1.TimeAdvanceRequest(1.0); err != nil {
-		t.Fatalf("amb1 TAR(1.0) failed: %v", err)
+	// 5. Real LBTS Lockstep Blocking:
+	// Both federates are at t=0.0 with lookahead=1.0 -> LBTS for Amb1 is 1.0.
+	// Requesting TAR(5.0) on Amb1 MUST block until Amb2 advances!
+	if err := amb1.TimeAdvanceRequest(5.0); err != nil {
+		t.Fatalf("amb1 TAR(5.0) failed: %v", err)
+	}
+	evoked, err := amb1.EvokeCallback(100 * time.Millisecond)
+	if err != nil {
+		t.Fatalf("amb1 EvokeCallback failed: %v", err)
+	}
+	if evoked || len(cb1.getGrants()) != 0 {
+		t.Fatalf("LBTS LOCKSTEP VIOLATION: amb1 received TAG(5.0) while amb2 was still at t=0.0! grants=%v", cb1.getGrants())
 	}
 
-	// Evoke callbacks on amb1 to process the grant
-	for i := 0; i < 10; i++ {
-		_, _ = amb1.EvokeCallback(50 * time.Millisecond)
-		if len(cb1.getGrants()) > 0 {
+	// 6. Real object publish/subscribe + attribute update while Amb1 is advancing
+	clsHandle, err := amb1.GetObjectClassHandle("HLAobjectRoot")
+	if err != nil {
+		t.Fatalf("GetObjectClassHandle failed: %v", err)
+	}
+	privHandle, err := amb1.GetAttributeHandle(clsHandle, "HLAprivilegeToDeleteObject")
+	if err != nil {
+		t.Fatalf("GetAttributeHandle failed: %v", err)
+	}
+	if err := amb2.PublishObjectClassAttributes(clsHandle, []int32{privHandle}); err != nil {
+		t.Fatalf("amb2 publish failed: %v", err)
+	}
+	if err := amb1.SubscribeObjectClassAttributes(clsHandle, []int32{privHandle}); err != nil {
+		t.Fatalf("amb1 subscribe failed: %v", err)
+	}
+	objHandle, err := amb2.RegisterObjectInstance(clsHandle, "LockstepEntity")
+	if err != nil {
+		t.Fatalf("amb2 register object failed: %v", err)
+	}
+	// Send a real Timestamp-Ordered (TSO) attribute update at logical time t=3.0 (>= lookahead 1.0, <= TAR 5.0).
+	if err := amb2.UpdateAttributeValuesWithTime(objHandle, map[int32][]byte{privHandle: []byte("tso-payload")}, 3.0, []byte("tag")); err != nil {
+		t.Fatalf("amb2 TSO UpdateAttributeValuesWithTime(3.0) failed: %v", err)
+	}
+	// Amb1 is still blocked below LBTS 3.0, so TSO attribute must NOT be delivered yet.
+	_, _ = amb1.EvokeCallback(50 * time.Millisecond)
+	if cb1.getReceivedAttrs() != 0 {
+		t.Fatalf("TSO ORDERING VIOLATION: amb1 received TSO reflection at t=3.0 before LBTS reached 3.0")
+	}
+
+	// 7. Now Amb2 advances to 5.0 -> unlocks LBTS for BOTH Amb1 and Amb2
+	if err := amb2.TimeAdvanceRequest(5.0); err != nil {
+		t.Fatalf("amb2 TAR(5.0) failed: %v", err)
+	}
+
+	// Drain callbacks on Amb1 until TAG(5.0) and reflected attribute arrive
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_, _ = amb1.EvokeCallback(20 * time.Millisecond)
+		if len(cb1.getGrants()) > 0 && cb1.getReceivedAttrs() > 0 {
 			break
 		}
 	}
 	grants1 := cb1.getGrants()
-	if len(grants1) != 1 || grants1[0] != 1.0 {
-		t.Fatalf("amb1 expected TAG(1.0), got: %v", grants1)
+	if len(grants1) != 1 || grants1[0] != 5.0 {
+		t.Fatalf("amb1 expected TAG(5.0) after Amb2 advanced, got: %v", grants1)
+	}
+	if cb1.getReceivedAttrs() == 0 {
+		t.Fatalf("amb1 expected reflected attributes from Amb2, got 0")
 	}
 
-	// Amb2 requests 1.0
-	if err := amb2.TimeAdvanceRequest(1.0); err != nil {
-		t.Fatalf("amb2 TAR(1.0) failed: %v", err)
-	}
-
-	// Evoke callbacks on amb2 to process the grant
-	for i := 0; i < 10; i++ {
-		_, _ = amb2.EvokeCallback(50 * time.Millisecond)
+	// Drain callbacks on Amb2 until TAG(5.0) arrives
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_, _ = amb2.EvokeCallback(20 * time.Millisecond)
 		if len(cb2.getGrants()) > 0 {
 			break
 		}
 	}
 	grants2 := cb2.getGrants()
-	if len(grants2) != 1 || grants2[0] != 1.0 {
-		t.Fatalf("amb2 expected TAG(1.0), got: %v", grants2)
+	if len(grants2) != 1 || grants2[0] != 5.0 {
+		t.Fatalf("amb2 expected TAG(5.0), got: %v", grants2)
 	}
 
-	// 6. Resign both federates
+	// 8. Resign both federates
 	if err := amb1.ResignFederationExecution(); err != nil {
 		t.Fatalf("amb1 resign failed: %v", err)
 	}
@@ -149,7 +191,7 @@ func TestIntegration_TimeManagement_LockstepAndTSO(t *testing.T) {
 		t.Fatalf("amb2 resign failed: %v", err)
 	}
 
-	// 7. Destroy federation
+	// 9. Destroy federation
 	if err := amb1.DestroyFederationExecution(fedName); err != nil {
 		t.Fatalf("destroy federation failed: %v", err)
 	}

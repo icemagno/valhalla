@@ -36,6 +36,20 @@ public interface RTIambassador {
     void subscribeObjectClassAttributes(ObjectClassHandle theClass,
                                         AttributeHandleSet attributeList) throws RTIexception;
 
+    // Interaction Management
+    void publishInteractionClass(int interactionClass) throws RTIexception;
+
+    void subscribeInteractionClass(int interactionClass) throws RTIexception;
+
+    void sendInteraction(int interactionClass,
+                         java.util.Map<Integer, byte[]> theParameters,
+                         byte[] userSuppliedTag) throws RTIexception;
+
+    // Synchronization Points
+    void registerFederationSynchronizationPoint(String label, byte[] userSuppliedTag) throws RTIexception;
+
+    void synchronizationPointAchieved(String label) throws RTIexception;
+
     ObjectInstanceHandle registerObjectInstance(ObjectClassHandle theClass,
                                                String theObjectName) throws RTIexception;
 
@@ -48,11 +62,17 @@ public interface RTIambassador {
 
     void enableTimeRegulation(double lookahead) throws RTIexception;
 
+    void disableTimeRegulation() throws RTIexception;
+
     void enableTimeConstrained() throws RTIexception;
+
+    void disableTimeConstrained() throws RTIexception;
 
     void timeAdvanceRequest(double theTime) throws RTIexception;
 
     void nextMessageRequest(double theTime) throws RTIexception;
+
+    void flushQueueRequest(double theTime) throws RTIexception;
 
     // Ownership Management
     void unconditionalAttributeOwnershipDivestiture(ObjectInstanceHandle theObject,

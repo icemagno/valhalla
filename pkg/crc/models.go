@@ -101,6 +101,8 @@ type FederationExecution struct {
 	nextObjectHandle   int32
 	nextRegionHandle   uint32
 	regions            map[uint32]*core.SpatialRegion
+	regionDims         map[uint32][]uint32
+	regionOwner        map[uint32]int32
 
 	omt          *core.OMTRegistry
 	router       *core.InterestMatcher
@@ -131,6 +133,8 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		nextObjectHandle:   1,
 		nextRegionHandle:   1,
 		regions:            make(map[uint32]*core.SpatialRegion),
+		regionDims:         make(map[uint32][]uint32),
+		regionOwner:        make(map[uint32]int32),
 		omt:                omt,
 		router:             router,
 		stateTree:          stateTree,
@@ -260,6 +264,22 @@ func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 		f.ownershipMgr.RemoveFederate(common.FederateHandle(id))
 	}
 
+	// Clean up DDM regions owned by the resigning federate to prevent memory leaks
+	for regHandle, ownerID := range f.regionOwner {
+		if ownerID == id {
+			delete(f.regions, regHandle)
+			delete(f.regionDims, regHandle)
+			delete(f.regionOwner, regHandle)
+		}
+	}
+
+	// Purge completed synchronization points when the federation becomes empty
+	if len(f.federates) == 0 {
+		for k := range f.syncPoints {
+			delete(f.syncPoints, k)
+		}
+	}
+
 	f.mu.Unlock()
 
 	// Dispatch time advance grants outside f.mu to avoid lock inversion/deadlock
@@ -300,6 +320,9 @@ func (f *FederationExecution) AchieveSyncPoint(label string, federateID int32) (
 	sp, exists := f.syncPoints[label]
 	if !exists {
 		return false, ErrSyncPointNotFound
+	}
+	if sp.IsSynchronized {
+		return false, nil
 	}
 
 	sp.AchievedFederates[federateID] = true
@@ -358,23 +381,12 @@ func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name str
 
 	// Assign initial attribute ownership (direct + inherited from all ancestors) to the registering federate
 	if f.ownershipMgr != nil && f.omt != nil {
-		if cls, ok := f.omt.GetObjectClass(common.ObjectClassHandle(classHandle)); ok {
-			var attrHandles []common.AttributeHandle
-			for _, a := range cls.Attributes {
-				attrHandles = append(attrHandles, a.Handle)
-			}
-			for _, ancH := range cls.Ancestors {
-				if anc, ok := f.omt.GetObjectClass(ancH); ok {
-					for _, a := range anc.Attributes {
-						attrHandles = append(attrHandles, a.Handle)
-					}
-				}
-			}
+		if attrHandles, ok := f.omt.GetObjectClassAttributeHandles(common.ObjectClassHandle(classHandle)); ok {
 			f.ownershipMgr.RegisterInitialOwnership(common.ObjectInstanceHandle(handle), attrHandles, common.FederateHandle(ownerID))
 		}
 	}
 
-	return obj, nil
+	return cloneObjectInstance(obj), nil
 }
 
 // UpdateObjectAttributes updates attributes of an instance and recomputes the Merkle root
@@ -387,23 +399,32 @@ func (f *FederationExecution) UpdateObjectAttributes(objHandle int32, attrs map[
 		return common.ErrObjectInstanceNotKnown
 	}
 
-	for k, v := range attrs {
-		obj.Attributes[k] = v
-	}
-
-	// If Merkle audit is enabled, compute deterministically via SSZ and update state tree
+	// If Merkle audit is enabled, always compute the authoritative root deterministically via SSZ.
+	// Never trust a client-supplied Merkle root blindly: if non-zero, it MUST match the authoritative root.
 	if f.merkleAuditEnabled {
-		if merkleRoot == [32]byte{} {
-			attrMap := make(map[common.AttributeHandle][]byte, len(obj.Attributes))
-			for k, v := range obj.Attributes {
-				attrMap[common.AttributeHandle(k)] = v
-			}
-			merkleRoot = core.ComputeObjectMerkleRoot(attrMap)
+		attrMap := make(map[common.AttributeHandle][]byte, len(obj.Attributes)+len(attrs))
+		for k, v := range obj.Attributes {
+			attrMap[common.AttributeHandle(k)] = v
 		}
-		obj.MerkleRoot = merkleRoot
+		for k, v := range attrs {
+			attrMap[common.AttributeHandle(k)] = v
+		}
+		authoritativeRoot := core.ComputeObjectMerkleRoot(attrMap)
+		if merkleRoot != [32]byte{} && merkleRoot != authoritativeRoot {
+			return ErrMerkleRootMismatch
+		}
+
+		for k, v := range attrs {
+			obj.Attributes[k] = v
+		}
+		obj.MerkleRoot = authoritativeRoot
 
 		if f.stateTree != nil {
-			f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(objHandle), merkleRoot)
+			f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(objHandle), authoritativeRoot)
+		}
+	} else {
+		for k, v := range attrs {
+			obj.Attributes[k] = v
 		}
 	}
 
@@ -422,8 +443,20 @@ func (f *FederationExecution) DeleteObjectInstance(objHandle int32, federateID i
 	}
 
 	// Strict IEEE 1516-2025 standard validation:
-	// Only registering owner OR federate holding delete privilege can delete instance
-	if obj.OwnerID != federateID {
+	// Only the federate holding HLAprivilegeToDeleteObject (or initial owner if privilege not tracked) may delete
+	canDelete := false
+	if f.ownershipMgr != nil {
+		if privOwner, isOwned := f.ownershipMgr.QueryAttributeOwnership(common.ObjectInstanceHandle(objHandle), core.HLAprivilegeToDeleteObjectHandle); isOwned {
+			canDelete = (privOwner == common.FederateHandle(federateID))
+		} else if f.ownershipMgr.IsAttributeDivested(common.ObjectInstanceHandle(objHandle), core.HLAprivilegeToDeleteObjectHandle) {
+			canDelete = false
+		} else {
+			canDelete = (obj.OwnerID == federateID)
+		}
+	} else {
+		canDelete = (obj.OwnerID == federateID)
+	}
+	if !canDelete {
 		return nil, common.ErrDeletePrivilegeNotHeld
 	}
 
@@ -441,6 +474,31 @@ func (f *FederationExecution) DeleteObjectInstance(objHandle int32, federateID i
 	return obj, nil
 }
 
+func cloneObjectInstance(obj *ObjectInstance) *ObjectInstance {
+	if obj == nil {
+		return nil
+	}
+	attrsCopy := make(map[int32][]byte, len(obj.Attributes))
+	for k, v := range obj.Attributes {
+		if v != nil {
+			cp := make([]byte, len(v))
+			copy(cp, v)
+			attrsCopy[k] = cp
+		} else {
+			attrsCopy[k] = nil
+		}
+	}
+	return &ObjectInstance{
+		Handle:      obj.Handle,
+		ClassHandle: obj.ClassHandle,
+		Name:        obj.Name,
+		OwnerID:     obj.OwnerID,
+		Attributes:  attrsCopy,
+		MerkleRoot:  obj.MerkleRoot,
+		UpdatedAt:   obj.UpdatedAt,
+	}
+}
+
 // GetAllObjects returns a thread-safe snapshot of all active object instances
 func (f *FederationExecution) GetAllObjects() []*ObjectInstance {
 	f.mu.RLock()
@@ -448,21 +506,29 @@ func (f *FederationExecution) GetAllObjects() []*ObjectInstance {
 
 	list := make([]*ObjectInstance, 0, len(f.objects))
 	for _, obj := range f.objects {
-		list = append(list, obj)
+		list = append(list, cloneObjectInstance(obj))
 	}
 	return list
 }
 
-// GetObjectInstance looks up an object instance by handle
+// GetObjectInstance looks up an object instance by handle and returns a defensive snapshot
 func (f *FederationExecution) GetObjectInstance(handle int32) (*ObjectInstance, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	obj, exists := f.objects[handle]
-	return obj, exists
+	if !exists {
+		return nil, false
+	}
+	return cloneObjectInstance(obj), true
 }
 
 // CreateRegion allocates a unique handle for a DDM spatial region
 func (f *FederationExecution) CreateRegion() uint32 {
+	return f.CreateRegionWithDimensions(0, nil)
+}
+
+// CreateRegionWithDimensions allocates a DDM spatial region associated with specific OMT dimension handles
+func (f *FederationExecution) CreateRegionWithDimensions(ownerID int32, dims []uint32) uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -470,10 +536,32 @@ func (f *FederationExecution) CreateRegion() uint32 {
 	f.nextRegionHandle++
 	reg, _ := core.NewSpatialRegion(0, core.MaxCoordinateValue, 0, core.MaxCoordinateValue, 0, core.MaxCoordinateValue)
 	f.regions[handle] = &reg
+	if len(dims) > 0 {
+		dimsCopy := make([]uint32, len(dims))
+		copy(dimsCopy, dims)
+		f.regionDims[handle] = dimsCopy
+	}
+	if ownerID > 0 {
+		f.regionOwner[handle] = ownerID
+	}
 	return handle
 }
 
-// SetRegionRangeBounds sets discrete range bounds on a region dimension
+// DeleteRegion removes a DDM spatial region and its metadata
+func (f *FederationExecution) DeleteRegion(handle uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if _, exists := f.regions[handle]; !exists {
+		return errors.New("region not found")
+	}
+	delete(f.regions, handle)
+	delete(f.regionDims, handle)
+	delete(f.regionOwner, handle)
+	return nil
+}
+
+// SetRegionRangeBounds sets discrete range bounds on a region dimension (supports both legacy 0..3 and OMT handles 1001+)
 func (f *FederationExecution) SetRegionRangeBounds(handle uint32, dim uint32, lower, upper uint32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -482,14 +570,54 @@ func (f *FederationExecution) SetRegionRangeBounds(handle uint32, dim uint32, lo
 	if !exists {
 		return errors.New("region not found")
 	}
+	if lower > upper {
+		return errors.New("invalid range bounds: lower > upper")
+	}
 
-	switch dim {
-	case 1, 0:
+	axis := -1 // 0=X, 1=Y, 2=Z
+	// 1. Match against region's explicitly bound OMT dimension handles
+	if dims := f.regionDims[handle]; len(dims) > 0 {
+		for idx, d := range dims {
+			if d == dim && idx < 3 {
+				axis = idx
+				break
+			}
+		}
+	}
+	// 2. Match against OMT dimension name if registered in OMT
+	if axis == -1 && f.omt != nil {
+		if dimDef, ok := f.omt.GetDimension(common.DimensionHandle(dim)); ok {
+			switch dimDef.Name {
+			case "X", "x", "DimX", "dimX":
+				axis = 0
+			case "Y", "y", "DimY", "dimY":
+				axis = 1
+			case "Z", "z", "DimZ", "dimZ":
+				axis = 2
+			}
+		}
+	}
+	// 3. Backwards-compatible legacy axis handles (0/1=X, 2=Y, 3=Z)
+	if axis == -1 {
+		switch dim {
+		case 0, 1:
+			axis = 0
+		case 2:
+			axis = 1
+		case 3:
+			axis = 2
+		}
+	}
+
+	switch axis {
+	case 0:
 		r.MinX, r.MaxX = lower, upper
-	case 2:
+	case 1:
 		r.MinY, r.MaxY = lower, upper
-	case 3:
+	case 2:
 		r.MinZ, r.MaxZ = lower, upper
+	default:
+		return errors.New("invalid dimension handle for region")
 	}
 	r.RecomputeMortonBounds()
 	return nil

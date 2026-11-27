@@ -17,7 +17,7 @@ func init() {
 // NewRtiProbe constrói uma instância de RtiProbe
 func NewRtiProbe() *JavaObject {
 	obj := NewJavaObject(ClassDescRtiProbe)
-	obj.Set("immediate", false)
+	obj.Set("isAsync", false)
 	obj.Set("isFromRti", false)
 	obj.Set("sourceFederate", int32(-1))
 	obj.Set("targetFederate", int32(0))

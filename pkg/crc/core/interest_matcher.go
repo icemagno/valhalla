@@ -150,6 +150,14 @@ func (m *InterestMatcher) SubscribeObjectClass(fedID common.FederateHandle, clas
 			}
 		} else {
 			bs.Clear(uint32(fedID))
+			keys := m.fedObjSubs[fedID]
+			remaining := keys[:0]
+			for _, k := range keys {
+				if k != key {
+					remaining = append(remaining, k)
+				}
+			}
+			m.fedObjSubs[fedID] = remaining
 		}
 	}
 
@@ -173,6 +181,24 @@ func (m *InterestMatcher) UnsubscribeObjectClass(fedID common.FederateHandle, cl
 		}
 	}
 	m.fedObjSubs[fedID] = remaining
+
+	// Also clear any DDM regional subscriptions for this federate and class
+	for key, subs := range m.objRegionSubs {
+		if key.ClassHandle != class {
+			continue
+		}
+		kept := subs[:0]
+		for _, rs := range subs {
+			if rs.FedID != fedID {
+				kept = append(kept, rs)
+			}
+		}
+		if len(kept) == 0 {
+			delete(m.objRegionSubs, key)
+		} else {
+			m.objRegionSubs[key] = kept
+		}
+	}
 	return nil
 }
 
@@ -190,8 +216,10 @@ func (m *InterestMatcher) PublishInteractionClass(fedID common.FederateHandle, i
 		bs = NewBitset()
 		m.interactionPublishers[interaction] = bs
 	}
-	bs.Set(uint32(fedID))
-	m.fedInteractionPubs[fedID] = append(m.fedInteractionPubs[fedID], interaction)
+	if !bs.Contains(uint32(fedID)) {
+		bs.Set(uint32(fedID))
+		m.fedInteractionPubs[fedID] = append(m.fedInteractionPubs[fedID], interaction)
+	}
 
 	return nil
 }
@@ -231,13 +259,102 @@ func (m *InterestMatcher) SubscribeInteractionClass(fedID common.FederateHandle,
 		m.interactionSubscribers[interaction] = bs
 	}
 	if active {
-		bs.Set(uint32(fedID))
-		m.fedInteractionSubs[fedID] = append(m.fedInteractionSubs[fedID], interaction)
+		if !bs.Contains(uint32(fedID)) {
+			bs.Set(uint32(fedID))
+			m.fedInteractionSubs[fedID] = append(m.fedInteractionSubs[fedID], interaction)
+		}
 	} else {
 		bs.Clear(uint32(fedID))
+		ints := m.fedInteractionSubs[fedID]
+		remaining := ints[:0]
+		for _, h := range ints {
+			if h != interaction {
+				remaining = append(remaining, h)
+			}
+		}
+		m.fedInteractionSubs[fedID] = remaining
 	}
 
 	return nil
+}
+
+// GetObjectClassSubscribers returns all federates subscribed (globally or with a DDM region)
+// to at least one attribute of classHandle or any of its superclasses, sorted deterministically.
+func (m *InterestMatcher) GetObjectClassSubscribers(classHandle common.ObjectClassHandle) []common.FederateHandle {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	cls, exists := m.omt.GetObjectClass(classHandle)
+	if !exists {
+		return nil
+	}
+
+	// Collect class + all ancestors (polymorphic subscription matching)
+	classes := make([]common.ObjectClassHandle, 0, 1+len(cls.Ancestors))
+	classes = append(classes, classHandle)
+	classes = append(classes, cls.Ancestors...)
+	classSet := make(map[common.ObjectClassHandle]struct{}, len(classes))
+	for _, c := range classes {
+		classSet[c] = struct{}{}
+	}
+
+	subSet := make(map[common.FederateHandle]struct{})
+	for key, bs := range m.objSubscribers {
+		if _, ok := classSet[key.ClassHandle]; ok {
+			for _, f := range bs.ToFederateHandles() {
+				subSet[f] = struct{}{}
+			}
+		}
+	}
+	for key, regSubs := range m.objRegionSubs {
+		if _, ok := classSet[key.ClassHandle]; ok {
+			for _, rs := range regSubs {
+				subSet[rs.FedID] = struct{}{}
+			}
+		}
+	}
+
+	result := make([]common.FederateHandle, 0, len(subSet))
+	for f := range subSet {
+		result = append(result, f)
+	}
+	// Deterministic ascending order
+	for i := 1; i < len(result); i++ {
+		for j := i; j > 0 && result[j] < result[j-1]; j-- {
+			result[j], result[j-1] = result[j-1], result[j]
+		}
+	}
+	return result
+}
+
+// IsObjectClassPublished reports whether fedID currently publishes at least one attribute of classHandle.
+func (m *InterestMatcher) IsObjectClassPublished(fedID common.FederateHandle, classHandle common.ObjectClassHandle) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, key := range m.fedObjPubs[fedID] {
+		if key.ClassHandle == classHandle {
+			if bs, ok := m.objPublishers[key]; ok && bs.Contains(uint32(fedID)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsAttributePublished reports whether fedID currently publishes the specific (classHandle, attrHandle) pair.
+func (m *InterestMatcher) IsAttributePublished(fedID common.FederateHandle, classHandle common.ObjectClassHandle, attrHandle common.AttributeHandle) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	bs, ok := m.objPublishers[ClassAttrKey{ClassHandle: classHandle, AttrHandle: attrHandle}]
+	return ok && bs.Contains(uint32(fedID))
+}
+
+// IsInteractionClassPublished reports whether fedID currently publishes interaction.
+func (m *InterestMatcher) IsInteractionClassPublished(fedID common.FederateHandle, interaction common.InteractionClassHandle) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	bs, ok := m.interactionPublishers[interaction]
+	return ok && bs.Contains(uint32(fedID))
 }
 
 // UnsubscribeInteractionClass cancels interest in receiving an interaction class
@@ -311,10 +428,20 @@ func (m *InterestMatcher) SubscribeObjectClassWithRegion(fedID common.FederateHa
 
 	for _, attr := range attrs {
 		key := ClassAttrKey{ClassHandle: class, AttrHandle: attr}
-		m.objRegionSubs[key] = append(m.objRegionSubs[key], RegionSubscription{
-			FedID:  fedID,
-			Region: region,
-		})
+		subs := m.objRegionSubs[key]
+		updated := false
+		for i := range subs {
+			if subs[i].FedID == fedID && subs[i].Region == region {
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			m.objRegionSubs[key] = append(subs, RegionSubscription{
+				FedID:  fedID,
+				Region: region,
+			})
+		}
 	}
 	return nil
 }

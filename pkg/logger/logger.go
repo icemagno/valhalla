@@ -107,11 +107,12 @@ type Logger interface {
 
 // valhallaLogger is the high-performance decoupled asynchronous Logger implementation.
 type valhallaLogger struct {
-	mu     sync.RWMutex
-	level  LogLevel
-	output io.Writer
-	outMu  sync.Mutex // Guards writes to this specific logger's output
-	module string
+	mu            sync.RWMutex
+	level         LogLevel
+	levelOverride bool
+	output        io.Writer
+	outMu         sync.Mutex // Guards writes to this specific logger's output
+	module        string
 }
 
 type logEntry struct {
@@ -125,11 +126,33 @@ type logEntry struct {
 }
 
 var (
-	globalLogger    Logger
-	once            sync.Once
-	logQueue        = make(chan logEntry, 10000) // Decoupled FIFO buffer
-	droppedLogCount uint64                      // Cumulative count of dropped non-critical logs on saturation
+	globalLogger      Logger
+	once              sync.Once
+	logQueue          = make(chan logEntry, 10000) // Decoupled FIFO buffer
+	droppedLogCount   uint64                      // Cumulative count of dropped non-critical logs on saturation
+	writerMutexes     sync.Map                    // map[io.Writer]*sync.Mutex (per-destination lock to avoid cross-writer HoL blocking)
+	fallbackWriteMu   sync.Mutex
 )
+
+func writerMutexFor(w io.Writer) *sync.Mutex {
+	// Most io.Writer implementations are pointers (*os.File, *bytes.Buffer, etc.), which are comparable.
+	// Guard with recover in case a custom non-comparable struct implements io.Writer by value.
+	var mu *sync.Mutex
+	func() {
+		defer func() {
+			if recover() != nil {
+				mu = &fallbackWriteMu
+			}
+		}()
+		if existing, ok := writerMutexes.Load(w); ok {
+			mu = existing.(*sync.Mutex)
+			return
+		}
+		actual, _ := writerMutexes.LoadOrStore(w, &sync.Mutex{})
+		mu = actual.(*sync.Mutex)
+	}()
+	return mu
+}
 
 const (
 	colorReset  = "\033[0m"
@@ -165,7 +188,10 @@ func writeEntry(out io.Writer, entry logEntry) {
 		out = os.Stdout
 	}
 	line := formatEntry(entry)
+	mu := writerMutexFor(out)
+	mu.Lock()
 	_, _ = io.WriteString(out, line)
+	mu.Unlock()
 }
 
 func init() {
@@ -259,6 +285,7 @@ func (l *valhallaLogger) SetLevel(level LogLevel) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.level = level
+	l.levelOverride = true
 }
 
 func (l *valhallaLogger) GetLevel() LogLevel {
@@ -274,19 +301,22 @@ func (l *valhallaLogger) SetOutput(w io.Writer) {
 }
 
 func (l *valhallaLogger) log(level LogLevel, format string, args ...interface{}) {
-	currentLevel := l.GetLevel()
-	if gl, ok := getConfigLogLevel(); ok {
-		currentLevel = gl
+	l.mu.RLock()
+	currentLevel := l.level
+	override := l.levelOverride
+	out := l.output
+	mod := l.module
+	l.mu.RUnlock()
+
+	if !override {
+		if gl, ok := getConfigLogLevel(); ok {
+			currentLevel = gl
+		}
 	}
 
 	if level < currentLevel {
 		return
 	}
-
-	l.mu.RLock()
-	out := l.output
-	mod := l.module
-	l.mu.RUnlock()
 
 	entry := logEntry{
 		timestamp: time.Now().Format("15:04:05.000"),

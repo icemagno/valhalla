@@ -31,18 +31,18 @@ func TestCRCServer_DualProtocolMultiplexing(t *testing.T) {
 
 	// Portico cliente lê 0xBEEF do servidor
 	var welcomeBuf [8]byte
-	if _, err := porticoConn.Read(welcomeBuf[:]); err != nil {
+	if _, err := io.ReadFull(porticoConn, welcomeBuf[:]); err != nil {
 		t.Fatalf("falha lendo 0xBEEF: %v", err)
 	}
 	// Lê string
 	strBuf := make([]byte, len(PorticoWelcomeMsg))
-	if _, err := porticoConn.Read(strBuf); err != nil {
+	if _, err := io.ReadFull(porticoConn, strBuf); err != nil {
 		t.Fatalf("falha lendo mensagem de boas-vindas: %v", err)
 	}
 
 	// Lê 0xFEED do servidor
 	var srvFeed [4]byte
-	if _, err := porticoConn.Read(srvFeed[:]); err != nil {
+	if _, err := io.ReadFull(porticoConn, srvFeed[:]); err != nil {
 		t.Fatalf("falha lendo 0xFEED do servidor: %v", err)
 	}
 
@@ -262,7 +262,7 @@ func TestServer_DedicatedPorticoPort_ZeroLatency(t *testing.T) {
 	defer connDedicated.Close()
 
 	var welcomeBuf [8]byte
-	if _, err := connDedicated.Read(welcomeBuf[:]); err != nil {
+	if _, err := io.ReadFull(connDedicated, welcomeBuf[:]); err != nil {
 		t.Fatalf("Failed to read Portico greeting on dedicated port: %v", err)
 	}
 	elapsedDedicated := time.Since(start)
@@ -279,7 +279,7 @@ func TestServer_DedicatedPorticoPort_ZeroLatency(t *testing.T) {
 	}
 	defer connMux.Close()
 
-	if _, err := connMux.Read(welcomeBuf[:]); err != nil {
+	if _, err := io.ReadFull(connMux, welcomeBuf[:]); err != nil {
 		t.Fatalf("Failed to read Portico greeting on multiplexed port: %v", err)
 	}
 	elapsedMux := time.Since(startMux)

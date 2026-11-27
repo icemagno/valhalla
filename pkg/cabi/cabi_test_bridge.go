@@ -1,4 +1,4 @@
-//go:build cabi_test
+//go:build !cshared
 
 // Project Valhalla - Sovereign HLA-4 Run-Time Infrastructure
 // Lead Developer: Carlos Magno Oliveira de Abreu (@icemagno / magno.mabreu@gmail.com)

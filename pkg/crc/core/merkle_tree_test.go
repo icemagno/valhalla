@@ -141,7 +141,11 @@ func BenchmarkMerkleTree_UpdateAndGetRoot_1000Entities(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		h := common.ObjectInstanceHandle((i % 1000) + 1)
-		stateTree.UpdateObjectState(h, dummyRoot)
+		mutatedRoot := dummyRoot
+		mutatedRoot[0] = byte(i)
+		mutatedRoot[1] = byte(i >> 8)
+		mutatedRoot[2] = byte(i >> 16)
+		stateTree.UpdateObjectState(h, mutatedRoot)
 		_ = stateTree.GetGlobalRoot()
 	}
 }

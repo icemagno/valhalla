@@ -23,7 +23,7 @@ func init() {
 // NewJoinFederation constrói uma instância canônica de JoinFederation
 func NewJoinFederation(federationName, federateName, federateType string) *JavaObject {
 	obj := NewJavaObject(ClassDescJoinFederation)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", false)
 	obj.Set("sourceFederate", int32(-1))
 	obj.Set("targetFederate", int32(0))

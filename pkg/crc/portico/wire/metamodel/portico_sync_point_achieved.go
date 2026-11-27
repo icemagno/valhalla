@@ -19,7 +19,7 @@ func init() {
 // NewSyncPointAchieved instancia um objeto SyncPointAchieved
 func NewSyncPointAchieved(label string, federateHandle int32) *JavaObject {
 	obj := NewJavaObject(ClassDescSyncPointAchieved)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", false)
 	obj.Set("sourceFederate", federateHandle)
 	obj.Set("targetFederate", int32(0))

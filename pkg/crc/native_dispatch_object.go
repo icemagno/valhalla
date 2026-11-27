@@ -195,6 +195,18 @@ func (ctx *nativeContext) handleObjectManagement(hdr NativeHeader, payload []byt
 			return true, nil
 		}
 
+		if err := ctx.currentFed.RouteInteraction(ctx.federateID, interReq.ClassHandle, interReq.Parameters, interReq.Tag, interReq.HasTime, interReq.Time); err != nil {
+			logCRCNative.Warn("failed to route interaction %d: %v", interReq.ClassHandle, err)
+			code := uint16(400)
+			if errors.Is(err, core.ErrNotPublished) {
+				code = 403
+			}
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, code, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
 			Version:    NativeProtocolVer,
@@ -206,10 +218,6 @@ func (ctx *nativeContext) handleObjectManagement(hdr NativeHeader, payload []byt
 		}
 		if err := sendNativeResponse(ctx.session, respHdr, nil, ctx.federateID); err != nil {
 			return true, err
-		}
-
-		if err := ctx.currentFed.RouteInteraction(ctx.federateID, interReq.ClassHandle, interReq.Parameters, interReq.Tag, interReq.HasTime, interReq.Time); err != nil {
-			logCRCNative.Warn("failed to route interaction %d: %v", interReq.ClassHandle, err)
 		}
 		return true, nil
 	}

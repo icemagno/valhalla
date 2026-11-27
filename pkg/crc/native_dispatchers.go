@@ -98,6 +98,13 @@ func (ctx *nativeContext) handleFederationManagement(hdr NativeHeader, payload [
 			return true, nil
 		}
 
+		if ctx.currentFed != nil && ctx.federateID > 0 {
+			if err := sendNativeError(ctx.session, hdr.ReqID, 409, common.ErrFederateAlreadyExecutionMember); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+
 		fed, err := fedExec.Join(joinReq.FederateName, joinReq.FederateType, ProtocolNative, ctx.session)
 		if err != nil {
 			logCRCNative.Error("Join error for %s: %v", joinReq.FederateName, err)
@@ -112,10 +119,16 @@ func (ctx *nativeContext) handleFederationManagement(hdr NativeHeader, payload [
 		ctx.session.SetFederateID(ctx.federateID)
 		ctx.session.SetFederationID(ctx.currentFed.Handle)
 
-		respData, _ := common.JoinFederationResponsePayload{
+		respData, err := common.JoinFederationResponsePayload{
 			FederateHandle:   common.FederateHandle(ctx.federateID),
 			FederationHandle: ctx.currentFed.Handle,
 		}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,

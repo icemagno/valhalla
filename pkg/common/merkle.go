@@ -48,7 +48,6 @@ func ComputeObjectMerkleRoot(attributes map[AttributeHandle][]byte) [32]byte {
 // FederationStateTree maintains the cryptographic state tree for all active simulation entities
 type FederationStateTree struct {
 	mu               sync.RWMutex
-	entityRoots      map[ObjectInstanceHandle][32]byte
 	entityAttributes map[ObjectInstanceHandle]map[AttributeHandle][]byte
 	sortedHandles    []ObjectInstanceHandle
 	leaves           [][32]byte
@@ -59,7 +58,6 @@ type FederationStateTree struct {
 // NewFederationStateTree initializes a federation's state tree
 func NewFederationStateTree() *FederationStateTree {
 	return &FederationStateTree{
-		entityRoots:      make(map[ObjectInstanceHandle][32]byte),
 		entityAttributes: make(map[ObjectInstanceHandle]map[AttributeHandle][]byte),
 		sortedHandles:    make([]ObjectInstanceHandle, 0),
 		leaves:           make([][32]byte, 0),
@@ -138,7 +136,6 @@ func (t *FederationStateTree) UpdateObjectState(handle ObjectInstanceHandle, roo
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.entityRoots[handle] = root
 	leaf := computeFederationLeaf(handle, root)
 
 	idx := sort.Search(len(t.sortedHandles), func(i int) bool {
@@ -175,7 +172,6 @@ func (t *FederationStateTree) UpdateEntityAttribute(handle ObjectInstanceHandle,
 	attrs[attrHandle] = valCopy
 
 	objRoot := ComputeObjectMerkleRoot(attrs)
-	t.entityRoots[handle] = objRoot
 	leaf := computeFederationLeaf(handle, objRoot)
 
 	idx := sort.Search(len(t.sortedHandles), func(i int) bool {
@@ -202,7 +198,6 @@ func (t *FederationStateTree) RemoveObjectState(handle ObjectInstanceHandle) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	delete(t.entityRoots, handle)
 	delete(t.entityAttributes, handle)
 
 	idx := sort.Search(len(t.sortedHandles), func(i int) bool {

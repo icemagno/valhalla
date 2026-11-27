@@ -55,7 +55,9 @@ type RTIambassador interface {
 	CreateFederationExecutionWithFOM(federationName string, fomModules []string) error
 	DestroyFederationExecution(federationName string) error
 	JoinFederationExecution(federateName, federationName string) (int32, error)
+	JoinFederationExecutionWithType(federateName, federateType, federationName string) (int32, error)
 	ResignFederationExecution() error
+	ResignFederationExecutionWithAction(action uint8) error
 
 	// FOM / OMT Handle Resolution
 	GetObjectClassHandle(className string) (int32, error)
@@ -80,6 +82,7 @@ type RTIambassador interface {
 	RegisterObjectInstance(objectClass int32, objectName string) (int32, error)
 	DeleteObjectInstance(objectHandle int32, tag []byte) error
 	UpdateAttributeValues(objectHandle int32, attributes map[int32][]byte, tag []byte) error
+	UpdateAttributeValuesWithTime(objectHandle int32, attributes map[int32][]byte, timestamp float64, tag []byte) error
 
 	// Interaction Management
 	SendInteraction(interactionClass int32, parameters map[int32][]byte, tag []byte) error

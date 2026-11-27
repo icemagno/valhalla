@@ -169,25 +169,6 @@ func (s *Server) NativeAddr() net.Addr {
 	return nil
 }
 
-// SetAntiStall configures the stall timeout and monitor interval for the Anti-Stall resilience engine
-func (s *Server) SetAntiStall(timeout, interval time.Duration) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if timeout > 0 {
-		s.antiStallTimeout = timeout
-	}
-	if interval > 0 {
-		s.antiStallInterval = interval
-	}
-}
-
-// EnableAntiStall enables or disables the background anti-stall watchdog
-func (s *Server) EnableAntiStall(enabled bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.antiStallEnabled = enabled
-}
-
 // FederationManager returns the central federation manager
 func (s *Server) FederationManager() *FederationManager {
 	return s.fedManager
@@ -238,15 +219,30 @@ func (s *Server) Start() error {
 	s.webGateway = NewWebGateway(s.webAddr, s.fedManager)
 	if err := s.webGateway.Start(); err != nil {
 		logCRC.Error("Failed to start Web Gateway on %s: %v", s.webAddr, err)
-		if !s.webAddrExplicit {
-			fallbackAddr := ":0"
-			if host, _, err := net.SplitHostPort(s.webAddr); err == nil && host != "" {
-				fallbackAddr = net.JoinHostPort(host, "0")
+		if s.webAddrExplicit {
+			_ = s.listener.Close()
+			if s.porticoListener != nil {
+				_ = s.porticoListener.Close()
 			}
-			s.webGateway = NewWebGateway(fallbackAddr, s.fedManager)
-			if err := s.webGateway.Start(); err != nil {
-				logCRC.Error("Failed to start Web Gateway on fallback %s: %v", fallbackAddr, err)
+			if s.nativeListener != nil {
+				_ = s.nativeListener.Close()
 			}
+			return fmt.Errorf("crc server: failed to start web gateway on %s: %w", s.webAddr, err)
+		}
+		fallbackAddr := ":0"
+		if host, _, splitErr := net.SplitHostPort(s.webAddr); splitErr == nil && host != "" {
+			fallbackAddr = net.JoinHostPort(host, "0")
+		}
+		s.webGateway = NewWebGateway(fallbackAddr, s.fedManager)
+		if fbErr := s.webGateway.Start(); fbErr != nil {
+			_ = s.listener.Close()
+			if s.porticoListener != nil {
+				_ = s.porticoListener.Close()
+			}
+			if s.nativeListener != nil {
+				_ = s.nativeListener.Close()
+			}
+			return fmt.Errorf("crc server: failed to start web gateway on fallback %s: %w", fallbackAddr, fbErr)
 		}
 	}
 
@@ -267,45 +263,6 @@ func (s *Server) Start() error {
 	go s.antiStallMonitorLoop()
 
 	return nil
-}
-
-func (s *Server) antiStallMonitorLoop() {
-	defer s.wg.Done()
-
-	s.mu.Lock()
-	interval := s.antiStallInterval
-	s.mu.Unlock()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.stopChan:
-			return
-		case <-ticker.C:
-			s.checkStalledFederates()
-		}
-	}
-}
-
-func (s *Server) checkStalledFederates() {
-	s.mu.Lock()
-	enabled := s.antiStallEnabled
-	timeout := s.antiStallTimeout
-	s.mu.Unlock()
-
-	if !enabled {
-		return
-	}
-
-	for _, fed := range s.fedManager.GetAllFederations() {
-		evicted, grants := fed.TimeManager().EvictStalledFederates(timeout)
-		if len(evicted) > 0 {
-			logCRC.Warn("Anti-Stall: Federate(s) %v stalled in federation [%s]; quarantined from LBTS calculations", evicted, fed.Name)
-			dispatchTimeGrants(fed, grants)
-		}
-	}
 }
 
 func (s *Server) acceptLoop() {
@@ -343,7 +300,7 @@ func (s *Server) acceptLoop() {
 
 func (s *Server) handleConnection(conn net.Conn) {
 	// Detect dialect by examining initial bytes on the unified port
-	proto, wrappedConn, err := DetectProtocol(conn, s.peekTimeout)
+	proto, wrappedConn, err := DetectProtocol(conn, s.PeekTimeout())
 	if err != nil {
 		_ = conn.Close()
 		return
@@ -468,11 +425,22 @@ func (s *Server) acceptDedicatedNativeLoop() {
 			remoteAddr := c.RemoteAddr().String()
 			logCRC.Info("Dedicated Native connection from %s", remoteAddr)
 
-			// Client-First: check if client sends VAL4 preamble
+			// Client-First: check if client sends VAL4 preamble with Slowloris read deadline
 			br := bufio.NewReader(c)
 			wrapped := &MultiplexedConn{Conn: c, Reader: br}
+			peekTimeout := s.PeekTimeout()
+			if peekTimeout > 0 {
+				_ = c.SetReadDeadline(time.Now().Add(peekTimeout))
+			}
 			peekBuf, err := br.Peek(4)
-			if err == nil && bytes.Equal(peekBuf, MagicNativeVAL4) {
+			if peekTimeout > 0 {
+				_ = c.SetReadDeadline(time.Time{})
+			}
+			if err != nil {
+				logCRCNative.Info("Dedicated Native connection %s failed preamble peek: %v", remoteAddr, err)
+				return
+			}
+			if bytes.Equal(peekBuf, MagicNativeVAL4) {
 				_, _ = br.Discard(4)
 			}
 			if err := HandleNativeConnection(wrapped, wrapped, s.fedManager); err != nil {

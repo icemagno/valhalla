@@ -9,6 +9,7 @@ var (
 	ErrFederationExecutionDoesNotExist  = errors.New("hla: federation execution does not exist")
 	ErrFederatesCurrentlyJoined         = errors.New("hla: federates currently joined")
 	ErrFederateNameAlreadyInUse         = errors.New("hla: federate name already in use")
+	ErrFederateAlreadyExecutionMember   = errors.New("hla: federate already execution member")
 	ErrFederateNotExecutionMember       = errors.New("hla: federate not execution member")
 	ErrFederateNotFound                 = errors.New("hla: federate not found")
 
@@ -58,6 +59,8 @@ func AsCanonicalError(msg string) error {
 		return ErrFederationExecutionAlreadyExists
 	case ErrFederationExecutionDoesNotExist.Error():
 		return ErrFederationExecutionDoesNotExist
+	case ErrFederateAlreadyExecutionMember.Error():
+		return ErrFederateAlreadyExecutionMember
 	case ErrFederatesCurrentlyJoined.Error():
 		return ErrFederatesCurrentlyJoined
 	case ErrFederateNameAlreadyInUse.Error():

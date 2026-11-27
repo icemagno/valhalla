@@ -73,7 +73,7 @@ func valhalla_get_dimension_handle(amb C.ValhallaAmbassador, dimName *C.char, ou
 
 //export valhalla_publish_object_class
 func valhalla_publish_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || !validateCABICount(int32(attrCount)) || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -111,7 +111,7 @@ func valhalla_unpublish_object_class(amb C.ValhallaAmbassador, classHandle C.int
 
 //export valhalla_subscribe_object_class
 func valhalla_subscribe_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || !validateCABICount(int32(attrCount)) || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -232,7 +232,7 @@ func valhalla_register_object(amb C.ValhallaAmbassador, classHandle C.int32_t, o
 
 //export valhalla_delete_object
 func valhalla_delete_object(amb C.ValhallaAmbassador, objectHandle C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || !validateCABITagLen(int32(tagLen)) || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -251,7 +251,7 @@ func valhalla_delete_object(amb C.ValhallaAmbassador, objectHandle C.int32_t, ta
 
 //export valhalla_update_attributes
 func valhalla_update_attributes(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrValues **C.uint8_t, attrLens *C.int32_t, attrCount C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || !validateCABICount(int32(attrCount)) || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || !validateCABITagLen(int32(tagLen)) || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -266,8 +266,8 @@ func valhalla_update_attributes(amb C.ValhallaAmbassador, objectHandle C.int32_t
 		cLns := unsafe.Slice(attrLens, count)
 		for i := 0; i < count; i++ {
 			h := int32(cHdls[i])
-			ln := int(cLns[i])
-			if ln < 0 {
+			ln := int32(cLns[i])
+			if !validateCABIValueLen(ln) {
 				return C.VALHALLA_ERR_INVALID_ARG
 			}
 			if ln > 0 && cVals[i] != nil {
@@ -289,7 +289,7 @@ func valhalla_update_attributes(amb C.ValhallaAmbassador, objectHandle C.int32_t
 
 //export valhalla_send_interaction
 func valhalla_send_interaction(amb C.ValhallaAmbassador, interactionClass C.int32_t, paramHandles *C.int32_t, paramValues **C.uint8_t, paramLens *C.int32_t, paramCount C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || paramCount < 0 || (paramCount > 0 && (paramHandles == nil || paramValues == nil || paramLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || !validateCABICount(int32(paramCount)) || (paramCount > 0 && (paramHandles == nil || paramValues == nil || paramLens == nil)) || !validateCABITagLen(int32(tagLen)) || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -304,8 +304,8 @@ func valhalla_send_interaction(amb C.ValhallaAmbassador, interactionClass C.int3
 		cLns := unsafe.Slice(paramLens, count)
 		for i := 0; i < count; i++ {
 			h := int32(cHdls[i])
-			ln := int(cLns[i])
-			if ln < 0 {
+			ln := int32(cLns[i])
+			if !validateCABIValueLen(ln) {
 				return C.VALHALLA_ERR_INVALID_ARG
 			}
 			if ln > 0 && cVals[i] != nil {

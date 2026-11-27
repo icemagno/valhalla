@@ -9,14 +9,9 @@ import (
 
 // UnconditionalAttributeOwnershipDivestiture unconditionally divests ownership of the specified attributes
 func (a *RTIambassadorImpl) UnconditionalAttributeOwnershipDivestiture(objectHandle int32, attributes []int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	attrs := make([]uint32, len(attributes))
@@ -33,7 +28,7 @@ func (a *RTIambassadorImpl) UnconditionalAttributeOwnershipDivestiture(objectHan
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgDivestOwnership, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgDivestOwnership, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -42,14 +37,9 @@ func (a *RTIambassadorImpl) UnconditionalAttributeOwnershipDivestiture(objectHan
 
 // AcquireAttributeOwnership acquires ownership of unowned or divested attributes
 func (a *RTIambassadorImpl) AcquireAttributeOwnership(objectHandle int32, attributes []int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	attrs := make([]uint32, len(attributes))
@@ -66,7 +56,7 @@ func (a *RTIambassadorImpl) AcquireAttributeOwnership(objectHandle int32, attrib
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgAcquireOwnership, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgAcquireOwnership, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -75,14 +65,9 @@ func (a *RTIambassadorImpl) AcquireAttributeOwnership(objectHandle int32, attrib
 
 // QueryAttributeOwnership queries the current owner of an object instance attribute
 func (a *RTIambassadorImpl) QueryAttributeOwnership(objectHandle int32, attributeHandle int32) (int32, bool, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return 0, false, ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return 0, false, ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return 0, false, err
 	}
 
 	req := common.QueryOwnershipPayload{
@@ -94,7 +79,7 @@ func (a *RTIambassadorImpl) QueryAttributeOwnership(objectHandle int32, attribut
 		return 0, false, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgQueryAttributeOwnership, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgQueryAttributeOwnership, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return 0, false, err
 	}
@@ -118,14 +103,9 @@ func (a *RTIambassadorImpl) QueryAttributeOwnership(objectHandle int32, attribut
 
 // CreateRegion creates a spatial region for Data Distribution Management (DDM)
 func (a *RTIambassadorImpl) CreateRegion(dimensions []int32) (uint32, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return 0, ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return 0, ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return 0, err
 	}
 
 	dims := make([]uint32, len(dimensions))
@@ -141,7 +121,7 @@ func (a *RTIambassadorImpl) CreateRegion(dimensions []int32) (uint32, error) {
 		return 0, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgCreateRegion, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgCreateRegion, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
@@ -165,14 +145,9 @@ func (a *RTIambassadorImpl) CreateRegion(dimensions []int32) (uint32, error) {
 
 // SetRangeBounds sets discrete range bounds on a region dimension
 func (a *RTIambassadorImpl) SetRangeBounds(regionHandle uint32, dimension int32, lowerBound, upperBound uint32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.SetRangeBoundsPayload{
@@ -186,7 +161,7 @@ func (a *RTIambassadorImpl) SetRangeBounds(regionHandle uint32, dimension int32,
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgSetRangeBounds, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgSetRangeBounds, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -195,14 +170,9 @@ func (a *RTIambassadorImpl) SetRangeBounds(regionHandle uint32, dimension int32,
 
 // SetMetricBounds sets continuous ECEF metric bounds in meters for a DDM spatial region
 func (a *RTIambassadorImpl) SetMetricBounds(regionHandle uint32, minX, maxX, minY, maxY, minZ, maxZ float64) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.SetMetricBoundsPayload{
@@ -219,7 +189,7 @@ func (a *RTIambassadorImpl) SetMetricBounds(regionHandle uint32, minX, maxX, min
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgSetMetricBounds, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgSetMetricBounds, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -228,14 +198,9 @@ func (a *RTIambassadorImpl) SetMetricBounds(regionHandle uint32, minX, maxX, min
 
 // SubscribeObjectClassAttributesWithRegion subscribes to class attributes bound to a DDM spatial region
 func (a *RTIambassadorImpl) SubscribeObjectClassAttributesWithRegion(objectClass int32, attributes []int32, regionHandle uint32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	attrs := make([]uint32, len(attributes))
@@ -253,7 +218,7 @@ func (a *RTIambassadorImpl) SubscribeObjectClassAttributesWithRegion(objectClass
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgSubscribeWithRegion, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgSubscribeWithRegion, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -323,7 +288,7 @@ func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32,
 
 // GetLocalStateRoot returns the deterministic 32-byte Merkle root of the local LRC state
 func (a *RTIambassadorImpl) GetLocalStateRoot() [32]byte {
-	return a.stateTree.GetGlobalRoot()
+	return a.getStateTree().GetGlobalRoot()
 }
 
 // LastDesyncDetected returns the last state desynchronization error, if any
@@ -335,14 +300,9 @@ func (a *RTIambassadorImpl) LastDesyncDetected() error {
 
 // GetObjectMerkleProof requests a cryptographic Merkle inclusion proof for an object from the CRC
 func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*common.MerkleProof, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return nil, ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return nil, ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return nil, err
 	}
 
 	reqPayload, err := common.GetMerkleProofPayload{
@@ -352,7 +312,7 @@ func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*common.Me
 		return nil, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgGetMerkleProof, uint32(a.federationID), uint32(a.federateID), reqPayload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgGetMerkleProof, uint32(fedExecID), uint32(fedID), reqPayload, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -384,4 +344,3 @@ func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*common.Me
 func (a *RTIambassadorImpl) VerifyObjectInclusion(proof *common.MerkleProof, expectedRoot [32]byte) bool {
 	return common.VerifyMerkleProof(proof, expectedRoot)
 }
-

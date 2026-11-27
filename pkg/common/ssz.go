@@ -86,52 +86,179 @@ func PutBool(dst []byte, v bool) {
 	}
 }
 
-// Uint8FromBytes reads an 8-bit unsigned integer.
-func Uint8FromBytes(b []byte) uint8 {
+// DecodeUint8 strictly reads an 8-bit unsigned integer, failing if the buffer is too short.
+func DecodeUint8(b []byte) (uint8, error) {
 	if len(b) < 1 {
+		return 0, ErrSSZBufferTooShort
+	}
+	return b[0], nil
+}
+
+// DecodeUint16 strictly decodes a 16-bit Little-Endian unsigned integer.
+func DecodeUint16(b []byte) (uint16, error) {
+	if len(b) < 2 {
+		return 0, ErrSSZBufferTooShort
+	}
+	return Endian.Uint16(b), nil
+}
+
+// DecodeUint32 strictly decodes a 32-bit Little-Endian unsigned integer.
+func DecodeUint32(b []byte) (uint32, error) {
+	if len(b) < 4 {
+		return 0, ErrSSZBufferTooShort
+	}
+	return Endian.Uint32(b), nil
+}
+
+// DecodeUint64 strictly decodes a 64-bit Little-Endian unsigned integer.
+func DecodeUint64(b []byte) (uint64, error) {
+	if len(b) < 8 {
+		return 0, ErrSSZBufferTooShort
+	}
+	return Endian.Uint64(b), nil
+}
+
+// DecodeInt32 strictly decodes a 32-bit Little-Endian signed integer.
+func DecodeInt32(b []byte) (int32, error) {
+	if len(b) < 4 {
+		return 0, ErrSSZBufferTooShort
+	}
+	return int32(Endian.Uint32(b)), nil
+}
+
+// DecodeFloat64 strictly decodes an IEEE-754 64-bit Little-Endian floating point number.
+func DecodeFloat64(b []byte) (float64, error) {
+	if len(b) < 8 {
+		return 0, ErrSSZBufferTooShort
+	}
+	return math.Float64frombits(Endian.Uint64(b)), nil
+}
+
+// DecodeOffset strictly reads a 4-byte dynamic field offset.
+func DecodeOffset(b []byte) (uint32, error) {
+	if len(b) < 4 {
+		return 0, ErrSSZBufferTooShort
+	}
+	return Endian.Uint32(b), nil
+}
+
+// CheckedSSZUint32 converts a uint64 to uint32 rejecting any wraparound.
+func CheckedSSZUint32(n uint64) (uint32, error) {
+	if n > math.MaxUint32 {
+		return 0, ErrSSZMemoryOverflow
+	}
+	return uint32(n), nil
+}
+
+// CheckedSSZSize verifies that an SSZ payload size fits in uint32 and does not exceed MaxNativePayloadLen.
+func CheckedSSZSize(n uint64) (uint32, error) {
+	if n > uint64(MaxNativePayloadLen) {
+		return 0, ErrSSZMemoryOverflow
+	}
+	return uint32(n), nil
+}
+
+// CheckedSSZStringListSize computes the SSZ StringList byte size using overflow-safe uint64 math.
+func CheckedSSZStringListSize(strs []string) (uint32, error) {
+	if len(strs) == 0 {
+		return 0, nil
+	}
+	total := uint64(len(strs)) * 4
+	if total > uint64(MaxNativePayloadLen) {
+		return 0, ErrSSZMemoryOverflow
+	}
+	for _, s := range strs {
+		total += uint64(len(s))
+		if total > uint64(MaxNativePayloadLen) {
+			return 0, ErrSSZMemoryOverflow
+		}
+	}
+	return uint32(total), nil
+}
+
+type sszHandleKey interface {
+	~int32 | ~uint32
+}
+
+func checkedSSZHandleMapSize[K sszHandleKey](m map[K][]byte) (uint32, error) {
+	if len(m) == 0 {
+		return 0, nil
+	}
+	total := uint64(len(m)) * 4
+	if total > uint64(MaxNativePayloadLen) {
+		return 0, ErrSSZMemoryOverflow
+	}
+	for _, val := range m {
+		total += 8 + uint64(len(val))
+		if total > uint64(MaxNativePayloadLen) {
+			return 0, ErrSSZMemoryOverflow
+		}
+	}
+	return uint32(total), nil
+}
+
+// CheckedSSZAttributeListSize computes the SSZ AttributeList byte size using overflow-safe uint64 math.
+func CheckedSSZAttributeListSize(attributes map[AttributeHandle][]byte) (uint32, error) {
+	return checkedSSZHandleMapSize(attributes)
+}
+
+// CheckedSSZParameterListSize computes the SSZ ParameterList byte size using overflow-safe uint64 math.
+func CheckedSSZParameterListSize(params map[ParameterHandle][]byte) (uint32, error) {
+	return checkedSSZHandleMapSize(params)
+}
+
+// Uint8FromBytes reads an 8-bit unsigned integer (caller must verify len(b) >= 1).
+func Uint8FromBytes(b []byte) uint8 {
+	v, err := DecodeUint8(b)
+	if err != nil {
 		return 0
 	}
-	return b[0]
+	return v
 }
 
 // Uint16FromBytes decodes a 16-bit unsigned integer from Little-Endian bytes.
 func Uint16FromBytes(b []byte) uint16 {
-	if len(b) < 2 {
+	v, err := DecodeUint16(b)
+	if err != nil {
 		return 0
 	}
-	return Endian.Uint16(b)
+	return v
 }
 
 // Uint32FromBytes decodes a 32-bit unsigned integer from Little-Endian bytes.
 func Uint32FromBytes(b []byte) uint32 {
-	if len(b) < 4 {
+	v, err := DecodeUint32(b)
+	if err != nil {
 		return 0
 	}
-	return Endian.Uint32(b)
+	return v
 }
 
 // Uint64FromBytes decodes a 64-bit unsigned integer from Little-Endian bytes.
 func Uint64FromBytes(b []byte) uint64 {
-	if len(b) < 8 {
+	v, err := DecodeUint64(b)
+	if err != nil {
 		return 0
 	}
-	return Endian.Uint64(b)
+	return v
 }
 
 // Int32FromBytes decodes a 32-bit signed integer from Little-Endian bytes.
 func Int32FromBytes(b []byte) int32 {
-	if len(b) < 4 {
+	v, err := DecodeInt32(b)
+	if err != nil {
 		return 0
 	}
-	return int32(Endian.Uint32(b))
+	return v
 }
 
 // Float64FromBytes decodes an IEEE-754 64-bit floating point number from Little-Endian bytes.
 func Float64FromBytes(b []byte) float64 {
-	if len(b) < 8 {
+	v, err := DecodeFloat64(b)
+	if err != nil {
 		return 0
 	}
-	return math.Float64frombits(Endian.Uint64(b))
+	return v
 }
 
 // DecodeBool decodes a boolean with strict validation (only 0x00 and 0x01 allowed).
@@ -148,10 +275,11 @@ func DecodeBool(b byte) (bool, error) {
 
 // GetOffset reads a 4-byte dynamic field offset from the container's offset table.
 func GetOffset(b []byte) uint32 {
-	if len(b) < 4 {
+	v, err := DecodeOffset(b)
+	if err != nil {
 		return 0
 	}
-	return Endian.Uint32(b)
+	return v
 }
 
 // ============================================================================
@@ -383,34 +511,29 @@ type SSZAttributeEntry struct {
 	Value  []byte
 }
 
-// EncodeSSZAttributeList encodes a map of attributes as a strictly deterministic,
-// canonical SSZ List[Container]. Keys are sorted in strictly ascending numerical order.
-// Each container element has fixed size 8 (Handle:4 + ValOffset:4) followed by Value bytes.
-func EncodeSSZAttributeList(dst []byte, offset uint32, attributes map[AttributeHandle][]byte) uint32 {
-	count := uint32(len(attributes))
+func encodeSSZHandleMap[K sszHandleKey](dst []byte, offset uint32, entries map[K][]byte) uint32 {
+	count := uint32(len(entries))
 	if count == 0 {
 		return offset
 	}
 
-	// 1. Sort handles strictly ascending for deterministic canonical serialization
 	keys := make([]uint32, 0, count)
-	for k := range attributes {
+	for k := range entries {
 		keys = append(keys, uint32(k))
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 
-	// 2. Compute offsets and serialize
 	listOffsetTableSize := count * 4
 	curElementOffset := offset + listOffsetTableSize
 
 	for i, k := range keys {
-		val := attributes[AttributeHandle(k)]
+		val := entries[K(k)]
 		relElementOffset := curElementOffset - offset
 		Endian.PutUint32(dst[offset+uint32(i*4):offset+uint32(i*4)+4], relElementOffset)
 
 		// Container fixed part: Handle (4) + ValueOffset (4)
 		Endian.PutUint32(dst[curElementOffset:curElementOffset+4], k)
-		Endian.PutUint32(dst[curElementOffset+4:curElementOffset+8], 8) // Value starts immediately after fixed part
+		Endian.PutUint32(dst[curElementOffset+4:curElementOffset+8], 8)
 		// Container dynamic part: Value bytes
 		copy(dst[curElementOffset+8:], val)
 
@@ -420,29 +543,25 @@ func EncodeSSZAttributeList(dst []byte, offset uint32, attributes map[AttributeH
 	return curElementOffset
 }
 
-// SizeSSZAttributeList computes the exact byte size required for an attribute map.
-func SizeSSZAttributeList(attributes map[AttributeHandle][]byte) uint32 {
-	count := uint32(len(attributes))
+func sizeSSZHandleMap[K sszHandleKey](entries map[K][]byte) uint32 {
+	count := uint32(len(entries))
 	if count == 0 {
 		return 0
 	}
-	total := count * 4 // list offset table
-	for _, val := range attributes {
-		total += 8 + uint32(len(val)) // container header (8) + dynamic value
+	total := count * 4
+	for _, val := range entries {
+		total += 8 + uint32(len(val))
 	}
 	return total
 }
 
-// DecodeSSZAttributeList deserializes a canonical SSZ List[Container] of attributes.
-// Implements strict bounds verification, anti-DoS memory amplification guards,
-// and safe integer math preventing overflow panics.
-func DecodeSSZAttributeList(data []byte, start, end uint32) (map[AttributeHandle][]byte, error) {
+func decodeSSZHandleMap[K sszHandleKey](data []byte, start, end uint32) (map[K][]byte, error) {
 	if start > end || end > uint32(len(data)) {
 		return nil, ErrSSZDataOutOfBounds
 	}
 	byteLen := end - start
 	if byteLen == 0 {
-		return make(map[AttributeHandle][]byte), nil
+		return make(map[K][]byte), nil
 	}
 	if byteLen < 4 {
 		return nil, ErrSSZBufferTooShort
@@ -469,7 +588,7 @@ func DecodeSSZAttributeList(data []byte, start, end uint32) (map[AttributeHandle
 		return nil, err
 	}
 
-	res := make(map[AttributeHandle][]byte, count)
+	res := make(map[K][]byte, count)
 	var lastHandle uint32
 	hasLast := false
 
@@ -488,12 +607,10 @@ func DecodeSSZAttributeList(data []byte, start, end uint32) (map[AttributeHandle
 		handle := Endian.Uint32(elemBytes[0:4])
 		valOffset := Endian.Uint32(elemBytes[4:8])
 
-		// In canonical SSZ, container fixed part is 8 bytes; value must start at offset 8
 		if valOffset != 8 || valOffset > uint32(len(elemBytes)) {
 			return nil, ErrSSZInvalidOffset
 		}
 
-		// Canonical check: handles must be sorted strictly ascending
 		if hasLast && handle <= lastHandle {
 			return nil, fmt.Errorf("%w: duplicate or unsorted handle %d <= %d", ErrSSZInvalidOffset, handle, lastHandle)
 		}
@@ -503,125 +620,41 @@ func DecodeSSZAttributeList(data []byte, start, end uint32) (map[AttributeHandle
 		valLen := uint32(len(elemBytes)) - valOffset
 		val := make([]byte, valLen)
 		copy(val, elemBytes[valOffset:])
-		res[AttributeHandle(handle)] = val
+		res[K(handle)] = val
 	}
 
 	return res, nil
+}
+
+// EncodeSSZAttributeList encodes a map of attributes as a strictly deterministic,
+// canonical SSZ List[Container]. Keys are sorted in strictly ascending numerical order.
+func EncodeSSZAttributeList(dst []byte, offset uint32, attributes map[AttributeHandle][]byte) uint32 {
+	return encodeSSZHandleMap(dst, offset, attributes)
+}
+
+// SizeSSZAttributeList computes the exact byte size required for an attribute map.
+func SizeSSZAttributeList(attributes map[AttributeHandle][]byte) uint32 {
+	return sizeSSZHandleMap(attributes)
+}
+
+// DecodeSSZAttributeList deserializes a canonical SSZ List[Container] of attributes.
+func DecodeSSZAttributeList(data []byte, start, end uint32) (map[AttributeHandle][]byte, error) {
+	return decodeSSZHandleMap[AttributeHandle](data, start, end)
 }
 
 // EncodeSSZParameterList encodes a map of parameters as a deterministic canonical SSZ List[Container].
 func EncodeSSZParameterList(dst []byte, offset uint32, params map[ParameterHandle][]byte) uint32 {
-	count := uint32(len(params))
-	if count == 0 {
-		return offset
-	}
-
-	keys := make([]uint32, 0, count)
-	for k := range params {
-		keys = append(keys, uint32(k))
-	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
-
-	listOffsetTableSize := count * 4
-	curElementOffset := offset + listOffsetTableSize
-
-	for i, k := range keys {
-		val := params[ParameterHandle(k)]
-		relElementOffset := curElementOffset - offset
-		Endian.PutUint32(dst[offset+uint32(i*4):offset+uint32(i*4)+4], relElementOffset)
-
-		Endian.PutUint32(dst[curElementOffset:curElementOffset+4], k)
-		Endian.PutUint32(dst[curElementOffset+4:curElementOffset+8], 8)
-		copy(dst[curElementOffset+8:], val)
-
-		curElementOffset += 8 + uint32(len(val))
-	}
-
-	return curElementOffset
+	return encodeSSZHandleMap(dst, offset, params)
 }
 
 // SizeSSZParameterList computes the exact byte size required for a parameter map.
 func SizeSSZParameterList(params map[ParameterHandle][]byte) uint32 {
-	count := uint32(len(params))
-	if count == 0 {
-		return 0
-	}
-	total := count * 4
-	for _, val := range params {
-		total += 8 + uint32(len(val))
-	}
-	return total
+	return sizeSSZHandleMap(params)
 }
 
 // DecodeSSZParameterList deserializes a canonical SSZ List[Container] of parameters.
 func DecodeSSZParameterList(data []byte, start, end uint32) (map[ParameterHandle][]byte, error) {
-	if start > end || end > uint32(len(data)) {
-		return nil, ErrSSZDataOutOfBounds
-	}
-	byteLen := end - start
-	if byteLen == 0 {
-		return make(map[ParameterHandle][]byte), nil
-	}
-	if byteLen < 4 {
-		return nil, ErrSSZBufferTooShort
-	}
-
-	subData := data[start:end]
-	firstOffset := Endian.Uint32(subData[0:4])
-	if firstOffset == 0 || firstOffset%4 != 0 || firstOffset > byteLen {
-		return nil, ErrSSZInvalidOffset
-	}
-	count := firstOffset / 4
-
-	if count > byteLen/12 {
-		return nil, ErrSSZMemoryOverflow
-	}
-
-	offsets := make([]uint32, count)
-	for i := uint32(0); i < count; i++ {
-		offsets[i] = Endian.Uint32(subData[i*4 : (i+1)*4])
-	}
-
-	if err := ValidateOffsets(offsets, firstOffset, byteLen); err != nil {
-		return nil, err
-	}
-
-	res := make(map[ParameterHandle][]byte, count)
-	var lastHandle uint32
-	hasLast := false
-
-	for i := uint32(0); i < count; i++ {
-		elemStart := offsets[i]
-		elemEnd := byteLen
-		if i+1 < count {
-			elemEnd = offsets[i+1]
-		}
-
-		if elemEnd < elemStart || elemEnd-elemStart < 8 {
-			return nil, ErrSSZBufferTooShort
-		}
-
-		elemBytes := subData[elemStart:elemEnd]
-		handle := Endian.Uint32(elemBytes[0:4])
-		valOffset := Endian.Uint32(elemBytes[4:8])
-
-		if valOffset != 8 || valOffset > uint32(len(elemBytes)) {
-			return nil, ErrSSZInvalidOffset
-		}
-
-		if hasLast && handle <= lastHandle {
-			return nil, fmt.Errorf("%w: duplicate or unsorted handle %d <= %d", ErrSSZInvalidOffset, handle, lastHandle)
-		}
-		lastHandle = handle
-		hasLast = true
-
-		valLen := uint32(len(elemBytes)) - valOffset
-		val := make([]byte, valLen)
-		copy(val, elemBytes[valOffset:])
-		res[ParameterHandle(handle)] = val
-	}
-
-	return res, nil
+	return decodeSSZHandleMap[ParameterHandle](data, start, end)
 }
 
 // ============================================================================
@@ -759,7 +792,11 @@ func HashTreeRootUint32(v uint32) [32]byte {
 // HashTreeRootByteList computes the SSZ hash_tree_root of a dynamic byte slice (ByteList).
 func HashTreeRootByteList(data []byte, limit uint64) [32]byte {
 	chunks := Pack(data)
-	chunkLimit := (limit + 31) / 32
+	var chunkLimit uint64
+	if limit > 0 {
+		// Overflow-safe ceiling division: ceil(limit / 32) without (limit + 31) wraparound
+		chunkLimit = (limit-1)/32 + 1
+	}
 	root := Merkleize(chunks, chunkLimit)
 	return MixInLength(root, uint64(len(data)))
 }

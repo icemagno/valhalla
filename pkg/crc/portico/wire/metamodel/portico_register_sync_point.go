@@ -20,7 +20,7 @@ func init() {
 // NewRegisterSyncPoint instancia um objeto RegisterSyncPoint
 func NewRegisterSyncPoint(label string, federateHandle int32) *JavaObject {
 	obj := NewJavaObject(ClassDescRegisterSyncPoint)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", false)
 	obj.Set("sourceFederate", federateHandle)
 	obj.Set("targetFederate", int32(0))

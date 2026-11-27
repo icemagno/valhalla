@@ -24,21 +24,21 @@ public:
         FederateAmbassador& federateAmbassador,
         CallbackModel callbackModel,
         const std::wstring& localSettingsDesignator = L"")
-        throw(ConnectionFailed,
+        RTI1516E_THROW(ConnectionFailed,
               InvalidLocalSettingsDesignator,
               UnsupportedCallbackModel,
               AlreadyConnected,
               RTIinternalError);
 
     virtual void disconnect()
-        throw(FederateIsExecutionMember,
+        RTI1516E_THROW(FederateIsExecutionMember,
               NotConnected,
               RTIinternalError);
 
     virtual void createFederationExecution(
         const std::wstring& federationExecutionName,
         const std::wstring& fullPathNameToFOMModule)
-        throw(FederationExecutionAlreadyExists,
+        RTI1516E_THROW(FederationExecutionAlreadyExists,
               CouldNotCreateLogicalTimeFactory,
               InconsistentFDD,
               ErrorReadingFDD,
@@ -49,7 +49,7 @@ public:
     virtual void createFederationExecution(
         const std::wstring& federationExecutionName,
         const std::vector<std::wstring>& fomModules)
-        throw(FederationExecutionAlreadyExists,
+        RTI1516E_THROW(FederationExecutionAlreadyExists,
               CouldNotCreateLogicalTimeFactory,
               InconsistentFDD,
               ErrorReadingFDD,
@@ -59,7 +59,7 @@ public:
 
     virtual void destroyFederationExecution(
         const std::wstring& federationExecutionName)
-        throw(FederatesCurrentlyJoined,
+        RTI1516E_THROW(FederatesCurrentlyJoined,
               FederationExecutionDoesNotExist,
               NotConnected,
               RTIinternalError);
@@ -69,7 +69,7 @@ public:
         const std::wstring& federateType,
         const std::wstring& federationExecutionName,
         const std::vector<std::wstring>& additionalFomModules = {})
-        throw(FederateAlreadyExecutionMember,
+        RTI1516E_THROW(FederateAlreadyExecutionMember,
               FederationExecutionDoesNotExist,
               SaveInProgress,
               RestoreInProgress,
@@ -79,7 +79,7 @@ public:
 
     virtual void resignFederationExecution(
         ResignAction resignAction)
-        throw(OwnershipAcquisitionPending,
+        RTI1516E_THROW(OwnershipAcquisitionPending,
               FederateOwnsAttributes,
               FederateNotExecutionMember,
               NotConnected,
@@ -88,7 +88,7 @@ public:
     // OMT Introspection
     virtual ObjectClassHandle getObjectClassHandle(
         const std::wstring& theName)
-        throw(NameNotFound,
+        RTI1516E_THROW(NameNotFound,
               FederateNotExecutionMember,
               NotConnected,
               RTIinternalError);
@@ -96,7 +96,7 @@ public:
     virtual AttributeHandle getAttributeHandle(
         ObjectClassHandle whichClass,
         const std::wstring& theName)
-        throw(NameNotFound,
+        RTI1516E_THROW(NameNotFound,
               InvalidObjectClassHandle,
               FederateNotExecutionMember,
               NotConnected,
@@ -104,7 +104,7 @@ public:
 
     virtual DimensionHandle getDimensionHandle(
         const std::wstring& theName)
-        throw(NameNotFound,
+        RTI1516E_THROW(NameNotFound,
               FederateNotExecutionMember,
               NotConnected,
               RTIinternalError);
@@ -113,7 +113,7 @@ public:
     virtual void publishObjectClassAttributes(
         ObjectClassHandle theClass,
         const AttributeHandleSet& attributeList)
-        throw(ObjectClassNotDefined,
+        RTI1516E_THROW(ObjectClassNotDefined,
               AttributeNotDefined,
               FederateNotExecutionMember,
               SaveInProgress,
@@ -124,9 +124,45 @@ public:
     virtual void subscribeObjectClassAttributes(
         ObjectClassHandle theClass,
         const AttributeHandleSet& attributeList)
-        throw(ObjectClassNotDefined,
+        RTI1516E_THROW(ObjectClassNotDefined,
               AttributeNotDefined,
               FederateNotExecutionMember,
+              SaveInProgress,
+              RestoreInProgress,
+              NotConnected,
+              RTIinternalError);
+
+    virtual void publishInteractionClass(
+        InteractionClassHandle theInteraction)
+        RTI1516E_THROW(InteractionClassNotDefined,
+              FederateNotExecutionMember,
+              SaveInProgress,
+              RestoreInProgress,
+              NotConnected,
+              RTIinternalError);
+
+    virtual void subscribeInteractionClass(
+        InteractionClassHandle theInteraction)
+        RTI1516E_THROW(InteractionClassNotDefined,
+              FederateNotExecutionMember,
+              SaveInProgress,
+              RestoreInProgress,
+              NotConnected,
+              RTIinternalError);
+
+    // Synchronization Points
+    virtual void registerFederationSynchronizationPoint(
+        const std::wstring& label,
+        const VariableLengthData& theUserSuppliedTag)
+        RTI1516E_THROW(FederateNotExecutionMember,
+              SaveInProgress,
+              RestoreInProgress,
+              NotConnected,
+              RTIinternalError);
+
+    virtual void synchronizationPointAchieved(
+        const std::wstring& label)
+        RTI1516E_THROW(FederateNotExecutionMember,
               SaveInProgress,
               RestoreInProgress,
               NotConnected,
@@ -136,7 +172,7 @@ public:
     virtual ObjectInstanceHandle registerObjectInstance(
         ObjectClassHandle theClass,
         const std::wstring& theObjectName = L"")
-        throw(ObjectClassNotDefined,
+        RTI1516E_THROW(ObjectClassNotDefined,
               ObjectClassNotPublished,
               ObjectInstanceNameInUse,
               ObjectInstanceNameNotReserved,
@@ -149,7 +185,7 @@ public:
     virtual void deleteObjectInstance(
         ObjectInstanceHandle theObject,
         const VariableLengthData& theUserSuppliedTag)
-        throw(DeletePrivilegeNotHeld,
+        RTI1516E_THROW(DeletePrivilegeNotHeld,
               ObjectInstanceNotKnown,
               FederateNotExecutionMember,
               SaveInProgress,
@@ -161,7 +197,7 @@ public:
         ObjectInstanceHandle theObject,
         const AttributeHandleValueMap& theAttributeValues,
         const VariableLengthData& theUserSuppliedTag)
-        throw(ObjectInstanceNotKnown,
+        RTI1516E_THROW(ObjectInstanceNotKnown,
               AttributeNotDefined,
               AttributeNotOwned,
               FederateNotExecutionMember,
@@ -175,9 +211,21 @@ public:
         const AttributeHandleValueMap& theAttributeValues,
         double x, double y, double z,
         const VariableLengthData& theUserSuppliedTag)
-        throw(ObjectInstanceNotKnown,
+        RTI1516E_THROW(ObjectInstanceNotKnown,
               AttributeNotDefined,
               AttributeNotOwned,
+              FederateNotExecutionMember,
+              SaveInProgress,
+              RestoreInProgress,
+              NotConnected,
+              RTIinternalError);
+
+    virtual void sendInteraction(
+        InteractionClassHandle theInteraction,
+        const ParameterHandleValueMap& theParameterValues,
+        const VariableLengthData& theUserSuppliedTag)
+        RTI1516E_THROW(InteractionClassNotDefined,
+              InteractionClassNotPublished,
               FederateNotExecutionMember,
               SaveInProgress,
               RestoreInProgress,
@@ -188,7 +236,7 @@ public:
     virtual void unconditionalAttributeOwnershipDivestiture(
         ObjectInstanceHandle theObject,
         const AttributeHandleSet& theAttributes)
-        throw(ObjectInstanceNotKnown,
+        RTI1516E_THROW(ObjectInstanceNotKnown,
               AttributeNotDefined,
               AttributeNotOwned,
               FederateNotExecutionMember,
@@ -201,7 +249,7 @@ public:
         ObjectInstanceHandle theObject,
         const AttributeHandleSet& desiredAttributes,
         const VariableLengthData& theUserSuppliedTag)
-        throw(ObjectInstanceNotKnown,
+        RTI1516E_THROW(ObjectInstanceNotKnown,
               ObjectClassNotPublished,
               AttributeNotDefined,
               FederateOwnsAttributes,
@@ -214,7 +262,7 @@ public:
     virtual bool isAttributeOwnedByFederate(
         ObjectInstanceHandle theObject,
         AttributeHandle theAttribute)
-        throw(ObjectInstanceNotKnown,
+        RTI1516E_THROW(ObjectInstanceNotKnown,
               AttributeNotDefined,
               FederateNotExecutionMember,
               SaveInProgress,
@@ -225,7 +273,7 @@ public:
     // Time Management
     virtual void enableTimeRegulation(
         double theLookahead)
-        throw(TimeRegulationAlreadyEnabled,
+        RTI1516E_THROW(TimeRegulationAlreadyEnabled,
               InvalidLookahead,
               InTimeAdvancingState,
               RequestForTimeRegulationPending,
@@ -236,7 +284,7 @@ public:
               RTIinternalError);
 
     virtual void enableTimeConstrained()
-        throw(TimeConstrainedAlreadyEnabled,
+        RTI1516E_THROW(TimeConstrainedAlreadyEnabled,
               InTimeAdvancingState,
               RequestForTimeConstrainedPending,
               FederateNotExecutionMember,
@@ -247,7 +295,7 @@ public:
 
     virtual void timeAdvanceRequest(
         double theTime)
-        throw(InvalidLogicalTime,
+        RTI1516E_THROW(InvalidLogicalTime,
               LogicalTimeAlreadyPassed,
               InTimeAdvancingState,
               RequestForTimeRegulationPending,
@@ -260,7 +308,7 @@ public:
 
     virtual void nextMessageRequest(
         double theTime)
-        throw(InvalidLogicalTime,
+        RTI1516E_THROW(InvalidLogicalTime,
               LogicalTimeAlreadyPassed,
               InTimeAdvancingState,
               RequestForTimeRegulationPending,
@@ -274,7 +322,7 @@ public:
     // Data Distribution Management (DDM)
     virtual RegionHandle createRegion(
         const std::vector<DimensionHandle>& dimensions)
-        throw(InvalidDimensionHandle,
+        RTI1516E_THROW(InvalidDimensionHandle,
               FederateNotExecutionMember,
               SaveInProgress,
               RestoreInProgress,
@@ -285,7 +333,7 @@ public:
         RegionHandle theRegion,
         DimensionHandle theDimension,
         const RangeBounds& theRangeBounds)
-        throw(InvalidRegion,
+        RTI1516E_THROW(InvalidRegion,
               InvalidDimensionHandle,
               FederateNotExecutionMember,
               SaveInProgress,
@@ -298,7 +346,7 @@ public:
         double minX, double maxX,
         double minY, double maxY,
         double minZ, double maxZ)
-        throw(InvalidRegion,
+        RTI1516E_THROW(InvalidRegion,
               FederateNotExecutionMember,
               SaveInProgress,
               RestoreInProgress,
@@ -309,7 +357,7 @@ public:
         ObjectClassHandle theClass,
         const AttributeHandleSet& attributeList,
         RegionHandle theRegion)
-        throw(ObjectClassNotDefined,
+        RTI1516E_THROW(ObjectClassNotDefined,
               AttributeNotDefined,
               InvalidRegion,
               FederateNotExecutionMember,
@@ -321,22 +369,27 @@ public:
     // Evoke Callbacks
     virtual bool evokeCallback(
         double approximateMinimumTimeInSeconds)
-        throw(CallNotAllowedFromWithinCallback,
+        RTI1516E_THROW(CallNotAllowedFromWithinCallback,
               RTIinternalError);
 
     virtual bool evokeMultipleCallbacks(
         double minimumTime,
         double maximumTime)
-        throw(CallNotAllowedFromWithinCallback,
+        RTI1516E_THROW(CallNotAllowedFromWithinCallback,
               RTIinternalError);
 
     // Callback dispatching internals
-    FederateAmbassador* getFederateAmbassador() const { return m_fedAmb; }
+    FederateAmbassador* getFederateAmbassador() const {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        return m_fedAmb;
+    }
 
 private:
+    mutable std::mutex m_stateMutex;
     ValhallaAmbassador m_amb;
     FederateAmbassador* m_fedAmb;
     bool m_connected;
+    int32_t m_federateHandle;
 
     void checkStatus(int32_t status);
 };

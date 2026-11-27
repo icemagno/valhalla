@@ -382,12 +382,19 @@ export class RTIambassador {
         this.emit(callback, params);
         if (this.callbackWaiters.length > 0) {
             const waiter = this.callbackWaiters.shift()!;
-            this.dispatchCallback(callback, params);
-            waiter(true);
+            try {
+                this.dispatchCallback(callback, params);
+            } catch (err) {
+                console.error(`[RTIambassador] Uncaught error in callback '${callback}':`, err);
+            } finally {
+                waiter(true);
+            }
             return;
         }
         if (this.callbackQueue.length < 4096) {
             this.callbackQueue.push({ callback, params });
+        } else {
+            console.warn(`[RTIambassador] Callback queue full (4096); dropping '${callback}'`);
         }
     }
 

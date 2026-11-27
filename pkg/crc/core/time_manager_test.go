@@ -309,7 +309,10 @@ func TestTimeManager_ConcurrencyRaceFree(t *testing.T) {
 			defer wg.Done()
 			for step := 1; step <= 20; step++ {
 				target := float64(step) * 0.5
-				_, _ = tm.TimeAdvanceRequest(handle, target)
+				_, err := tm.TimeAdvanceRequest(handle, target)
+				if err != nil && err != common.ErrTimeAdvanceAlreadyInProgress {
+					t.Errorf("unexpected TimeAdvanceRequest error for federate %d at %f: %v", handle, target, err)
+				}
 				tm.Heartbeat(handle)
 				lbts := tm.CalculateLBTS(handle)
 				if lbts < 0 {

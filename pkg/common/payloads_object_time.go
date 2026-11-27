@@ -8,8 +8,10 @@ type RegisterObjectInstancePayload struct {
 
 func (p RegisterObjectInstancePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	nameLen := uint32(len(p.ObjectName))
-	totalLen := fixedHeaderSize + nameLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.ObjectName)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ClassHandle))
@@ -48,8 +50,10 @@ type DiscoverObjectInstancePayload struct {
 
 func (p DiscoverObjectInstancePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 12
-	nameLen := uint32(len(p.ObjectName))
-	totalLen := fixedHeaderSize + nameLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.ObjectName)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))
@@ -89,8 +93,10 @@ type DeleteObjectInstancePayload struct {
 
 func (p DeleteObjectInstancePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	tagLen := uint32(len(p.Tag))
-	totalLen := fixedHeaderSize + tagLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Tag)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))
@@ -128,8 +134,10 @@ type RemoveObjectInstancePayload struct {
 
 func (p RemoveObjectInstancePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	tagLen := uint32(len(p.Tag))
-	totalLen := fixedHeaderSize + tagLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Tag)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))
@@ -171,10 +179,15 @@ type UpdateAttributesPayload struct {
 
 func (p UpdateAttributesPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 21 // 4 + 1 + 8 + 4 + 4
+	attrListSize, err := CheckedSSZAttributeListSize(p.Attributes)
+	if err != nil {
+		return nil, err
+	}
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Tag)) + uint64(attrListSize))
+	if err != nil {
+		return nil, err
+	}
 	tagLen := uint32(len(p.Tag))
-	attrListSize := SizeSSZAttributeList(p.Attributes)
-
-	totalLen := fixedHeaderSize + tagLen + attrListSize
 	buf := make([]byte, totalLen)
 
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))
@@ -245,10 +258,15 @@ type SendInteractionPayload struct {
 
 func (p SendInteractionPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 21 // 4 + 1 + 8 + 4 + 4
+	paramListSize, err := CheckedSSZParameterListSize(p.Parameters)
+	if err != nil {
+		return nil, err
+	}
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Tag)) + uint64(paramListSize))
+	if err != nil {
+		return nil, err
+	}
 	tagLen := uint32(len(p.Tag))
-	paramListSize := SizeSSZParameterList(p.Parameters)
-
-	totalLen := fixedHeaderSize + tagLen + paramListSize
 	buf := make([]byte, totalLen)
 
 	PutUint32(buf[0:4], uint32(p.ClassHandle))
@@ -346,8 +364,10 @@ type ErrorResponsePayload struct {
 
 func (p ErrorResponsePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 6
-	msgLen := uint32(len(p.Message))
-	totalLen := fixedHeaderSize + msgLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Message)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint16(buf[0:2], p.ErrorCode)
@@ -384,8 +404,10 @@ type SuccessOKPayload struct {
 
 func (p SuccessOKPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 4
-	msgLen := uint32(len(p.Message))
-	totalLen := fixedHeaderSize + msgLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Message)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutOffset(buf[0:4], fixedHeaderSize)
@@ -411,9 +433,3 @@ func (p *SuccessOKPayload) UnmarshalBinary(data []byte) error {
 	p.Message, err = DecodeSSZString(data, off0, totalLen)
 	return err
 }
-
-// ============================================================================
-// 6. OWNERSHIP MANAGEMENT PAYLOADS
-// ============================================================================
-
-// DivestOwnershipPayload carries the object handle and attribute set to divest

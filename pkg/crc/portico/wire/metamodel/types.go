@@ -1,6 +1,9 @@
 package metamodel
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // Constantes canônicas da especificação Java Object Serialization (JOS)
 const (
@@ -134,6 +137,7 @@ func (o *JavaObject) String() string {
 	for k := range o.Fields {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	return fmt.Sprintf("JavaObject{Class: %s, FieldKeys: %v}", o.Class.Name, keys)
 }
 

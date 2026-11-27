@@ -24,6 +24,9 @@ extern "C" {
 #define VALHALLA_ERR_FEDERATES_JOINED 12
 #define VALHALLA_ERR_FEDERATE_NAME_IN_USE 13
 #define VALHALLA_ERR_INTERACTION_NOT_FOUND 14
+#define VALHALLA_ERR_ALREADY_MEMBER 15
+#define VALHALLA_ERR_OBJECT_NAME_IN_USE 16
+#define VALHALLA_ERR_DELETE_PRIVILEGE_NOT_HELD 17
 
 typedef void* ValhallaAmbassador;
 
@@ -94,15 +97,18 @@ int32_t valhalla_send_interaction(ValhallaAmbassador amb, int32_t interactionCla
 
 // Time Management
 int32_t valhalla_enable_time_regulation(ValhallaAmbassador amb, double lookahead);
+int32_t valhalla_disable_time_regulation(ValhallaAmbassador amb);
 int32_t valhalla_enable_time_constrained(ValhallaAmbassador amb);
+int32_t valhalla_disable_time_constrained(ValhallaAmbassador amb);
 int32_t valhalla_time_advance_request(ValhallaAmbassador amb, double time);
 int32_t valhalla_next_message_request(ValhallaAmbassador amb, double time);
+int32_t valhalla_flush_queue_request(ValhallaAmbassador amb, double time);
 int32_t valhalla_heartbeat(ValhallaAmbassador amb);
 
 // Ownership Management (Sprint 6 & IEEE 1516-2025)
 int32_t valhalla_divest_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, int32_t attrCount);
 int32_t valhalla_acquire_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, int32_t attrCount);
-int32_t valhalla_query_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t attrHandle, int32_t* outOwner, _Bool* outIsOwned);
+int32_t valhalla_query_ownership(ValhallaAmbassador amb, int32_t objectHandle, int32_t attrHandle, int32_t* outOwner, bool* outIsOwned);
 
 // Data Distribution Management (DDM) (Sprint 6 & IEEE 1516-2025)
 int32_t valhalla_create_region(ValhallaAmbassador amb, int32_t* dimensions, int32_t dimCount, uint32_t* outRegionHandle);
@@ -112,7 +118,9 @@ int32_t valhalla_subscribe_with_region(ValhallaAmbassador amb, int32_t classHand
 int32_t valhalla_update_attributes_spatial(ValhallaAmbassador amb, int32_t objectHandle, int32_t* attrHandles, uint8_t** attrValues, int32_t* attrLens, int32_t attrCount, double x, double y, double z, uint8_t* tag, int32_t tagLen);
 
 // Callback Dispatching
-int32_t valhalla_evoke_callback(ValhallaAmbassador amb, double timeoutSeconds, _Bool* outEvoked);
+int32_t valhalla_evoke_callback(ValhallaAmbassador amb, double timeoutSeconds, bool* outEvoked);
+int32_t valhalla_evoke_multiple_callbacks(ValhallaAmbassador amb, double minTimeoutSeconds, double maxTimeoutSeconds);
+int32_t valhalla_get_callback_queue_status(ValhallaAmbassador amb, int32_t* outLength, bool* outSaturated, uint64_t* outDropped);
 
 #ifdef __cplusplus
 }

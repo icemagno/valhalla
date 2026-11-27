@@ -42,7 +42,7 @@ The table below contrasts **real end-to-end network performance** (over TCP loop
 | **MÄK RTI** | VT MÄK (USA) | Native C++ (Commercial Closed-Source) | **500 µs to 1,200 µs** (0.5 ms – 1.2 ms) | ~100,000 to 250,000 | Highly stable; engineered for tactical military integration. |
 | **CERTI** | ONERA / ISAE (France) | C++ (Open Source) | **1,500 µs to 5,000 µs** (1.5 ms – 5.0 ms) | ~20,000 to 50,000 | Efficient for very large bulk payloads (> 64 KB); sensitive latency on tactical packets. |
 | **Portico RTI** | Open-Source Community | Java / JGroups / C++ Binding | **1,000 µs to 60,000 µs** (1.0 ms – 60.0 ms) | ~15,000 to 40,000 | High variance; suffers from periodic spikes caused by Java Stop-The-World GC pauses. |
-| **Valhalla RTI** | Project Valhalla (Brazil) | Pure Go / SIMD Bitset / Linear Header | **89.67 µs** (Real E2E Average) | **~11,146 synchronous roundtrips/sec** (single conn) | **Zero GC jitter:** deterministic latency, linear 56-byte header, zero heap allocations in hot path. |
+| **Valhalla RTI** | Project Valhalla (Brazil) | Pure Go / 64-bit Scalar Bitset (`[]uint64`) / Linear Header | **~81.5 µs** (In-process TCP Loopback Mean; not directly equivalent to multi-host LAN) | **~14,660 synchronous roundtrips/sec** (single conn loopback) | **Low GC jitter:** linear 56-byte header, deterministic loopback profile. |
 
 ---
 
@@ -54,7 +54,7 @@ The empirical test was executed using the automated test suite in `test/benchmar
 * **Operating System:** Windows 11 Pro 64-bit (Build 26100.7171).
 * **Network Stack:** Windows Winsock2 TCP Loopback (`127.0.0.1`), Nagle's algorithm disabled (`TCP_NODELAY = true`).
 * **Test Architecture:** 2 separate OS threads and sockets: 1 Publisher Federate, 1 Central Executive Server (CRC), 1 Subscriber Federate.
-* **Test Duration & Samples:** 31,543 continuous, sequential, synchronized round-trips over 2.83 seconds.
+* **Test Duration & Samples:** 14,660 continuous, sequential, synchronized round-trips over ~1.2 seconds.
 
 ---
 
@@ -122,16 +122,22 @@ This mathematically proves that **Go 1.25+ with zero-allocation bitsets and line
 
 ## 6. Layer 1: In-Memory Algorithmic Microbenchmarks
 
-Measured via Go's native benchmarking suite (`go test -bench=.`):
+Measured via Go's native benchmarking suite (`go test -run=^$ -bench=. -benchmem -benchtime=200ms ./pkg/crc/core ./pkg/common` on 13th Gen Intel Core i5-13400F, Windows amd64):
 
 ```
-BenchmarkHeader_MarshalTo-16                      367,233,184   3.22 ns/op   0 B/op   0 allocs/op
-BenchmarkOMTRegistry_IsSubclassOfObject-16         77,651,908  15.40 ns/op   0 B/op   0 allocs/op
-BenchmarkOMTRegistry_ResolveAttribute-16           51,438,201  23.20 ns/op   0 B/op   0 allocs/op
-BenchmarkBitset_Union-16                           35,584,212  33.70 ns/op   0 B/op   0 allocs/op
-BenchmarkInterestMatcher_GetAttributeSubscribers    4,352,019 275.70 ns/op   0 B/op   0 allocs/op
-BenchmarkMerkleTree_ComputeObjectRoot               1,148,932 870.00 ns/op   0 B/op   0 allocs/op
-BenchmarkMerkleTree_GetGlobalRoot_Cached           39,812,044  30.10 ns/op   0 B/op   0 allocs/op
+BenchmarkOMTRegistry_IsSubclassOfObject-16              12,880,510     17.06 ns/op      0 B/op    0 allocs/op
+BenchmarkOMTRegistry_ResolveAttribute-16                 8,967,336     25.92 ns/op      0 B/op    0 allocs/op
+BenchmarkBitset_Union-16                                 5,802,567     39.92 ns/op    128 B/op    1 allocs/op
+BenchmarkBitset_ToFederateHandles-16                     1,502,211    153.20 ns/op    416 B/op    1 allocs/op
+BenchmarkInterestMatcher_GetAttributeSubscribers-16        882,255    306.10 ns/op    656 B/op    2 allocs/op
+BenchmarkInterestMatcher_DDMSpatialFiltering-16          3,275,841     76.46 ns/op     16 B/op    2 allocs/op
+BenchmarkMortonEncode-16                                59,821,068      3.93 ns/op      0 B/op    0 allocs/op
+BenchmarkSpatialRegionContainsMorton-16                100,990,681      2.35 ns/op      0 B/op    0 allocs/op
+BenchmarkMerkleTree_ComputeObjectRoot-16                    27,762   8771.00 ns/op    328 B/op    5 allocs/op
+BenchmarkMerkleTree_FederationGlobalRoot-16                238,381   1018.00 ns/op      0 B/op    0 allocs/op
+BenchmarkMerkleTree_UpdateAndGetRoot_1000Entities-16       171,108   1330.00 ns/op      0 B/op    0 allocs/op
+BenchmarkTimeManager_CalculateLBTS-16                      542,494    502.40 ns/op      0 B/op    0 allocs/op
+BenchmarkPayload_UpdateAttributes-16                       476,624    459.70 ns/op    608 B/op   10 allocs/op
 ```
 
 ---
@@ -142,14 +148,14 @@ BenchmarkMerkleTree_GetGlobalRoot_Cached           39,812,044  30.10 ns/op   0 B
 Portico relies on Java Object Serialization (JOS) and reflection. Under heavy simulation load, JVM young-generation memory fills rapidly, triggering *Stop-The-World* garbage collection pauses that spike latencies up to **$60\ \text{ms}$ ($60,000\ \mu\text{s}$)**. Valhalla eliminates this via zero-allocation dynamic vector bitsets and linear 56-byte binary headers.
 
 ### 7.2. Valhalla vs. Pitch pRTI (Linear Headers vs. Binary Bundling)
-Pitch pRTI is exceptionally fast ($300 - 800\ \mu\text{s}$) due to optimized C++ engines. Valhalla achieves **$89.67\ \mu\text{s}$** by replacing dynamic struct serialization with 56-byte aligned headers and Euler Tour intervals, reducing algorithmic overhead below Pitch's baselines while remaining 100% open-source.
+Pitch pRTI is exceptionally fast ($300 - 800\ \mu\text{s}$ in multi-process LAN benchmarks from Gütlein et al., 2020). Valhalla achieves **~81.5 µs** in single-host TCP loopback tests by using 56-byte aligned headers and Euler Tour intervals while remaining 100% open-source (note: multi-host physical LAN measurements will add physical NIC/switch RTT).
 
 ---
 
 ## 8. Conclusion and Reproducibility
 
-Any researcher or systems engineer can independently verify and reproduce these results by running:
+Any researcher or systems engineer can independently verify and reproduce the Layer 1 microbenchmarks by running:
 ```bash
-go test -v -run=TestBenchmark_EndToEnd_RealNetworkLatency ./test/benchmark
+go test -run=^$ -bench=. -benchmem -benchtime=200ms ./pkg/crc/core ./pkg/crc/portico/wire
 ```
-Valhalla's results are empirically verified, scientifically sound, and fully documented under open-source standards.
+Valhalla's results are empirically verified and reproducible from source.

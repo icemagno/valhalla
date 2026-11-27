@@ -7,7 +7,6 @@ import (
 	"net"
 
 	"github.com/icemagno/valhalla/pkg/common"
-	"github.com/icemagno/valhalla/pkg/crc/core"
 )
 
 // Message types for the native Valhalla HLA-4 protocol
@@ -93,30 +92,6 @@ func sendNativeResponse(session *NativeSession, hdr NativeHeader, payload []byte
 		return err
 	}
 	return nil
-}
-
-func dispatchTimeGrants(currentFed *FederationExecution, grants []core.TimeGrantEvent) {
-	for _, grant := range grants {
-		fed, ok := currentFed.GetFederate(int32(grant.Federate))
-		if !ok || fed.Session == nil {
-			continue
-		}
-		// Deliver any queued TSO messages first in strictly non-decreasing time order
-		for _, msg := range grant.Messages {
-			if err := fed.Session.SendNotificationWithMerkle(msg.MsgType, msg.Payload, msg.MerkleRoot); err != nil {
-				logCRCNative.Warn("failed to deliver TSO message %d to federate %d: %v", msg.MsgType, grant.Federate, err)
-			}
-		}
-		// Deliver TimeAdvanceGrant notification
-		grantPayload, err := common.TimeFloat64Payload{Time: grant.Time}.MarshalBinary()
-		if err != nil {
-			logCRCNative.Error("failed to marshal TimeFloat64Payload: %v", err)
-			continue
-		}
-		if err := fed.Session.SendNotification(NativeMsgTimeAdvanceGrant, grantPayload); err != nil {
-			logCRCNative.Warn("failed to deliver TimeAdvanceGrant to federate %d: %v", grant.Federate, err)
-		}
-	}
 }
 
 func convertToAttrHandles(attrs []uint32) []common.AttributeHandle {

@@ -1,5 +1,7 @@
 // ValhallaRTIambassador.cpp - Implementation of IEEE 1516e RTIambassador for Valhalla
 #include "ValhallaRTIambassador.h"
+#include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <vector>
@@ -41,8 +43,10 @@ static void c_onDiscoverObject(int32_t theObject, int32_t theObjectClass, const 
                 ObjectClassHandle(theObjectClass),
                 toWide(s));
         }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in discoverObjectInstance: %s\n", e.what());
     } catch (...) {
-        // Never allow C++ exceptions to unwind across CGO/C-ABI boundary
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in discoverObjectInstance\n");
     }
 }
 
@@ -56,7 +60,10 @@ static void c_onRemoveObject(int32_t theObject, const uint8_t* tag, int32_t tagL
                 userTag,
                 OrderType::RECEIVE);
         }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in removeObjectInstance: %s\n", e.what());
     } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in removeObjectInstance\n");
     }
 }
 
@@ -76,7 +83,10 @@ static void c_onReflectAttributes(int32_t theObject, int32_t attrCount, const in
                 OrderType::RECEIVE,
                 TransportationTypeHandle::HLA_RELIABLE);
         }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in reflectAttributeValues: %s\n", e.what());
     } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in reflectAttributeValues\n");
     }
 }
 
@@ -86,12 +96,97 @@ static void c_onTimeAdvanceGrant(double time, void* userData) {
         if (self && self->getFederateAmbassador()) {
             self->getFederateAmbassador()->timeAdvanceGrant(time);
         }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in timeAdvanceGrant: %s\n", e.what());
     } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in timeAdvanceGrant\n");
+    }
+}
+
+static void c_onReceiveInteraction(int32_t interactionClass, int32_t paramCount, const int32_t* paramHandles, const uint8_t** paramValues, const int32_t* paramLens, const uint8_t* tag, int32_t tagLen, void* userData) {
+    try {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
+            ParameterHandleValueMap valMap;
+            for (int32_t i = 0; i < paramCount; ++i) {
+                valMap[ParameterHandle(paramHandles[i])] = VariableLengthData(paramValues[i], paramLens[i]);
+            }
+            VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
+            self->getFederateAmbassador()->receiveInteraction(
+                InteractionClassHandle(interactionClass),
+                valMap,
+                userTag,
+                OrderType::RECEIVE,
+                TransportationTypeHandle::HLA_RELIABLE);
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in receiveInteraction: %s\n", e.what());
+    } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in receiveInteraction\n");
+    }
+}
+
+static void c_onAnnounceSyncPoint(const char* label, const uint8_t* tag, int32_t tagLen, void* userData) {
+    try {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
+            std::string s(label ? label : "");
+            VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
+            self->getFederateAmbassador()->announceSynchronizationPoint(toWide(s), userTag);
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in announceSynchronizationPoint: %s\n", e.what());
+    } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in announceSynchronizationPoint\n");
+    }
+}
+
+static void c_onFederationSynchronized(const char* label, void* userData) {
+    try {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
+            std::string s(label ? label : "");
+            self->getFederateAmbassador()->federationSynchronized(toWide(s));
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in federationSynchronized: %s\n", e.what());
+    } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in federationSynchronized\n");
+    }
+}
+
+static void c_onSyncPointRegSucceeded(const char* label, void* userData) {
+    try {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
+            std::string s(label ? label : "");
+            self->getFederateAmbassador()->synchronizationPointRegistrationSucceeded(toWide(s));
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in synchronizationPointRegistrationSucceeded: %s\n", e.what());
+    } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in synchronizationPointRegistrationSucceeded\n");
+    }
+}
+
+static void c_onSyncPointRegFailed(const char* label, const char* /*reason*/, void* userData) {
+    try {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
+            std::string s(label ? label : "");
+            self->getFederateAmbassador()->synchronizationPointRegistrationFailed(
+                toWide(s),
+                SynchronizationPointFailureReason::SYNCHRONIZATION_POINT_LABEL_NOT_UNIQUE);
+        }
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "ValhallaRTIambassador: exception in synchronizationPointRegistrationFailed: %s\n", e.what());
+    } catch (...) {
+        std::fprintf(stderr, "ValhallaRTIambassador: unknown exception in synchronizationPointRegistrationFailed\n");
     }
 }
 
 ValhallaRTIambassador::ValhallaRTIambassador()
-    : m_amb(nullptr), m_fedAmb(nullptr), m_connected(false) {
+    : m_amb(nullptr), m_fedAmb(nullptr), m_connected(false), m_federateHandle(0) {
     m_amb = valhalla_create_ambassador();
     if (!m_amb) {
         throw RTIinternalError(L"Failed to instantiate Valhalla native ambassador");
@@ -103,6 +198,11 @@ ValhallaRTIambassador::ValhallaRTIambassador()
     cbs.onRemoveObject = c_onRemoveObject;
     cbs.onReflectAttributes = c_onReflectAttributes;
     cbs.onTimeAdvanceGrant = c_onTimeAdvanceGrant;
+    cbs.onReceiveInteraction = c_onReceiveInteraction;
+    cbs.onAnnounceSynchronizationPoint = c_onAnnounceSyncPoint;
+    cbs.onFederationSynchronized = c_onFederationSynchronized;
+    cbs.onSyncPointRegistrationSucceeded = c_onSyncPointRegSucceeded;
+    cbs.onSyncPointRegistrationFailed = c_onSyncPointRegFailed;
     cbs.userData = this;
     int32_t st = valhalla_set_callbacks(m_amb, cbs);
     if (st != VALHALLA_OK) {
@@ -149,6 +249,12 @@ void ValhallaRTIambassador::checkStatus(int32_t status) {
             throw FederateNameAlreadyInUse(L"Federate name is already in use");
         case VALHALLA_ERR_INTERACTION_NOT_FOUND:
             throw InteractionClassNotDefined(L"Interaction class not defined in FOM");
+        case VALHALLA_ERR_ALREADY_MEMBER:
+            throw FederateAlreadyExecutionMember(L"Federate is already a member of the federation");
+        case VALHALLA_ERR_OBJECT_NAME_IN_USE:
+            throw ObjectInstanceNameInUse(L"Object instance name is already in use");
+        case VALHALLA_ERR_DELETE_PRIVILEGE_NOT_HELD:
+            throw DeletePrivilegeNotHeld(L"Federate does not hold delete privilege for object instance");
         default:
             throw RTIinternalError(L"Valhalla RTI operation failed with status " + std::to_wstring(status));
     }
@@ -158,16 +264,19 @@ void ValhallaRTIambassador::connect(
     FederateAmbassador& federateAmbassador,
     CallbackModel callbackModel,
     const std::wstring& localSettingsDesignator)
-    throw(ConnectionFailed,
+    RTI1516E_THROW(ConnectionFailed,
           InvalidLocalSettingsDesignator,
           UnsupportedCallbackModel,
           AlreadyConnected,
           RTIinternalError) {
-    if (m_connected) {
-        throw AlreadyConnected(L"Already connected to RTI");
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        if (m_connected) {
+            throw AlreadyConnected(L"Already connected to RTI");
+        }
+        m_fedAmb = &federateAmbassador;
     }
 
-    m_fedAmb = &federateAmbassador;
     std::string addr = toUtf8(localSettingsDesignator);
     if (addr.empty()) {
         addr = "127.0.0.1:52295";
@@ -175,28 +284,36 @@ void ValhallaRTIambassador::connect(
 
     int32_t st = valhalla_connect(m_amb, const_cast<char*>(addr.c_str()));
     if (st != VALHALLA_OK) {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        m_fedAmb = nullptr;
         throw ConnectionFailed(L"Could not connect to Valhalla CRC at " + localSettingsDesignator);
     }
+    std::lock_guard<std::mutex> lock(m_stateMutex);
     m_connected = true;
 }
 
 void ValhallaRTIambassador::disconnect()
-    throw(FederateIsExecutionMember,
+    RTI1516E_THROW(FederateIsExecutionMember,
           NotConnected,
           RTIinternalError) {
-    if (!m_connected) {
-        throw NotConnected(L"Not connected");
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        if (!m_connected) {
+            throw NotConnected(L"Not connected");
+        }
     }
     int32_t st = valhalla_disconnect(m_amb);
     checkStatus(st);
+    std::lock_guard<std::mutex> lock(m_stateMutex);
     m_connected = false;
     m_fedAmb = nullptr;
+    m_federateHandle = 0;
 }
 
 void ValhallaRTIambassador::createFederationExecution(
     const std::wstring& federationExecutionName,
     const std::wstring& fullPathNameToFOMModule)
-    throw(FederationExecutionAlreadyExists,
+    RTI1516E_THROW(FederationExecutionAlreadyExists,
           CouldNotCreateLogicalTimeFactory,
           InconsistentFDD,
           ErrorReadingFDD,
@@ -213,7 +330,7 @@ void ValhallaRTIambassador::createFederationExecution(
 void ValhallaRTIambassador::createFederationExecution(
     const std::wstring& federationExecutionName,
     const std::vector<std::wstring>& fomModules)
-    throw(FederationExecutionAlreadyExists,
+    RTI1516E_THROW(FederationExecutionAlreadyExists,
           CouldNotCreateLogicalTimeFactory,
           InconsistentFDD,
           ErrorReadingFDD,
@@ -246,7 +363,7 @@ void ValhallaRTIambassador::createFederationExecution(
 
 void ValhallaRTIambassador::destroyFederationExecution(
     const std::wstring& federationExecutionName)
-    throw(FederatesCurrentlyJoined,
+    RTI1516E_THROW(FederatesCurrentlyJoined,
           FederationExecutionDoesNotExist,
           NotConnected,
           RTIinternalError) {
@@ -260,7 +377,7 @@ FederateHandle ValhallaRTIambassador::joinFederationExecution(
     const std::wstring& federateType,
     const std::wstring& federationExecutionName,
     const std::vector<std::wstring>& additionalFomModules)
-    throw(FederateAlreadyExecutionMember,
+    RTI1516E_THROW(FederateAlreadyExecutionMember,
           FederationExecutionDoesNotExist,
           SaveInProgress,
           RestoreInProgress,
@@ -272,23 +389,29 @@ FederateHandle ValhallaRTIambassador::joinFederationExecution(
     int32_t h = 0;
     int32_t st = valhalla_join_federation(m_amb, const_cast<char*>(fedName.c_str()), const_cast<char*>(execName.c_str()), &h);
     checkStatus(st);
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        m_federateHandle = h;
+    }
     return FederateHandle(h);
 }
 
 void ValhallaRTIambassador::resignFederationExecution(
     ResignAction resignAction)
-    throw(OwnershipAcquisitionPending,
+    RTI1516E_THROW(OwnershipAcquisitionPending,
           FederateOwnsAttributes,
           FederateNotExecutionMember,
           NotConnected,
           RTIinternalError) {
     int32_t st = valhalla_resign_federation(m_amb);
     checkStatus(st);
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+    m_federateHandle = 0;
 }
 
 ObjectClassHandle ValhallaRTIambassador::getObjectClassHandle(
     const std::wstring& theName)
-    throw(NameNotFound,
+    RTI1516E_THROW(NameNotFound,
           FederateNotExecutionMember,
           NotConnected,
           RTIinternalError) {
@@ -305,7 +428,7 @@ ObjectClassHandle ValhallaRTIambassador::getObjectClassHandle(
 AttributeHandle ValhallaRTIambassador::getAttributeHandle(
     ObjectClassHandle whichClass,
     const std::wstring& theName)
-    throw(NameNotFound,
+    RTI1516E_THROW(NameNotFound,
           InvalidObjectClassHandle,
           FederateNotExecutionMember,
           NotConnected,
@@ -325,7 +448,7 @@ AttributeHandle ValhallaRTIambassador::getAttributeHandle(
 
 DimensionHandle ValhallaRTIambassador::getDimensionHandle(
     const std::wstring& theName)
-    throw(NameNotFound,
+    RTI1516E_THROW(NameNotFound,
           FederateNotExecutionMember,
           NotConnected,
           RTIinternalError) {
@@ -342,7 +465,7 @@ DimensionHandle ValhallaRTIambassador::getDimensionHandle(
 void ValhallaRTIambassador::publishObjectClassAttributes(
     ObjectClassHandle theClass,
     const AttributeHandleSet& attributeList)
-    throw(ObjectClassNotDefined,
+    RTI1516E_THROW(ObjectClassNotDefined,
           AttributeNotDefined,
           FederateNotExecutionMember,
           SaveInProgress,
@@ -360,7 +483,7 @@ void ValhallaRTIambassador::publishObjectClassAttributes(
 void ValhallaRTIambassador::subscribeObjectClassAttributes(
     ObjectClassHandle theClass,
     const AttributeHandleSet& attributeList)
-    throw(ObjectClassNotDefined,
+    RTI1516E_THROW(ObjectClassNotDefined,
           AttributeNotDefined,
           FederateNotExecutionMember,
           SaveInProgress,
@@ -375,10 +498,99 @@ void ValhallaRTIambassador::subscribeObjectClassAttributes(
     checkStatus(st);
 }
 
+void ValhallaRTIambassador::publishInteractionClass(
+    InteractionClassHandle theInteraction)
+    RTI1516E_THROW(InteractionClassNotDefined,
+          FederateNotExecutionMember,
+          SaveInProgress,
+          RestoreInProgress,
+          NotConnected,
+          RTIinternalError) {
+    int32_t st = valhalla_publish_interaction_class(m_amb, theInteraction.getValue());
+    checkStatus(st);
+}
+
+void ValhallaRTIambassador::subscribeInteractionClass(
+    InteractionClassHandle theInteraction)
+    RTI1516E_THROW(InteractionClassNotDefined,
+          FederateNotExecutionMember,
+          SaveInProgress,
+          RestoreInProgress,
+          NotConnected,
+          RTIinternalError) {
+    int32_t st = valhalla_subscribe_interaction_class(m_amb, theInteraction.getValue());
+    checkStatus(st);
+}
+
+void ValhallaRTIambassador::registerFederationSynchronizationPoint(
+    const std::wstring& label,
+    const VariableLengthData& theUserSuppliedTag)
+    RTI1516E_THROW(FederateNotExecutionMember,
+          SaveInProgress,
+          RestoreInProgress,
+          NotConnected,
+          RTIinternalError) {
+    std::string labelUtf8 = toUtf8(label);
+    int32_t st = valhalla_register_federation_synchronization_point(
+        m_amb,
+        const_cast<char*>(labelUtf8.c_str()),
+        const_cast<uint8_t*>(static_cast<const uint8_t*>(theUserSuppliedTag.data())),
+        static_cast<int32_t>(theUserSuppliedTag.size()));
+    checkStatus(st);
+}
+
+void ValhallaRTIambassador::synchronizationPointAchieved(
+    const std::wstring& label)
+    RTI1516E_THROW(FederateNotExecutionMember,
+          SaveInProgress,
+          RestoreInProgress,
+          NotConnected,
+          RTIinternalError) {
+    std::string labelUtf8 = toUtf8(label);
+    int32_t st = valhalla_synchronization_point_achieved(m_amb, const_cast<char*>(labelUtf8.c_str()));
+    checkStatus(st);
+}
+
+void ValhallaRTIambassador::sendInteraction(
+    InteractionClassHandle theInteraction,
+    const ParameterHandleValueMap& theParameterValues,
+    const VariableLengthData& theUserSuppliedTag)
+    RTI1516E_THROW(InteractionClassNotDefined,
+          InteractionClassNotPublished,
+          FederateNotExecutionMember,
+          SaveInProgress,
+          RestoreInProgress,
+          NotConnected,
+          RTIinternalError) {
+    std::vector<int32_t> handles;
+    std::vector<uint8_t*> valPtrs;
+    std::vector<int32_t> lens;
+    handles.reserve(theParameterValues.size());
+    valPtrs.reserve(theParameterValues.size());
+    lens.reserve(theParameterValues.size());
+
+    for (const auto& pair : theParameterValues) {
+        handles.push_back(pair.first.getValue());
+        valPtrs.push_back(const_cast<uint8_t*>(static_cast<const uint8_t*>(pair.second.data())));
+        lens.push_back(static_cast<int32_t>(pair.second.size()));
+    }
+
+    int32_t st = valhalla_send_interaction(
+        m_amb,
+        theInteraction.getValue(),
+        handles.data(),
+        valPtrs.data(),
+        lens.data(),
+        static_cast<int32_t>(handles.size()),
+        const_cast<uint8_t*>(static_cast<const uint8_t*>(theUserSuppliedTag.data())),
+        static_cast<int32_t>(theUserSuppliedTag.size()));
+    checkStatus(st);
+}
+
 ObjectInstanceHandle ValhallaRTIambassador::registerObjectInstance(
     ObjectClassHandle theClass,
     const std::wstring& theObjectName)
-    throw(ObjectClassNotDefined,
+    RTI1516E_THROW(ObjectClassNotDefined,
           ObjectClassNotPublished,
           ObjectInstanceNameInUse,
           ObjectInstanceNameNotReserved,
@@ -397,7 +609,7 @@ ObjectInstanceHandle ValhallaRTIambassador::registerObjectInstance(
 void ValhallaRTIambassador::deleteObjectInstance(
     ObjectInstanceHandle theObject,
     const VariableLengthData& theUserSuppliedTag)
-    throw(DeletePrivilegeNotHeld,
+    RTI1516E_THROW(DeletePrivilegeNotHeld,
           ObjectInstanceNotKnown,
           FederateNotExecutionMember,
           SaveInProgress,
@@ -416,7 +628,7 @@ void ValhallaRTIambassador::updateAttributeValues(
     ObjectInstanceHandle theObject,
     const AttributeHandleValueMap& theAttributeValues,
     const VariableLengthData& theUserSuppliedTag)
-    throw(ObjectInstanceNotKnown,
+    RTI1516E_THROW(ObjectInstanceNotKnown,
           AttributeNotDefined,
           AttributeNotOwned,
           FederateNotExecutionMember,
@@ -451,7 +663,7 @@ void ValhallaRTIambassador::updateAttributeValuesSpatial(
     const AttributeHandleValueMap& theAttributeValues,
     double x, double y, double z,
     const VariableLengthData& theUserSuppliedTag)
-    throw(ObjectInstanceNotKnown,
+    RTI1516E_THROW(ObjectInstanceNotKnown,
           AttributeNotDefined,
           AttributeNotOwned,
           FederateNotExecutionMember,
@@ -485,7 +697,7 @@ void ValhallaRTIambassador::updateAttributeValuesSpatial(
 void ValhallaRTIambassador::unconditionalAttributeOwnershipDivestiture(
     ObjectInstanceHandle theObject,
     const AttributeHandleSet& theAttributes)
-    throw(ObjectInstanceNotKnown,
+    RTI1516E_THROW(ObjectInstanceNotKnown,
           AttributeNotDefined,
           AttributeNotOwned,
           FederateNotExecutionMember,
@@ -509,7 +721,7 @@ void ValhallaRTIambassador::attributeOwnershipAcquisition(
     ObjectInstanceHandle theObject,
     const AttributeHandleSet& desiredAttributes,
     const VariableLengthData& theUserSuppliedTag)
-    throw(ObjectInstanceNotKnown,
+    RTI1516E_THROW(ObjectInstanceNotKnown,
           ObjectClassNotPublished,
           AttributeNotDefined,
           FederateOwnsAttributes,
@@ -533,7 +745,7 @@ void ValhallaRTIambassador::attributeOwnershipAcquisition(
 bool ValhallaRTIambassador::isAttributeOwnedByFederate(
     ObjectInstanceHandle theObject,
     AttributeHandle theAttribute)
-    throw(ObjectInstanceNotKnown,
+    RTI1516E_THROW(ObjectInstanceNotKnown,
           AttributeNotDefined,
           FederateNotExecutionMember,
           SaveInProgress,
@@ -541,7 +753,7 @@ bool ValhallaRTIambassador::isAttributeOwnedByFederate(
           NotConnected,
           RTIinternalError) {
     int32_t owner = 0;
-    _Bool owned = false;
+    bool owned = false;
     int32_t st = valhalla_query_ownership(
         m_amb,
         theObject.getValue(),
@@ -549,12 +761,17 @@ bool ValhallaRTIambassador::isAttributeOwnedByFederate(
         &owner,
         &owned);
     checkStatus(st);
-    return owned;
+    int32_t localHandle = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        localHandle = m_federateHandle;
+    }
+    return owned && (localHandle > 0) && (owner == localHandle);
 }
 
 void ValhallaRTIambassador::enableTimeRegulation(
     double theLookahead)
-    throw(TimeRegulationAlreadyEnabled,
+    RTI1516E_THROW(TimeRegulationAlreadyEnabled,
           InvalidLookahead,
           InTimeAdvancingState,
           RequestForTimeRegulationPending,
@@ -568,7 +785,7 @@ void ValhallaRTIambassador::enableTimeRegulation(
 }
 
 void ValhallaRTIambassador::enableTimeConstrained()
-    throw(TimeConstrainedAlreadyEnabled,
+    RTI1516E_THROW(TimeConstrainedAlreadyEnabled,
           InTimeAdvancingState,
           RequestForTimeConstrainedPending,
           FederateNotExecutionMember,
@@ -582,7 +799,7 @@ void ValhallaRTIambassador::enableTimeConstrained()
 
 void ValhallaRTIambassador::timeAdvanceRequest(
     double theTime)
-    throw(InvalidLogicalTime,
+    RTI1516E_THROW(InvalidLogicalTime,
               LogicalTimeAlreadyPassed,
               InTimeAdvancingState,
               RequestForTimeRegulationPending,
@@ -598,7 +815,7 @@ void ValhallaRTIambassador::timeAdvanceRequest(
 
 void ValhallaRTIambassador::nextMessageRequest(
     double theTime)
-    throw(InvalidLogicalTime,
+    RTI1516E_THROW(InvalidLogicalTime,
               LogicalTimeAlreadyPassed,
               InTimeAdvancingState,
               RequestForTimeRegulationPending,
@@ -614,7 +831,7 @@ void ValhallaRTIambassador::nextMessageRequest(
 
 RegionHandle ValhallaRTIambassador::createRegion(
     const std::vector<DimensionHandle>& dimensions)
-    throw(InvalidDimensionHandle,
+    RTI1516E_THROW(InvalidDimensionHandle,
           FederateNotExecutionMember,
           SaveInProgress,
           RestoreInProgress,
@@ -634,7 +851,7 @@ void ValhallaRTIambassador::setRangeBounds(
     RegionHandle theRegion,
     DimensionHandle theDimension,
     const RangeBounds& theRangeBounds)
-    throw(InvalidRegion,
+    RTI1516E_THROW(InvalidRegion,
           InvalidDimensionHandle,
           FederateNotExecutionMember,
           SaveInProgress,
@@ -655,7 +872,7 @@ void ValhallaRTIambassador::setMetricBounds(
     double minX, double maxX,
     double minY, double maxY,
     double minZ, double maxZ)
-    throw(InvalidRegion,
+    RTI1516E_THROW(InvalidRegion,
           FederateNotExecutionMember,
           SaveInProgress,
           RestoreInProgress,
@@ -672,7 +889,7 @@ void ValhallaRTIambassador::subscribeObjectClassAttributesWithRegions(
     ObjectClassHandle theClass,
     const AttributeHandleSet& attributeList,
     RegionHandle theRegion)
-    throw(ObjectClassNotDefined,
+    RTI1516E_THROW(ObjectClassNotDefined,
           AttributeNotDefined,
           InvalidRegion,
           FederateNotExecutionMember,
@@ -695,9 +912,9 @@ void ValhallaRTIambassador::subscribeObjectClassAttributesWithRegions(
 
 bool ValhallaRTIambassador::evokeCallback(
     double approximateMinimumTimeInSeconds)
-    throw(CallNotAllowedFromWithinCallback,
+    RTI1516E_THROW(CallNotAllowedFromWithinCallback,
           RTIinternalError) {
-    _Bool evoked = false;
+    bool evoked = false;
     int32_t st = valhalla_evoke_callback(m_amb, approximateMinimumTimeInSeconds, &evoked);
     if (st != VALHALLA_OK) {
         throw RTIinternalError(L"evokeCallback failed with status " + std::to_wstring(st));
@@ -708,27 +925,39 @@ bool ValhallaRTIambassador::evokeCallback(
 bool ValhallaRTIambassador::evokeMultipleCallbacks(
     double minimumTime,
     double maximumTime)
-    throw(CallNotAllowedFromWithinCallback,
-          RTIinternalError) {
+    RTI1516E_THROW(CallNotAllowedFromWithinCallback,
+                   RTIinternalError) {
+    if (minimumTime < 0.0) {
+        minimumTime = 0.0;
+    }
     if (maximumTime < minimumTime) {
         maximumTime = minimumTime;
     }
+    const auto start = std::chrono::steady_clock::now();
     bool anyEvoked = false;
-    double elapsed = 0.0;
     const double step = (minimumTime > 0.0 && minimumTime < 0.01) ? minimumTime : 0.01;
-    do {
-        double slice = step;
-        if (elapsed + slice > maximumTime) {
-            slice = maximumTime - elapsed;
+
+    while (true) {
+        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        const double remaining = maximumTime - elapsed;
+        if (remaining <= 0.0 && elapsed >= minimumTime) {
+            break;
         }
-        if (slice < 0.0) {
+        double slice = step;
+        if (remaining > 0.0 && slice > remaining) {
+            slice = remaining;
+        } else if (remaining <= 0.0) {
             slice = 0.0;
         }
         if (evokeCallback(slice)) {
             anyEvoked = true;
+        } else if (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >= minimumTime) {
+            break;
         }
-        elapsed += slice;
-    } while (elapsed < maximumTime && slice > 0.0);
+        if (remaining <= 0.0) {
+            break;
+        }
+    }
     return anyEvoked;
 }
 

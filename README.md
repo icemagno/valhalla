@@ -15,14 +15,14 @@
   <img src="https://img.shields.io/badge/HLA_Standard-IEEE_1516--2025_(HLA--4)-green.svg" alt="HLA Standard">
   <img src="https://img.shields.io/badge/Portico_3.0-Wire_Gateway_(Core_Services)-blue.svg" alt="Portico 3.0 Wire Gateway (Core Services)">
   <img src="https://img.shields.io/badge/NATO_IVCT-In_Preparation-lightgrey.svg" alt="NATO IVCT In Preparation">
-  <img src="https://img.shields.io/badge/Benchmarks-89.67_µs_Latency-brightgreen.svg" alt="Latency: 89.67 µs">
+  <img src="https://img.shields.io/badge/Benchmarks-~81.5_µs_Loopback-brightgreen.svg" alt="Latency: ~81.5 µs Loopback">
 </p>
 
 ---
 
 ## 🛡️ About Project Valhalla
 
-**Project Valhalla** is a sovereign, modern, resilient, and ultra-high-performance **Run-Time Infrastructure (RTI)** engineered in pure **Go (Golang)** with optional zero-copy C-ABI/FFI extensions.
+**Project Valhalla** is a sovereign, modern, resilient, and high-performance **Run-Time Infrastructure (RTI)** engineered in pure **Go (Golang)** with optional C-ABI/FFI shared-library bindings (`include/valhalla_lrc.h`).
 
 The project originated as the natural evolution of the open-source **Portico RTI** ecosystem, elevating it to meet the requirements of **IEEE 1516-2025 (HLA-4)** while resolving critical bottlenecks historically faced by aerospace and defense simulation communities.
 
@@ -68,17 +68,19 @@ Measures the full round-trip under the standard methodology of SISO and Gütlein
 | **Project Valhalla** | Pure Go Native (VAL4) | **~81.5 µs** (Mean) / **~71.9 µs** (P50) | ~14,600+ sync roundtrips/s | Windows QPC hardware timer / 0 data races |
 
 ### Layer 2: Valhalla In-Memory Algorithmic Microbenchmarks
-Measures pure CPU cost of core data structures in isolation (`testing.B` on x86_64):
+Measures pure CPU cost of core data structures in isolation (`go test "-run=^$" "-bench=." -benchmem -benchtime=200ms ./pkg/crc/core ./pkg/crc/portico/wire` on Intel Core i5-13400F, Windows amd64):
 
 | Algorithmic Subsystem | Go Benchmark | Latency / op | Heap Allocations | Computational Complexity |
 | :--- | :--- | :--- | :--- | :--- |
-| **Binary Header Marshaling** | `BenchmarkHeader_MarshalTo` | **3.22 ns** | **0 B/op (0 allocs)** | $O(1)$ linear contiguous |
-| **OMT Class Hierarchy** | `BenchmarkOMTRegistry_IsSubclassOfObject` | **15.40 ns** | **0 B/op (0 allocs)** | $O(1)$ Euler Tour intervals |
-| **OMT Attribute Resolution** | `BenchmarkOMTRegistry_ResolveAttribute` | **23.20 ns** | **0 B/op (0 allocs)** | $O(1)$ dynamic index |
-| **Vector Bitset Subsumes** | `BenchmarkBitset_Union` | **33.70 ns** | **0 B/op (0 allocs)** | $O(W)$ 64-bit word ops |
-| **Interest Matching** | `BenchmarkInterestMatcher_GetAttributeSubscribers` | **275.70 ns** | **0 B/op (0 allocs)** | Bitset intersection |
-| **Merkle State Root (Cached)** | `BenchmarkMerkleTree_GetGlobalRoot_Cached` | **30.10 ns** | **0 B/op (0 allocs)** | $O(1)$ atomic cache |
-| **Spatial DDM (3D Morton)** | `BenchmarkMorton_ContainsPoint` | **< 4 ns** | **0 B/op (0 allocs)** | Bitwise dilated bounds |
+| **Binary Header Marshaling** | `BenchmarkHeader_MarshalTo` | **3.05 ns** | **0 B/op (0 allocs)** | $O(1)$ linear contiguous |
+| **OMT Class Hierarchy** | `BenchmarkOMTRegistry_IsSubclassOfObject` | **18.33 ns** | **0 B/op (0 allocs)** | $O(1)$ Euler Tour intervals |
+| **OMT Attribute Resolution** | `BenchmarkOMTRegistry_ResolveAttribute` | **28.34 ns** | **0 B/op (0 allocs)** | $O(1)$ dynamic index |
+| **64-bit Scalar Bitset Union** | `BenchmarkBitset_Union` | **40.02 ns** | **128 B/op (1 alloc)** | $O(W)$ 64-bit word ops |
+| **Interest Matching** | `BenchmarkInterestMatcher_GetAttributeSubscribers` | **307.0 ns** | **656 B/op (2 allocs)** | Bitset intersection + slice |
+| **Object Merkle Root (SSZ)** | `BenchmarkMerkleTree_ComputeObjectRoot` | **8,881 ns** | **328 B/op (5 allocs)** | SHA-256 SSZ Merkleization |
+| **Global Merkle Root (1000 objs)** | `BenchmarkMerkleTree_UpdateAndGetRoot_1000Entities` | **1,364 ns** | **0 B/op (0 allocs)** | $O(\log N)$ incremental update |
+| **Spatial DDM (Morton Containment)** | `BenchmarkSpatialRegionContainsMorton` | **2.24 ns** | **0 B/op (0 allocs)** | Bitwise dilated bounds |
+| **Spatial DDM (Point Check)** | `BenchmarkSpatialRegionContainsPoint` | **1.77 ns** | **0 B/op (0 allocs)** | 3D integer bounds |
 
 ---
 

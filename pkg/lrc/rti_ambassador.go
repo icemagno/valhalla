@@ -32,12 +32,12 @@ func NewRTIambassador() RTIambassador {
 	}
 }
 
-// Connect connects the federate to the CRC executive
+// Connect connects the federate to the CRC executive without holding a.mu during network dial.
 func (a *RTIambassadorImpl) Connect(fedAmb FederateAmbassador, address string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.client != nil && !a.client.IsClosed() {
+	a.mu.RLock()
+	alreadyConnected := a.client != nil && !a.client.IsClosed()
+	a.mu.RUnlock()
+	if alreadyConnected {
 		return ErrAlreadyConnected
 	}
 
@@ -50,29 +50,66 @@ func (a *RTIambassadorImpl) Connect(fedAmb FederateAmbassador, address string) e
 		return err
 	}
 
+	a.mu.Lock()
+	if a.client != nil && !a.client.IsClosed() {
+		a.mu.Unlock()
+		_ = client.Close()
+		return ErrAlreadyConnected
+	}
 	a.client = client
 	a.fedAmb = fedAmb
 	a.address = address
+	a.mu.Unlock()
 	return nil
+}
+
+func (a *RTIambassadorImpl) resetFederationStateLocked() {
+	a.federateID = 0
+	a.federationID = 0
+	a.federateName = ""
+	a.federationName = ""
+	a.lookahead = 0
+	a.stateTree = common.NewFederationStateTree()
+	a.desyncMu.Lock()
+	a.lastDesyncErr = nil
+	a.desyncMu.Unlock()
+}
+
+func (a *RTIambassadorImpl) getStateTree() *common.FederationStateTree {
+	a.mu.RLock()
+	st := a.stateTree
+	a.mu.RUnlock()
+	return st
+}
+
+func (a *RTIambassadorImpl) snapshotClient() (*Client, error) {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+	if client == nil || client.IsClosed() {
+		return nil, ErrNotConnected
+	}
+	return client, nil
 }
 
 // Disconnect closes the connection with the CRC
 func (a *RTIambassadorImpl) Disconnect() error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	client := a.client
+	a.client = nil
+	a.fedAmb = nil
+	a.address = ""
+	a.resetFederationStateLocked()
+	a.mu.Unlock()
 
-	if a.client == nil {
+	if client == nil {
 		return ErrNotConnected
 	}
 
-	var err error
-	if !a.client.IsClosed() {
-		err = a.client.Close()
+	if !client.IsClosed() {
+		return client.Close()
 	}
-	a.client = nil
-	a.federateID = 0
-	a.federationID = 0
-	return err
+	return nil
 }
 
 func checkNativeResponse(resp nativeResponse) error {
@@ -91,11 +128,9 @@ func checkNativeResponse(resp nativeResponse) error {
 
 // CreateFederationExecution creates or ensures existence of a federation on the CRC
 func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
+	client, err := a.snapshotClient()
+	if err != nil {
+		return err
 	}
 	if federationName == "" {
 		return errors.New("federation name cannot be empty")
@@ -107,7 +142,7 @@ func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) err
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgCreateFederation, 0, 0, payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgCreateFederation, 0, 0, payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -117,11 +152,9 @@ func (a *RTIambassadorImpl) CreateFederationExecution(federationName string) err
 
 // CreateFederationExecutionWithFOM creates a federation on the CRC with associated FOM modules
 func (a *RTIambassadorImpl) CreateFederationExecutionWithFOM(federationName string, fomModules []string) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
+	client, err := a.snapshotClient()
+	if err != nil {
+		return err
 	}
 	if federationName == "" {
 		return errors.New("federation name cannot be empty")
@@ -136,7 +169,7 @@ func (a *RTIambassadorImpl) CreateFederationExecutionWithFOM(federationName stri
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgCreateFederation, 0, 0, payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgCreateFederation, 0, 0, payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -147,9 +180,12 @@ func (a *RTIambassadorImpl) CreateFederationExecutionWithFOM(federationName stri
 // GetObjectClassHandle resolves the handle of an object class by its FOM name
 func (a *RTIambassadorImpl) GetObjectClassHandle(className string) (int32, error) {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	client := a.client
+	fedExecID := a.federationID
+	fedID := a.federateID
+	a.mu.RUnlock()
 
-	if a.client == nil || a.client.IsClosed() {
+	if client == nil || client.IsClosed() {
 		return 0, ErrNotConnected
 	}
 
@@ -159,7 +195,7 @@ func (a *RTIambassadorImpl) GetObjectClassHandle(className string) (int32, error
 		return 0, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgGetObjectClassHandle, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgGetObjectClassHandle, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
@@ -185,9 +221,12 @@ func (a *RTIambassadorImpl) GetObjectClassHandle(className string) (int32, error
 // GetAttributeHandle resolves the handle of an attribute in an object class by its FOM name
 func (a *RTIambassadorImpl) GetAttributeHandle(classHandle int32, attributeName string) (int32, error) {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	client := a.client
+	fedExecID := a.federationID
+	fedID := a.federateID
+	a.mu.RUnlock()
 
-	if a.client == nil || a.client.IsClosed() {
+	if client == nil || client.IsClosed() {
 		return 0, ErrNotConnected
 	}
 
@@ -200,7 +239,7 @@ func (a *RTIambassadorImpl) GetAttributeHandle(classHandle int32, attributeName 
 		return 0, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgGetAttributeHandle, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgGetAttributeHandle, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
@@ -226,9 +265,12 @@ func (a *RTIambassadorImpl) GetAttributeHandle(classHandle int32, attributeName 
 // GetDimensionHandle resolves the handle of a DDM dimension by its FOM name
 func (a *RTIambassadorImpl) GetDimensionHandle(dimensionName string) (int32, error) {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	client := a.client
+	fedExecID := a.federationID
+	fedID := a.federateID
+	a.mu.RUnlock()
 
-	if a.client == nil || a.client.IsClosed() {
+	if client == nil || client.IsClosed() {
 		return 0, ErrNotConnected
 	}
 
@@ -238,7 +280,7 @@ func (a *RTIambassadorImpl) GetDimensionHandle(dimensionName string) (int32, err
 		return 0, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgGetDimensionHandle, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgGetDimensionHandle, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
@@ -263,11 +305,9 @@ func (a *RTIambassadorImpl) GetDimensionHandle(dimensionName string) (int32, err
 
 // DestroyFederationExecution destroys the federation execution on the CRC
 func (a *RTIambassadorImpl) DestroyFederationExecution(federationName string) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
+	client, err := a.snapshotClient()
+	if err != nil {
+		return err
 	}
 	if federationName == "" {
 		return errors.New("federation name cannot be empty")
@@ -279,7 +319,7 @@ func (a *RTIambassadorImpl) DestroyFederationExecution(federationName string) er
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgDestroyFederation, 0, 0, payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgDestroyFederation, 0, 0, payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -287,21 +327,31 @@ func (a *RTIambassadorImpl) DestroyFederationExecution(federationName string) er
 	return checkNativeResponse(resp)
 }
 
-// JoinFederationExecution joins the federate to a federation execution with handle assignment
+// JoinFederationExecution joins the federate to a federation execution with the default federate type.
 func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName string) (int32, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	return a.JoinFederationExecutionWithType(federateName, "native-hla4", federationName)
+}
 
-	if a.client == nil || a.client.IsClosed() {
+// JoinFederationExecutionWithType joins the federate to a federation execution with an explicit HLA-4 federate type.
+func (a *RTIambassadorImpl) JoinFederationExecutionWithType(federateName, federateType, federationName string) (int32, error) {
+	a.mu.RLock()
+	client := a.client
+	alreadyJoined := a.federateID > 0
+	a.mu.RUnlock()
+
+	if client == nil || client.IsClosed() {
 		return 0, ErrNotConnected
 	}
-	if a.federateID > 0 {
+	if alreadyJoined {
 		return 0, ErrFederateAlreadyExecutionMember
+	}
+	if federateType == "" {
+		federateType = "native-hla4"
 	}
 
 	joinReq := common.JoinFederationPayload{
 		FederateName:   federateName,
-		FederateType:   "native-hla4",
+		FederateType:   federateType,
 		FederationName: federationName,
 	}
 	payload, err := joinReq.MarshalBinary()
@@ -309,7 +359,7 @@ func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName
 		return 0, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgJoin, 0, 0, payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgJoin, 0, 0, payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
@@ -331,30 +381,48 @@ func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName
 		return 0, fmt.Errorf("failed to decode join response: %w", err)
 	}
 
+	a.mu.Lock()
 	a.federateID = int32(joinResp.FederateHandle)
 	a.federationID = joinResp.FederationHandle
 	a.federateName = federateName
 	a.federationName = federationName
+	a.stateTree = common.NewFederationStateTree()
+	a.desyncMu.Lock()
+	a.lastDesyncErr = nil
+	a.desyncMu.Unlock()
+	fedID := a.federateID
+	a.mu.Unlock()
 
-	return a.federateID, nil
+	return fedID, nil
 }
 
-// ResignFederationExecution resigns the federate from the federation execution
+// ResignFederationExecution resigns the federate from the federation execution using the default resign action (1).
 func (a *RTIambassadorImpl) ResignFederationExecution() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	return a.ResignFederationExecutionWithAction(1)
+}
 
-	if a.client == nil || a.client.IsClosed() {
+// ResignFederationExecutionWithAction resigns the federate from the federation execution with an explicit IEEE 1516 resign action.
+func (a *RTIambassadorImpl) ResignFederationExecutionWithAction(action uint8) error {
+	a.mu.RLock()
+	client := a.client
+	fedExecID := a.federationID
+	fedID := a.federateID
+	a.mu.RUnlock()
+
+	if client == nil || client.IsClosed() {
 		return ErrNotConnected
 	}
-	if a.federateID == 0 {
+	if fedID == 0 {
 		return ErrFederateNotExecutionMember
 	}
 
-	resignReq := common.ResignFederationPayload{ResignAction: 1}
-	payload, _ := resignReq.MarshalBinary()
+	resignReq := common.ResignFederationPayload{ResignAction: action}
+	payload, err := resignReq.MarshalBinary()
+	if err != nil {
+		return err
+	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgResign, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgResign, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -363,20 +431,17 @@ func (a *RTIambassadorImpl) ResignFederationExecution() error {
 		return err
 	}
 
-	a.federateID = 0
+	a.mu.Lock()
+	a.resetFederationStateLocked()
+	a.mu.Unlock()
 	return nil
 }
 
 // RegisterFederationSynchronizationPoint announces a new federation synchronization point
 func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string, tag []byte) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	syncReq := common.RegisterSyncPointPayload{
@@ -388,7 +453,7 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgRegisterSyncPoint, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -397,14 +462,9 @@ func (a *RTIambassadorImpl) RegisterFederationSynchronizationPoint(label string,
 
 // SynchronizationPointAchieved notifies the CRC that this federate achieved the synchronization point
 func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	achieveReq := common.SyncPointLabelPayload{Label: label}
@@ -413,7 +473,7 @@ func (a *RTIambassadorImpl) SynchronizationPointAchieved(label string) error {
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgAchieveSyncPoint, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgAchieveSyncPoint, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}

@@ -10,14 +10,9 @@ import (
 
 // PublishObjectClassAttributes publishes attributes of an object class
 func (a *RTIambassadorImpl) PublishObjectClassAttributes(objectClass int32, attributes []int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	attrs := make([]common.AttributeHandle, len(attributes))
@@ -34,7 +29,7 @@ func (a *RTIambassadorImpl) PublishObjectClassAttributes(objectClass int32, attr
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgPublishObjectClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgPublishObjectClass, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -44,14 +39,9 @@ func (a *RTIambassadorImpl) PublishObjectClassAttributes(objectClass int32, attr
 
 // UnpublishObjectClass unpublishes an object class
 func (a *RTIambassadorImpl) UnpublishObjectClass(objectClass int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.PublishObjectClassPayload{
@@ -62,7 +52,7 @@ func (a *RTIambassadorImpl) UnpublishObjectClass(objectClass int32) error {
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgUnpublishObjectClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgUnpublishObjectClass, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -72,14 +62,9 @@ func (a *RTIambassadorImpl) UnpublishObjectClass(objectClass int32) error {
 
 // PublishInteractionClass publishes an interaction class
 func (a *RTIambassadorImpl) PublishInteractionClass(interactionClass int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.InteractionClassPayload{
@@ -90,7 +75,7 @@ func (a *RTIambassadorImpl) PublishInteractionClass(interactionClass int32) erro
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgPublishInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgPublishInteractionClass, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -100,14 +85,9 @@ func (a *RTIambassadorImpl) PublishInteractionClass(interactionClass int32) erro
 
 // UnpublishInteractionClass unpublishes an interaction class
 func (a *RTIambassadorImpl) UnpublishInteractionClass(interactionClass int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.InteractionClassPayload{
@@ -118,7 +98,7 @@ func (a *RTIambassadorImpl) UnpublishInteractionClass(interactionClass int32) er
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgUnpublishInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgUnpublishInteractionClass, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -128,14 +108,9 @@ func (a *RTIambassadorImpl) UnpublishInteractionClass(interactionClass int32) er
 
 // SubscribeObjectClassAttributes subscribes to attributes of an object class
 func (a *RTIambassadorImpl) SubscribeObjectClassAttributes(objectClass int32, attributes []int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	attrs := make([]common.AttributeHandle, len(attributes))
@@ -153,7 +128,7 @@ func (a *RTIambassadorImpl) SubscribeObjectClassAttributes(objectClass int32, at
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgSubscribeObjectClassAttrs, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgSubscribeObjectClassAttrs, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -163,14 +138,9 @@ func (a *RTIambassadorImpl) SubscribeObjectClassAttributes(objectClass int32, at
 
 // UnsubscribeObjectClass unsubscribes from an object class
 func (a *RTIambassadorImpl) UnsubscribeObjectClass(objectClass int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.PublishObjectClassPayload{
@@ -181,7 +151,7 @@ func (a *RTIambassadorImpl) UnsubscribeObjectClass(objectClass int32) error {
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgUnsubscribeObjectClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgUnsubscribeObjectClass, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -191,14 +161,9 @@ func (a *RTIambassadorImpl) UnsubscribeObjectClass(objectClass int32) error {
 
 // SubscribeInteractionClass subscribes to an interaction class
 func (a *RTIambassadorImpl) SubscribeInteractionClass(interactionClass int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.SubscribeInteractionClassPayload{
@@ -210,7 +175,7 @@ func (a *RTIambassadorImpl) SubscribeInteractionClass(interactionClass int32) er
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgSubscribeInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgSubscribeInteractionClass, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -220,14 +185,9 @@ func (a *RTIambassadorImpl) SubscribeInteractionClass(interactionClass int32) er
 
 // UnsubscribeInteractionClass unsubscribes from an interaction class
 func (a *RTIambassadorImpl) UnsubscribeInteractionClass(interactionClass int32) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	req := common.InteractionClassPayload{
@@ -238,7 +198,7 @@ func (a *RTIambassadorImpl) UnsubscribeInteractionClass(interactionClass int32) 
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgUnsubscribeInteractionClass, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgUnsubscribeInteractionClass, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -248,14 +208,9 @@ func (a *RTIambassadorImpl) UnsubscribeInteractionClass(interactionClass int32) 
 
 // RegisterObjectInstance registers a new object instance in the simulation model
 func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName string) (int32, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return 0, ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return 0, ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return 0, err
 	}
 
 	regReq := common.RegisterObjectInstancePayload{
@@ -267,7 +222,7 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 		return 0, err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgRegisterObject, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgRegisterObject, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return 0, err
 	}
@@ -280,25 +235,20 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 		return 0, ErrInvalidResponse
 	}
 
-	if resp.Header.MsgType != common.NativeMsgSuccessOK || len(resp.Payload) < 4 {
+	if resp.Header.MsgType != common.NativeMsgSuccessOK || len(resp.Payload) != 4 {
 		return 0, ErrInvalidResponse
 	}
 
 	objHandle := int32(binary.LittleEndian.Uint32(resp.Payload[0:4]))
-	a.stateTree.UpdateObjectState(common.ObjectInstanceHandle(objHandle), [32]byte{})
+	a.getStateTree().UpdateObjectState(common.ObjectInstanceHandle(objHandle), [32]byte{})
 	return objHandle, nil
 }
 
 // DeleteObjectInstance requests deletion of an object instance from the federation
 func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	delReq := common.DeleteObjectInstancePayload{
@@ -310,7 +260,7 @@ func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte)
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgDeleteObjectInstance, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgDeleteObjectInstance, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -318,12 +268,21 @@ func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte)
 	if err := checkNativeResponse(resp); err != nil {
 		return err
 	}
-	a.stateTree.RemoveObjectState(common.ObjectInstanceHandle(objectHandle))
+	a.getStateTree().RemoveObjectState(common.ObjectInstanceHandle(objectHandle))
 	return nil
 }
 
-// UpdateAttributeValues dispatches updated attribute values to the federation
+// UpdateAttributeValues dispatches receive-ordered (RO) attribute values to the federation
 func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes map[int32][]byte, tag []byte) error {
+	return a.updateAttributeValuesInternal(objectHandle, attributes, false, 0, tag)
+}
+
+// UpdateAttributeValuesWithTime dispatches timestamp-ordered (TSO) attribute values to the federation
+func (a *RTIambassadorImpl) UpdateAttributeValuesWithTime(objectHandle int32, attributes map[int32][]byte, timestamp float64, tag []byte) error {
+	return a.updateAttributeValuesInternal(objectHandle, attributes, true, timestamp, tag)
+}
+
+func (a *RTIambassadorImpl) updateAttributeValuesInternal(objectHandle int32, attributes map[int32][]byte, hasTime bool, timestamp float64, tag []byte) error {
 	a.mu.RLock()
 	client := a.client
 	fedID := a.federationID
@@ -348,7 +307,8 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 		ObjectHandle: common.ObjectInstanceHandle(objectHandle),
 		Attributes:   attrMap,
 		Tag:          tag,
-		HasTime:      false,
+		HasTime:      hasTime,
+		Time:         timestamp,
 	}
 	payload, err := uavReq.MarshalBinary()
 	if err != nil {
@@ -385,14 +345,9 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 
 // SendInteraction dispatches an interaction with parameters to the federation
 func (a *RTIambassadorImpl) SendInteraction(interactionClass int32, parameters map[int32][]byte, tag []byte) error {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.client == nil || a.client.IsClosed() {
-		return ErrNotConnected
-	}
-	if a.federateID == 0 {
-		return ErrFederateNotExecutionMember
+	client, fedExecID, fedID, err := a.snapshotMemberSession()
+	if err != nil {
+		return err
 	}
 
 	paramMap := make(map[common.ParameterHandle][]byte, len(parameters))
@@ -411,11 +366,10 @@ func (a *RTIambassadorImpl) SendInteraction(interactionClass int32, parameters m
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgSendInteraction, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgSendInteraction, uint32(fedExecID), uint32(fedID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
 
 	return checkNativeResponse(resp)
 }
-

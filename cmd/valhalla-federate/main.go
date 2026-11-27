@@ -22,14 +22,12 @@ type FederateCallbackHandler struct {
 	lrc.NullFederateAmbassador
 	mu             sync.Mutex
 	isSynchronized bool
-	syncedCond     *sync.Cond
 	timeGranted    float64
 	timeCond       *sync.Cond
 }
 
 func NewCallbackHandler() *FederateCallbackHandler {
 	h := &FederateCallbackHandler{}
-	h.syncedCond = sync.NewCond(&h.mu)
 	h.timeCond = sync.NewCond(&h.mu)
 	return h
 }
@@ -39,7 +37,6 @@ func (h *FederateCallbackHandler) FederationSynchronized(label string) {
 	defer h.mu.Unlock()
 	h.isSynchronized = true
 	log.Printf("[Callback] >>> FEDERATION FULLY SYNCHRONIZED at point '%s'!", label)
-	h.syncedCond.Broadcast()
 }
 
 func (h *FederateCallbackHandler) DiscoverObjectInstance(theObject int32, theObjectClass int32, objectName string) {
@@ -69,18 +66,21 @@ func (h *FederateCallbackHandler) TimeAdvanceGrant(grantedTime float64) {
 }
 
 func (h *FederateCallbackHandler) WaitForGrant(target float64, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
+	timedOut := false
+	timer := time.AfterFunc(timeout, func() {
+		h.mu.Lock()
+		timedOut = true
+		h.timeCond.Broadcast()
+		h.mu.Unlock()
+	})
+	defer timer.Stop()
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for h.timeGranted+1e-9 < target {
-		if time.Now().After(deadline) {
-			return false
-		}
-		h.mu.Unlock()
-		time.Sleep(10 * time.Millisecond)
-		h.mu.Lock()
+	for h.timeGranted+1e-9 < target && !timedOut {
+		h.timeCond.Wait()
 	}
-	return true
+	return h.timeGranted+1e-9 >= target
 }
 
 func main() {
@@ -203,17 +203,10 @@ func main() {
 			return
 
 		case <-ticker.C:
-			attrs := map[int32][]byte{
-				privAttr: []byte(fmt.Sprintf("Step:%d", step)),
-			}
-			if err := amb.UpdateAttributeValues(objHandle, attrs, nil); err != nil {
-				log.Printf("[-] UpdateAttributeValues failed: %v", err)
-			} else {
-				log.Printf("[Simulation #%d] Object %d attributes updated", step, objHandle)
-			}
-
 			if err := amb.SendInteraction(interClass, nil, []byte(fmt.Sprintf("HeartbeatStep_%d", step))); err != nil {
 				log.Printf("[-] SendInteraction failed: %v", err)
+			} else {
+				log.Printf("[Simulation #%d] Object %d heartbeat interaction sent", step, objHandle)
 			}
 
 			logicalTime := float64(step) * 1.0

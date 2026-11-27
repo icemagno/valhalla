@@ -1,6 +1,7 @@
 package crc
 
 import (
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 	}
 
 	buf := make([]byte, 8)
-	if _, err := clientConn.Read(buf); err != nil {
+	if _, err := io.ReadFull(clientConn, buf); err != nil {
 		t.Fatalf("falha lendo magic de boas-vindas: %v", err)
 	}
 	welcomeMagic = int32(wire.HeaderLength) // apenas variavel
@@ -68,13 +69,13 @@ func TestPorticoHandler_FullLifecycle(t *testing.T) {
 	_ = welcomeLen
 
 	msgBuf := make([]byte, len(PorticoWelcomeMsg))
-	if _, err := clientConn.Read(msgBuf); err != nil {
+	if _, err := io.ReadFull(clientConn, msgBuf); err != nil {
 		t.Fatalf("falha lendo texto de boas-vindas: %v", err)
 	}
 
 	// Ler 0xFEED do servidor
 	var srvFeed [4]byte
-	if _, err := clientConn.Read(srvFeed[:]); err != nil {
+	if _, err := io.ReadFull(clientConn, srvFeed[:]); err != nil {
 		t.Fatalf("falha lendo 0xFEED do servidor: %v", err)
 	}
 

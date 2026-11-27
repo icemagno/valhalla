@@ -55,37 +55,84 @@ type WelcomePackInfo struct {
 	FederateType     string
 }
 
-// ParseWelcomePack decodifica de forma canonica o WelcomePack (Externalizable) do Portico
+func extractWelcomePackFromObject(obj *JavaObject) *JavaObject {
+	if obj == nil || obj.Class == nil {
+		return nil
+	}
+	if obj.Class.Name == metamodel.ClassDescWelcomePack.Name {
+		return obj
+	}
+	if obj.Class.Name == metamodel.ClassDescExtendedSuccessResponse.Name {
+		if resultsObj, ok := obj.Get("results").(*JavaObject); ok && resultsObj != nil {
+			switch entries := resultsObj.Get("entries").(type) {
+			case map[string]any:
+				if wp, ok := entries["result"].(*JavaObject); ok {
+					return wp
+				}
+			case map[any]any:
+				if wp, ok := entries["result"].(*JavaObject); ok {
+					return wp
+				}
+			}
+		}
+		if res, ok := obj.Get("result").(*JavaObject); ok && res != nil {
+			return res
+		}
+	}
+	return nil
+}
+
+// ParseWelcomePack decodifica de forma canonica o WelcomePack (Externalizable) do Portico usando JOSDecoder
 func ParseWelcomePack(payload []byte) (*WelcomePackInfo, error) {
+	// Primary canonical path: full JOS stream (0xAC 0xED) decoded via JOSDecoder
+	if len(payload) >= 2 && payload[0] == 0xAC && payload[1] == 0xED {
+		decoded, err := DeserializePorticoControlMessage(payload)
+		if err != nil {
+			return nil, fmt.Errorf("jos wire: falha ao decodificar WelcomePack via JOSDecoder: %w", err)
+		}
+		wpObj := extractWelcomePackFromObject(decoded)
+		if wpObj == nil || wpObj.Class == nil || wpObj.Class.Name != metamodel.ClassDescWelcomePack.Name {
+			return nil, fmt.Errorf("jos wire: payload nao contem WelcomePack do Portico")
+		}
+		fedHandle, _ := wpObj.Get("federationHandle").(int32)
+		federateHandle, _ := wpObj.Get("federateHandle").(int32)
+		fedName, _ := wpObj.Get("federationName").(string)
+		federateName, _ := wpObj.Get("federateName").(string)
+		federateType, _ := wpObj.Get("federateType").(string)
+		return &WelcomePackInfo{
+			FederationHandle: fedHandle,
+			FederateHandle:   federateHandle,
+			FederationName:   fedName,
+			FederateName:     federateName,
+			FederateType:     federateType,
+		}, nil
+	}
+
+	// Legacy raw WelcomePack fragment without JOS stream header (parse block data via JOSDecoder)
 	idx := bytes.Index(payload, []byte("WelcomePack"))
 	if idx == -1 {
 		return nil, fmt.Errorf("jos wire: payload nao contem WelcomePack do Portico")
 	}
-
-	// Estrutura do WelcomePack no JOS:
-	// - ClassName: "WelcomePack"
-	// - SUID (8 bytes)
-	// - Flags (1 byte: 0x0C = SC_EXTERNALIZABLE | SC_BLOCK_DATA)
-	// - NumFields (2 bytes: 0x0000)
-	// - TC_ENDBLOCKDATA (1 byte: 0x78)
-	// - SuperClass TC_NULL (1 byte: 0x70)
-	// - TC_BLOCKDATA (1 byte: 0x77)
-	// - BlockLength (1 byte)
-	headerOffset := idx + len("WelcomePack") + 8 + 1 + 2 + 1 + 1 + 1 + 1
-	if headerOffset > len(payload) {
+	blockStart := idx + len("WelcomePack") + 8 + 1 + 2 + 1 + 1
+	if blockStart >= len(payload) {
 		return nil, fmt.Errorf("jos wire: payload truncado antes dos dados do WelcomePack")
 	}
-
-	data := payload[headerOffset:]
+	dec := NewJOSDecoder(payload[blockStart:])
+	data, err := dec.ReadBlockData()
+	if err != nil {
+		// Fall back to direct slice if fragment has shorter data than declared block length
+		if blockStart+2 > len(payload) {
+			return nil, fmt.Errorf("jos wire: bloco de dados truncado: %w", err)
+		}
+		data = payload[blockStart+2:]
+	}
 	if len(data) < 8 {
 		return nil, fmt.Errorf("jos wire: bloco de dados insuficiente para handles")
 	}
-
 	info := &WelcomePackInfo{
 		FederationHandle: int32(binary.BigEndian.Uint32(data[0:4])),
 		FederateHandle:   int32(binary.BigEndian.Uint32(data[4:8])),
 	}
-
 	offset := 8
 	readUTF := func() (string, error) {
 		if offset+2 > len(data) {
@@ -100,8 +147,6 @@ func ParseWelcomePack(payload []byte) (*WelcomePackInfo, error) {
 		offset += sLen
 		return str, nil
 	}
-
-	var err error
 	if info.FederationName, err = readUTF(); err != nil {
 		return nil, fmt.Errorf("falha ao ler federationName: %w", err)
 	}
@@ -111,7 +156,6 @@ func ParseWelcomePack(payload []byte) (*WelcomePackInfo, error) {
 	if info.FederateType, err = readUTF(); err != nil {
 		return nil, fmt.Errorf("falha ao ler federateType: %w", err)
 	}
-
 	return info, nil
 }
 

@@ -1,11 +1,10 @@
 package crc
 
 import (
+	"errors"
+
 	"github.com/icemagno/valhalla/pkg/common"
-	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
-	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
-	fomparser "github.com/icemagno/valhalla/pkg/metamodel"
 )
 
 type porticoContext struct {
@@ -54,31 +53,6 @@ func (ctx *porticoContext) handleFederationManagement(hdr wire.Header, payload [
 				if val := obj.Get(key); val != nil {
 					ingestPorticoFOMModules(ctx.currentFed.OMT(), val)
 				}
-			}
-		}
-
-		// Canonical FOM modules fallback
-		if fedName == "ExampleFederation" {
-			for _, mod := range []string{"RestaurantProcesses.xml", "RestaurantFood.xml", "RestaurantDrinks.xml", "RestaurantSoup.xml"} {
-				if resolved := resolveFOMPath(mod); resolved != "" {
-					if err := fomparser.ParseFOMFile(ctx.currentFed.OMT(), resolved); err == nil {
-						logCRCPortico.Info("Ingested canonical FOM module '%s' (from '%s') for [%s]", mod, resolved, fedName)
-					} else {
-						logCRCPortico.Warn("Warning: failed to parse canonical module '%s': %v", resolved, err)
-					}
-				} else {
-					logCRCPortico.Warn("Warning: could not resolve canonical module '%s' on disk", mod)
-				}
-			}
-		} else if fedName == "ValhallaAdvancedFed" {
-			if resolved := resolveFOMPath("ValhallaAdvanced.xml"); resolved != "" {
-				if err := fomparser.ParseFOMFile(ctx.currentFed.OMT(), resolved); err == nil {
-					logCRCPortico.Info("Ingested advanced FOM module '%s' (from '%s') for [%s]", "ValhallaAdvanced.xml", resolved, fedName)
-				} else {
-					logCRCPortico.Warn("Warning: failed to parse advanced module '%s': %v", resolved, err)
-				}
-			} else {
-				logCRCPortico.Warn("Warning: could not resolve advanced module 'ValhallaAdvanced.xml' on disk")
 			}
 		}
 
@@ -138,6 +112,13 @@ func (ctx *porticoContext) handleFederationManagement(hdr wire.Header, payload [
 			}
 		}
 
+		if ctx.currentFed != nil && ctx.federateID > 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateAlreadyExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+
 		fed, err := fedExec.Join(nodeName, nodeType, ProtocolPortico, ctx.session)
 		if err != nil {
 			logCRCPortico.Error("Join error for %s: %v", nodeName, err)
@@ -151,27 +132,6 @@ func (ctx *porticoContext) handleFederationManagement(hdr wire.Header, payload [
 		ctx.federateID = fed.ID
 		ctx.session.SetFederateID(ctx.federateID)
 		ctx.session.SetFederationHandle(ctx.currentFed.Handle)
-
-		// Safety check: ensure canonical / advanced modules are loaded before WelcomePack
-		if fedName == "ExampleFederation" {
-			if _, hasSoda := ctx.currentFed.OMT().GetObjectClassByName("Soda"); !hasSoda {
-				for _, mod := range []string{"RestaurantProcesses.xml", "RestaurantFood.xml", "RestaurantDrinks.xml", "RestaurantSoup.xml"} {
-					if resolved := resolveFOMPath(mod); resolved != "" {
-						if err := fomparser.ParseFOMFile(ctx.currentFed.OMT(), resolved); err == nil {
-							logCRCPortico.Info("Ingested canonical FOM module '%s' (from '%s') for [%s]", mod, resolved, fedName)
-						}
-					}
-				}
-			}
-		} else if fedName == "ValhallaAdvancedFed" {
-			if _, hasTactical := ctx.currentFed.OMT().GetObjectClassByName("TacticalEntity"); !hasTactical {
-				if resolved := resolveFOMPath("ValhallaAdvanced.xml"); resolved != "" {
-					if err := fomparser.ParseFOMFile(ctx.currentFed.OMT(), resolved); err == nil {
-						logCRCPortico.Info("Ingested advanced FOM module '%s' (from '%s') for [%s]", "ValhallaAdvanced.xml", resolved, fedName)
-					}
-				}
-			}
-		}
 
 		wpPayload, err := wire.BuildWelcomePackPayloadWithFOM(ctx.currentFed.Handle, ctx.federateID, ctx.currentFed.OMT(), fedName, nodeName, nodeType)
 		if err != nil {
@@ -211,17 +171,27 @@ func (ctx *porticoContext) handleFederationManagement(hdr wire.Header, payload [
 		if fedName == "" && ctx.currentFed != nil {
 			fedName = ctx.currentFed.Name
 		}
-		if fedName != "" {
-			if err := ctx.fedManager.DestroyFederation(fedName); err != nil {
-				logCRCPortico.Warn("failed to destroy federation [%s]: %v", fedName, err)
-				if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederationExecutionDoesNotExist: "+fedName); sendErr != nil {
-					return true, sendErr
-				}
-				return true, nil
+		if fedName == "" {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederationExecutionDoesNotExist"); sendErr != nil {
+				return true, sendErr
 			}
-			logCRCPortico.Info("Federation [%s] destroyed", fedName)
-			ctx.currentFed = nil
+			return true, nil
 		}
+		if err := ctx.fedManager.DestroyFederation(fedName); err != nil {
+			logCRCPortico.Warn("failed to destroy federation [%s]: %v", fedName, err)
+			errMsg := "RTIinternalError: " + err.Error()
+			if errors.Is(err, ErrFederatesCurrentlyJoined) || errors.Is(err, common.ErrFederatesCurrentlyJoined) {
+				errMsg = "FederatesCurrentlyJoined: " + fedName
+			} else if errors.Is(err, ErrFederationExecutionDoesNotExist) || errors.Is(err, common.ErrFederationExecutionDoesNotExist) {
+				errMsg = "FederationExecutionDoesNotExist: " + fedName
+			}
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, errMsg); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		logCRCPortico.Info("Federation [%s] destroyed", fedName)
+		ctx.currentFed = nil
 		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
 			return true, err
 		}
@@ -235,594 +205,4 @@ func (ctx *porticoContext) handleFederationManagement(hdr wire.Header, payload [
 		return true, nil
 	}
 	return false, nil
-}
-
-// handleSyncPoints handles Portico synchronization points
-func (ctx *porticoContext) handleSyncPoints(hdr wire.Header, payload []byte) (bool, error) {
-	switch hdr.MessageType {
-	case wire.MsgRegisterSyncPoint:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		var label string
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if l, ok := obj.Get("label").(string); ok && l != "" {
-				label = l
-			}
-		}
-		if label == "" {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: empty sync point label"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		_, err := ctx.currentFed.RegisterSyncPoint(label, nil, ctx.federateID)
-		if err != nil {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Synchronization point '%s' registered by federate [%d]", label, ctx.federateID)
-
-		if err := ctx.currentFed.BroadcastSyncPointAnnounce(label, nil); err != nil {
-			logCRCPortico.Warn("failed to broadcast sync point announce: %v", err)
-		}
-		return true, nil
-
-	case wire.MsgAchieveSyncPoint:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		var label string
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if l, ok := obj.Get("label").(string); ok && l != "" {
-				label = l
-			}
-		}
-		if label == "" {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: empty sync point label"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		isSynced, err := ctx.currentFed.AchieveSyncPoint(label, ctx.federateID)
-		if err != nil {
-			logCRCPortico.Error("AchieveSyncPoint error: %v", err)
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] achieved synchronization point '%s'", ctx.federateID, label)
-
-		if isSynced {
-			logCRCPortico.Info(">>> FEDERATION SYNCHRONIZED at point '%s'!", label)
-			if err := ctx.currentFed.BroadcastFederationSynchronized(label); err != nil {
-				logCRCPortico.Warn("failed to broadcast federation synchronized: %v", err)
-			}
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-// handleDeclarationManagement handles Portico publish/subscribe
-func (ctx *porticoContext) handleDeclarationManagement(hdr wire.Header, payload []byte) (bool, error) {
-	switch hdr.MessageType {
-	case wire.MsgPublishObjectClass:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			classHandle, _ := obj.Get("classHandle").(int32)
-			attrHandles := extractAttributeHandles(obj.Get("attributes"))
-			if ctx.currentFed.Router() != nil && classHandle > 0 {
-				if err := ctx.currentFed.Router().PublishObjectClass(common.FederateHandle(ctx.federateID), common.ObjectClassHandle(classHandle), attrHandles); err != nil {
-					logCRCPortico.Warn("failed to publish object class: %v", err)
-					if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-						return true, sendErr
-					}
-					return true, nil
-				}
-			}
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case wire.MsgSubscribeObjectClass:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			classHandle, _ := obj.Get("classHandle").(int32)
-			attrHandles := extractAttributeHandles(obj.Get("attributes"))
-			if ctx.currentFed.Router() != nil && classHandle > 0 {
-				if err := ctx.currentFed.Router().SubscribeObjectClass(common.FederateHandle(ctx.federateID), common.ObjectClassHandle(classHandle), attrHandles, true); err != nil {
-					logCRCPortico.Warn("failed to subscribe object class: %v", err)
-					if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-						return true, sendErr
-					}
-					return true, nil
-				}
-			}
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case wire.MsgPublishInteractionClass:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			classHandle, _ := obj.Get("classHandle").(int32)
-			if ctx.currentFed.Router() != nil && classHandle > 0 {
-				if err := ctx.currentFed.Router().PublishInteractionClass(common.FederateHandle(ctx.federateID), common.InteractionClassHandle(classHandle)); err != nil {
-					logCRCPortico.Warn("failed to publish interaction class: %v", err)
-					if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-						return true, sendErr
-					}
-					return true, nil
-				}
-			}
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case wire.MsgSubscribeInteractionClass:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			classHandle, _ := obj.Get("classHandle").(int32)
-			if ctx.currentFed.Router() != nil && classHandle > 0 {
-				if err := ctx.currentFed.Router().SubscribeInteractionClass(common.FederateHandle(ctx.federateID), common.InteractionClassHandle(classHandle), true); err != nil {
-					logCRCPortico.Warn("failed to subscribe interaction class: %v", err)
-					if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-						return true, sendErr
-					}
-					return true, nil
-				}
-			}
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-// handleObjectManagement delegates Portico object operations directly to the unified domain service
-func (ctx *porticoContext) handleObjectManagement(hdr wire.Header, payload []byte) (bool, error) {
-	switch hdr.MessageType {
-	case wire.MsgRegisterObject:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		var classHandle int32
-		var objectName string
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if ch, ok := obj.Get("classHandle").(int32); ok {
-				classHandle = ch
-			}
-			if on, ok := obj.Get("objectName").(string); ok {
-				objectName = on
-			}
-		}
-		if classHandle <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectClassNotDefined"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		objInst, err := ctx.currentFed.RegisterAndBroadcastObject(classHandle, objectName, ctx.federateID)
-		if err != nil {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		respPayload := wire.BuildRegisterObjectResponsePayload(objInst.Handle, classHandle, objInst.Name)
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Object registered by federate [%d]: handle [%d], name '%s'", ctx.federateID, objInst.Handle, objInst.Name)
-		return true, nil
-
-	case wire.MsgDeleteObject:
-		if ctx.currentFed != nil && ctx.federateID > 0 {
-			var objHandle int32
-			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-				if h, ok := obj.Get("objectHandle").(int32); ok {
-					objHandle = h
-				}
-			}
-			if objHandle > 0 {
-				if _, err := ctx.currentFed.DeleteAndBroadcastObject(objHandle, ctx.federateID, nil); err != nil {
-					logCRCPortico.Warn("failed to delete object [%d] for federate [%d]: %v", objHandle, ctx.federateID, err)
-					if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "DeletePrivilegeNotHeld"); sendErr != nil {
-						return true, sendErr
-					}
-					return true, nil
-				}
-				logCRCPortico.Info("Object [%d] deleted by federate [%d]", objHandle, ctx.federateID)
-			}
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case wire.MsgUpdateAttributes:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		var objectId int32
-		var attrsMap map[int32][]byte
-		var tag []byte
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if oid, ok := obj.Get("objectId").(int32); ok {
-				objectId = oid
-			}
-			attrsMap = extractAttributeMap(obj.Get("attributes"))
-			if t, ok := obj.Get("tag").([]byte); ok {
-				tag = t
-			}
-		}
-
-		if objectId <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		nativeUavAttrs := make(map[common.AttributeHandle][]byte, len(attrsMap))
-		for k, v := range attrsMap {
-			nativeUavAttrs[common.AttributeHandle(k)] = v
-		}
-
-		if _, err := ctx.currentFed.UpdateAndRouteAttributes(ctx.federateID, common.ObjectInstanceHandle(objectId), nativeUavAttrs, tag, false, 0, nil, [32]byte{}); err != nil {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case wire.MsgSendInteraction:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		var interactionId int32
-		var paramsMap map[int32][]byte
-		var tag []byte
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if iid, ok := obj.Get("interactionId").(int32); ok {
-				interactionId = iid
-			}
-			paramsMap = extractAttributeMap(obj.Get("parameters"))
-			if t, ok := obj.Get("tag").([]byte); ok {
-				tag = t
-			}
-		}
-
-		if interactionId <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if _, exists := ctx.currentFed.OMT().GetInteractionClass(common.InteractionClassHandle(interactionId)); !exists {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-
-		nativeParams := make(map[common.ParameterHandle][]byte, len(paramsMap))
-		for k, v := range paramsMap {
-			nativeParams[common.ParameterHandle(k)] = v
-		}
-
-		if err := ctx.currentFed.RouteInteraction(ctx.federateID, common.InteractionClassHandle(interactionId), nativeParams, tag, false, 0); err != nil {
-			logCRCPortico.Warn("failed to route interaction %d: %v", interactionId, err)
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-// handleTimeManagement handles Portico time advancement services via core.TimeManager
-func (ctx *porticoContext) handleTimeManagement(hdr wire.Header, payload []byte) (bool, error) {
-	switch hdr.MessageType {
-	case wire.MsgEnableTimeRegulation:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		lookahead := 0.0
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if la, ok := obj.Get("lookahead").(float64); ok {
-				lookahead = la
-			}
-		}
-		if err := ctx.currentFed.TimeManager().EnableTimeRegulation(common.FederateHandle(ctx.federateID), lookahead); err != nil {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-		fedStatus, _ := ctx.currentFed.TimeManager().GetStatus(common.FederateHandle(ctx.federateID))
-		respPayload := wire.BuildDoubleResponsePayload(fedStatus.CurrentTime)
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] enabled time regulation at time %f (lookahead=%f)", ctx.federateID, fedStatus.CurrentTime, lookahead)
-		return true, nil
-
-	case wire.MsgEnableTimeConstrained:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if err := ctx.currentFed.TimeManager().EnableTimeConstrained(common.FederateHandle(ctx.federateID)); err != nil {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] enabled time constrained", ctx.federateID)
-		return true, nil
-
-	case wire.MsgTimeAdvanceRequest, wire.MsgNextEventRequest, wire.MsgFlushQueueRequest:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		var requestedTime float64
-		hasTime := false
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if t, ok := obj.Get("time").(float64); ok {
-				requestedTime = t
-				hasTime = true
-			}
-		}
-		if !hasTime {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidLogicalTime"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-
-		var (
-			grants []core.TimeGrantEvent
-			err    error
-		)
-		tm := ctx.currentFed.TimeManager()
-		fedHandle := common.FederateHandle(ctx.federateID)
-		switch hdr.MessageType {
-		case wire.MsgTimeAdvanceRequest:
-			grants, err = tm.TimeAdvanceRequest(fedHandle, requestedTime)
-		case wire.MsgNextEventRequest:
-			grants, err = tm.NextMessageRequest(fedHandle, requestedTime)
-		case wire.MsgFlushQueueRequest:
-			grants, err = tm.FlushQueueRequest(fedHandle, requestedTime)
-		}
-		if err != nil {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		if len(grants) > 0 {
-			dispatchTimeGrants(ctx.currentFed, grants)
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-// handleSaveRestoreManagement explicitly rejects Portico save/restore until persistence is implemented.
-// NOT IMPLEMENTED: Planned for future release.
-func (ctx *porticoContext) handleSaveRestoreManagement(hdr wire.Header, payload []byte) (bool, error) {
-	switch hdr.MessageType {
-	case wire.MsgSaveRequest, wire.MsgSaveBegun, wire.MsgSaveComplete, wire.MsgRestoreRequest, wire.MsgRestoreComplete:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "NOT IMPLEMENTED: Federation Save/Restore is not implemented in this release"); err != nil {
-			return true, err
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-// handleOwnershipManagement handles Portico ownership queries and divestitures via core.OwnershipManager
-func (ctx *porticoContext) handleOwnershipManagement(hdr wire.Header, payload []byte) (bool, error) {
-	switch hdr.MessageType {
-	case wire.MsgAttributeDivest:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		obj, err := wire.DeserializePorticoControlMessage(payload)
-		if err != nil || obj == nil {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidDivestPayload"); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-		objHandle := extractInt32Field(obj, "objectHandle")
-		attrs := extractInt32SliceField(obj, "attributes")
-		if objHandle <= 0 || len(attrs) == 0 {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown"); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-		attrHandles := make([]common.AttributeHandle, len(attrs))
-		for i, a := range attrs {
-			attrHandles[i] = common.AttributeHandle(a)
-		}
-		if err := ctx.currentFed.OwnershipManager().UnconditionalDivestiture(common.ObjectInstanceHandle(objHandle), attrHandles, common.FederateHandle(ctx.federateID)); err != nil {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] divested %d attributes on object %d", ctx.federateID, len(attrHandles), objHandle)
-		return true, nil
-
-	case wire.MsgQueryOwnership:
-		if ctx.currentFed == nil || ctx.federateID <= 0 {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		obj, err := wire.DeserializePorticoControlMessage(payload)
-		if err != nil || obj == nil {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidQueryOwnershipPayload"); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-		objHandle := extractInt32Field(obj, "objectHandle")
-		attrHandle := extractInt32Field(obj, "attributeHandle")
-		if objHandle <= 0 || attrHandle <= 0 {
-			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "AttributeNotDefined"); sendErr != nil {
-				return true, sendErr
-			}
-			return true, nil
-		}
-		owner, owned := ctx.currentFed.OwnershipManager().QueryAttributeOwnership(common.ObjectInstanceHandle(objHandle), common.AttributeHandle(attrHandle))
-		ownerID := int32(-1)
-		if owned {
-			ownerID = int32(owner)
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildIntegerResponsePayload(ownerID)); err != nil {
-			return true, err
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-func extractInt32Field(obj *metamodel.JavaObject, name string) int32 {
-	if obj == nil {
-		return 0
-	}
-	switch v := obj.Get(name).(type) {
-	case int32:
-		return v
-	case int:
-		return int32(v)
-	case *metamodel.JavaObject:
-		if iv, ok := v.Get("value").(int32); ok {
-			return iv
-		}
-	}
-	return 0
-}
-
-func extractInt32SliceField(obj *metamodel.JavaObject, name string) []int32 {
-	if obj == nil {
-		return nil
-	}
-	var out []int32
-	switch v := obj.Get(name).(type) {
-	case []int32:
-		return v
-	case *metamodel.JavaObject:
-		if elems, ok := v.Get("elements").([]any); ok {
-			for _, el := range elems {
-				switch ev := el.(type) {
-				case int32:
-					out = append(out, ev)
-				case *metamodel.JavaObject:
-					if iv, ok := ev.Get("value").(int32); ok {
-						out = append(out, iv)
-					}
-				}
-			}
-		}
-	}
-	return out
 }

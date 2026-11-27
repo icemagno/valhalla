@@ -13,12 +13,12 @@ import (
 )
 
 func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
-	if os.Getenv("PORTICO_LIVE_TEST") != "true" {
-		t.Skip("Skipping live Portico test (set PORTICO_LIVE_TEST=true to run against live external Portico)")
-	}
-	endpoint := os.Getenv("PORTICO_ENDPOINT")
+	endpoint := os.Getenv("VALHALLA_LIVE_PORTICO_ADDR")
 	if endpoint == "" {
-		endpoint = "192.168.1.226:52295"
+		endpoint = os.Getenv("PORTICO_ENDPOINT")
+	}
+	if os.Getenv("PORTICO_LIVE_TEST") != "true" || endpoint == "" {
+		t.Skip("Skipping live Portico test (set PORTICO_LIVE_TEST=true and VALHALLA_LIVE_PORTICO_ADDR=host:port to run)")
 	}
 
 	t.Logf("Iniciando conexao ao vivo contra o executivo Portico no Arcanjo: %s", endpoint)
@@ -85,22 +85,15 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 	// Inspecionar o objeto deserializado do WelcomePack
 	wpObj, wpErr := wire.DeserializePorticoControlMessage(joinRespPayload)
 	if wpErr != nil {
-		t.Logf("Aviso ao deserializar WelcomePack: %v", wpErr)
-	} else {
-		t.Logf("WelcomePack Class: %s (Flags: 0x%02X)", wpObj.Class.Name, wpObj.Class.Flags)
-		idxWP := bytes.Index(joinRespPayload, []byte("WelcomePack"))
-		if idxWP != -1 {
-			t.Logf("WelcomePack at index %d. Next 80 bytes HEX: %X", idxWP, joinRespPayload[idxWP:idxWP+80])
+		t.Fatalf("falha ao deserializar WelcomePack: %v", wpErr)
+	}
+	t.Logf("WelcomePack Class: %s (Flags: 0x%02X)", wpObj.Class.Name, wpObj.Class.Flags)
+	if idxWP := bytes.Index(joinRespPayload, []byte("WelcomePack")); idxWP != -1 {
+		end := idxWP + 80
+		if end > len(joinRespPayload) {
+			end = len(joinRespPayload)
 		}
-		for curr := wpObj.Class; curr != nil; curr = curr.Super {
-			t.Logf("  Class %s:", curr.Name)
-			for _, f := range curr.Fields {
-				t.Logf("    field %s (%s)", f.Name, f.Type)
-			}
-		}
-		for k, v := range wpObj.Fields {
-			t.Logf("  Field [%s]: %v (Type: %T)", k, v, v)
-		}
+		t.Logf("WelcomePack at index %d. Next %d bytes HEX: %X", idxWP, end-idxWP, joinRespPayload[idxWP:end])
 	}
 
 	wpInfo, err := wire.ParseWelcomePack(joinRespPayload)
@@ -130,14 +123,10 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 	// Aguardar e processar a resposta oficial de SyncPointAchieved do CRTI
 	syncRespHdr, syncRespPayload, err := client.ReadPacketTimeout(3 * time.Second)
 	if err != nil {
-		t.Logf("Aviso aguardando resposta de SyncPointAchieved: %v", err)
-	} else {
-		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA SyncPointAchieved:")
-		t.Logf("    Tipo Mensagem : %s", syncRespHdr.MessageType)
-		t.Logf("    Tipo Chamada  : %s", syncRespHdr.CallType)
-		t.Logf("    Request ID    : %d", syncRespHdr.RequestId)
-		t.Logf("    Payload Bytes : %s", string(syncRespPayload))
+		t.Fatalf("falha aguardando resposta de SyncPointAchieved: %v", err)
 	}
+	t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA SyncPointAchieved: %s / %s (req=%d, %d bytes)",
+		syncRespHdr.MessageType, syncRespHdr.CallType, syncRespHdr.RequestId, len(syncRespPayload))
 
 	// 3. Enviar ResignFederation canônico para saida graciosa e liberar o federado no CRTI
 	resignObj := wire.NewResignFederationObject(fedName, nodeName, "ieee1516e", "NO_ACTION")
@@ -156,12 +145,9 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 	// Aguardar e processar a resposta oficial de desligamento do CRTI
 	resignRespHdr, _, err := client.ReadPacketTimeout(3 * time.Second)
 	if err != nil {
-		t.Logf("Aviso aguardando resposta do Resign: %v", err)
-	} else {
-		t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA ResignFederation:")
-		t.Logf("    Tipo Mensagem : %s", resignRespHdr.MessageType)
-		t.Logf("    Tipo Chamada  : %s", resignRespHdr.CallType)
+		t.Fatalf("falha aguardando resposta do Resign: %v", err)
 	}
+	t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA ResignFederation: %s / %s", resignRespHdr.MessageType, resignRespHdr.CallType)
 
 	time.Sleep(200 * time.Millisecond)
 	t.Logf("Sessao finalizada com sucesso.")

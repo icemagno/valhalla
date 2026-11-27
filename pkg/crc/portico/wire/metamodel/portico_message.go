@@ -45,7 +45,11 @@ var ClassDescPorticoMessage = &ClassDesc{
 		}
 		binary.BigEndian.PutUint64(block[13:21], timeBits)
 
-		if async, ok := obj.Get("isAsync").(bool); ok && async {
+		if async, ok := obj.Get("isAsync").(bool); ok {
+			if async {
+				block[21] = 0x01
+			}
+		} else if imm, ok := obj.Get("immediate").(bool); ok && imm {
 			block[21] = 0x01
 		}
 

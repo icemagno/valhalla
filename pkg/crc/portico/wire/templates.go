@@ -161,21 +161,37 @@ func BuildDeleteObjectPayload(objectHandle int32, tag []byte) ([]byte, error) {
 
 // BuildReflectAttributesPayload constrói o payload de notificação ReflectAttributes para federados Portico
 func BuildReflectAttributesPayload(objectId int32, attrs map[int32][]byte, tag []byte) ([]byte, error) {
+	return BuildReflectAttributesWithTimePayload(objectId, attrs, tag, false, 0)
+}
+
+// BuildReflectAttributesWithTimePayload constrói ReflectAttributes preservando timestamp lógico TSO quando hasTime=true
+func BuildReflectAttributesWithTimePayload(objectId int32, attrs map[int32][]byte, tag []byte, hasTime bool, timestamp float64) ([]byte, error) {
 	entries := make(map[any]any, len(attrs))
 	for k, v := range attrs {
 		entries[metamodel.NewJavaInteger(k)] = v
 	}
 	obj := metamodel.NewReflectAttributes(objectId, entries, tag)
+	if hasTime {
+		obj.Set("timestamp", timestamp)
+	}
 	return SerializePorticoControlMessage(obj)
 }
 
 // BuildReceiveInteractionPayload constrói o payload de notificação ReceiveInteraction para federados Portico
 func BuildReceiveInteractionPayload(interactionId int32, params map[int32][]byte, tag []byte) ([]byte, error) {
+	return BuildReceiveInteractionWithTimePayload(interactionId, params, tag, false, 0)
+}
+
+// BuildReceiveInteractionWithTimePayload constrói ReceiveInteraction preservando timestamp lógico TSO quando hasTime=true
+func BuildReceiveInteractionWithTimePayload(interactionId int32, params map[int32][]byte, tag []byte, hasTime bool, timestamp float64) ([]byte, error) {
 	entries := make(map[any]any, len(params))
 	for k, v := range params {
 		entries[metamodel.NewJavaInteger(k)] = v
 	}
 	obj := metamodel.NewReceiveInteraction(interactionId, entries, tag)
+	if hasTime {
+		obj.Set("timestamp", timestamp)
+	}
 	return SerializePorticoControlMessage(obj)
 }
 

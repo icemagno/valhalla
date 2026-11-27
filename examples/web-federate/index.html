@@ -253,7 +253,9 @@
           delete entities[patrolObjHandle];
           updateEntitiesUI();
           log("Patrol UAV deactivated.");
-        } catch (e) {}
+        } catch (e) {
+          log("Warning deleting patrol UAV: " + e.message, "log-warn");
+        }
         patrolObjHandle = null;
       }
       return;
@@ -263,7 +265,9 @@
       btn.textContent = 'Starting Patrol...';
       await rtiAmb.connect();
       const fedName = "ValhallaHomologFederation";
-      try { await rtiAmb.createFederationExecution(fedName, ["foms/ValhallaAdvanced.xml"]); } catch (e) {}
+      try { await rtiAmb.createFederationExecution(fedName, ["foms/ValhallaAdvanced.xml"]); } catch (e) {
+        log("Federation create notice: " + e.message, "log-warn");
+      }
       await rtiAmb.joinFederationExecution("WebPatrolFederate", fedName);
 
       const entityClass = await rtiAmb.getObjectClassHandle("TacticalEntity");
@@ -301,7 +305,9 @@
             [posAttr]: `POS(x=${px}.0, y=${py}.0, z=200.0)`,
             [velAttr]: "VEL(mach=2.2)"
           }, px, py, 200.0, "Patrol");
-        } catch (e) {}
+        } catch (e) {
+          log("Warning deleting patrol UAV: " + e.message, "log-warn");
+        }
       }, 100);
 
     } catch (err) {
@@ -419,6 +425,7 @@
       await rtiAmb.attributeOwnershipAcquisition(objHandle, [posAttr], "WebAcquireTag");
       const afterAcquire = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
       log("  [+] Ownership after re-acquisition: " + afterAcquire + " (expected: true)");
+      if (!afterAcquire) throw new Error("Stage 7 failed: expected ownership after re-acquisition to be true");
       await sleep(600);
 
       // Stage 8: Delete Object Instance

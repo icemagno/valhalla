@@ -39,6 +39,17 @@ static void call_sync_reg_succeeded(ValhallaSynchronizationPointRegistrationSucc
 static void call_sync_reg_failed(ValhallaSynchronizationPointRegistrationFailedCallback cb, const char* label, const char* reason, void* userData) {
     if (cb) cb(label, reason, userData);
 }
+
+// Monotonic non-freed sentinel address space in BSS (64 KiB = 65535 unique non-NULL handles).
+// Handles are NEVER dereferenced and NEVER freed, eliminating both UAF during concurrent
+// destroy and malloc address-reuse ABA bugs while remaining valid C pointers for Go's GC.
+#define VALHALLA_HANDLE_SLOTS 65536
+static uint8_t valhalla_handle_arena[VALHALLA_HANDLE_SLOTS];
+
+static inline ValhallaAmbassador valhalla_alloc_handle(uint64_t id) {
+    if (id == 0 || id >= VALHALLA_HANDLE_SLOTS) return NULL;
+    return (ValhallaAmbassador)&valhalla_handle_arena[id];
+}
 */
 import "C"
 
@@ -69,22 +80,29 @@ func mapErrorToStatusCode(err error) C.int32_t {
 		case errors.Is(e, common.ErrFederationExecutionDoesNotExist):
 			return C.VALHALLA_ERR_FEDERATION_NOT_FOUND, true
 
-		case errors.Is(e, common.ErrFederateNameAlreadyInUse),
-			errors.Is(e, common.ErrObjectInstanceNameInUse):
+		case errors.Is(e, common.ErrFederateNameAlreadyInUse):
 			return C.VALHALLA_ERR_FEDERATE_NAME_IN_USE, true
+
+		case errors.Is(e, common.ErrObjectInstanceNameInUse):
+			return C.VALHALLA_ERR_OBJECT_NAME_IN_USE, true
 
 		case errors.Is(e, common.ErrFederatesCurrentlyJoined):
 			return C.VALHALLA_ERR_FEDERATES_JOINED, true
 
 		case errors.Is(e, lrc.ErrFederateAlreadyExecutionMember),
-			errors.Is(e, lrc.ErrFederateNotExecutionMember),
+			errors.Is(e, common.ErrFederateAlreadyExecutionMember):
+			return C.VALHALLA_ERR_ALREADY_MEMBER, true
+
+		case errors.Is(e, lrc.ErrFederateNotExecutionMember),
 			errors.Is(e, common.ErrFederateNotExecutionMember),
 			errors.Is(e, common.ErrFederateNotFound):
 			return C.VALHALLA_ERR_NOT_MEMBER, true
 
-		case errors.Is(e, common.ErrAttributeNotOwned),
-			errors.Is(e, common.ErrDeletePrivilegeNotHeld):
+		case errors.Is(e, common.ErrAttributeNotOwned):
 			return C.VALHALLA_ERR_NOT_OWNER, true
+
+		case errors.Is(e, common.ErrDeletePrivilegeNotHeld):
+			return C.VALHALLA_ERR_DELETE_PRIVILEGE_NOT_HELD, true
 
 		case errors.Is(e, common.ErrObjectClassNotDefined),
 			errors.Is(e, common.ErrClassNotFound):
@@ -128,9 +146,10 @@ func mapErrorToStatusCode(err error) C.int32_t {
 }
 
 type ambContext struct {
-	cbMu sync.RWMutex
-	amb  lrc.RTIambassador
-	cb   C.ValhallaCallbacks
+	cbMu    sync.RWMutex
+	evokeWg sync.WaitGroup
+	amb     lrc.RTIambassador
+	cb      C.ValhallaCallbacks
 }
 
 func (ctx *ambContext) getCallbacks() C.ValhallaCallbacks {
@@ -371,6 +390,7 @@ func (f *cFedAmbassador) TimeAdvanceGrant(grantTime float64) {
 var (
 	registryMu  sync.RWMutex
 	ambRegistry = make(map[uintptr]*ambContext)
+	nextAmbID   uint64
 )
 
 func getContext(amb C.ValhallaAmbassador) (*ambContext, bool) {
@@ -378,28 +398,42 @@ func getContext(amb C.ValhallaAmbassador) (*ambContext, bool) {
 		return nil, false
 	}
 	registryMu.RLock()
-	defer registryMu.RUnlock()
-	id := uintptr(amb)
-	ctx, exists := ambRegistry[id]
+	ctx, exists := ambRegistry[uintptr(amb)]
+	registryMu.RUnlock()
+	return ctx, exists
+}
+
+// acquireContextForEvoke atomically looks up the ambassador and increments its evokeWg
+// under registryMu.RLock so valhalla_destroy_ambassador waits for in-flight callbacks.
+func acquireContextForEvoke(amb C.ValhallaAmbassador) (*ambContext, bool) {
+	if amb == nil {
+		return nil, false
+	}
+	registryMu.RLock()
+	ctx, exists := ambRegistry[uintptr(amb)]
+	if exists {
+		ctx.evokeWg.Add(1)
+	}
+	registryMu.RUnlock()
 	return ctx, exists
 }
 
 //export valhalla_create_ambassador
 func valhalla_create_ambassador() C.ValhallaAmbassador {
-	cPtr := C.malloc(1)
-	if cPtr == nil {
-		return nil
-	}
-	id := uintptr(cPtr)
-
 	registryMu.Lock()
 	defer registryMu.Unlock()
+
+	nextAmbID++
+	handle := C.valhalla_alloc_handle(C.uint64_t(nextAmbID))
+	if handle == nil {
+		return nil
+	}
 
 	ctx := &ambContext{
 		amb: lrc.NewRTIambassador(),
 	}
-	ambRegistry[id] = ctx
-	return C.ValhallaAmbassador(cPtr)
+	ambRegistry[uintptr(handle)] = ctx
+	return handle
 }
 
 //export valhalla_destroy_ambassador
@@ -407,18 +441,21 @@ func valhalla_destroy_ambassador(amb C.ValhallaAmbassador) {
 	if amb == nil {
 		return
 	}
-	id := uintptr(amb)
 
 	registryMu.Lock()
-	ctx, exists := ambRegistry[id]
+	key := uintptr(amb)
+	ctx, exists := ambRegistry[key]
 	if exists {
-		delete(ambRegistry, id)
+		delete(ambRegistry, key)
 	}
 	registryMu.Unlock()
 
 	if exists {
 		_ = ctx.amb.Disconnect()
-		C.free(unsafe.Pointer(amb))
+		ctx.evokeWg.Wait()
+		ctx.cbMu.Lock()
+		ctx.cb = C.ValhallaCallbacks{}
+		ctx.cbMu.Unlock()
 	}
 }
 
@@ -485,9 +522,27 @@ func valhalla_create_federation(amb C.ValhallaAmbassador, fedName *C.char) C.int
 	return C.VALHALLA_OK
 }
 
+const (
+	maxCABICount    int32 = 65536
+	maxCABITagLen   int32 = 1024 * 1024      // 1 MiB
+	maxCABIValueLen int32 = 16 * 1024 * 1024 // 16 MiB
+)
+
+func validateCABICount(n int32) bool {
+	return n >= 0 && n <= maxCABICount
+}
+
+func validateCABITagLen(n int32) bool {
+	return n >= 0 && n <= maxCABITagLen
+}
+
+func validateCABIValueLen(n int32) bool {
+	return n >= 0 && n <= maxCABIValueLen
+}
+
 //export valhalla_create_federation_with_fom
 func valhalla_create_federation_with_fom(amb C.ValhallaAmbassador, fedName *C.char, fomModules **C.char, fomCount C.int32_t) C.int32_t {
-	if amb == nil || fedName == nil || fomCount < 0 || (fomCount > 0 && fomModules == nil) {
+	if amb == nil || fedName == nil || !validateCABICount(int32(fomCount)) || (fomCount > 0 && fomModules == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -565,7 +620,7 @@ func valhalla_resign_federation(amb C.ValhallaAmbassador) C.int32_t {
 
 //export valhalla_register_federation_synchronization_point
 func valhalla_register_federation_synchronization_point(amb C.ValhallaAmbassador, label *C.char, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || label == nil || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || label == nil || !validateCABITagLen(int32(tagLen)) || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)

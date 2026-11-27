@@ -19,7 +19,7 @@ func init() {
 // NewFederationSynchronized instancia a notificação FederationSynchronized
 func NewFederationSynchronized(label string) *JavaObject {
 	obj := NewJavaObject(ClassDescFederationSynchronized)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", true)
 	obj.Set("sourceFederate", int32(0))
 	obj.Set("targetFederate", int32(-1))

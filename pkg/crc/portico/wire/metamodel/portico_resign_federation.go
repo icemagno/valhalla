@@ -25,7 +25,7 @@ func NewResignFederation(federationName, federateName, federateType, action stri
 		action = "NO_ACTION"
 	}
 	obj := NewJavaObject(ClassDescResignFederation)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", false)
 	obj.Set("sourceFederate", int32(-1))
 	obj.Set("targetFederate", int32(0))

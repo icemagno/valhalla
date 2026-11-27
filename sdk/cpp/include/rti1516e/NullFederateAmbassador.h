@@ -3,6 +3,7 @@
 #define RTI1516E_NULLFEDERATEAMBASSADOR_H
 
 #include <rti1516e/FederateAmbassador.h>
+#include <rti1516e/RTIexception.h>
 
 namespace rti1516e {
 
@@ -10,52 +11,49 @@ class NullFederateAmbassador : public FederateAmbassador {
 public:
     virtual ~NullFederateAmbassador() throw() {}
 
-    virtual void synchronizationPointRegistrationSucceeded(
-        const std::wstring& label) throw(FederateInternalError) {}
+    void synchronizationPointRegistrationSucceeded(
+        const std::wstring& label) override {}
 
-    virtual void synchronizationPointRegistrationFailed(
+    void synchronizationPointRegistrationFailed(
         const std::wstring& label,
-        SynchronizationPointFailureReason reason) throw(FederateInternalError) {}
+        SynchronizationPointFailureReason reason) override {}
 
-    virtual void announceSynchronizationPoint(
+    void announceSynchronizationPoint(
         const std::wstring& label,
-        const VariableLengthData& userSuppliedTag) throw(FederateInternalError) {}
+        const VariableLengthData& userSuppliedTag) override {}
 
-    virtual void federationSynchronized(
-        const std::wstring& label) throw(FederateInternalError) {}
+    void federationSynchronized(
+        const std::wstring& label) override {}
 
-    virtual void discoverObjectInstance(
+    void discoverObjectInstance(
         ObjectInstanceHandle theObject,
         ObjectClassHandle theObjectClass,
-        const std::wstring& theObjectName) throw(FederateInternalError) {}
+        const std::wstring& theObjectName) override {}
 
-    virtual void reflectAttributeValues(
+    void reflectAttributeValues(
         ObjectInstanceHandle theObject,
         const AttributeHandleValueMap& theAttributeValues,
         const VariableLengthData& userSuppliedTag,
         OrderType sentOrder,
-        TransportationTypeHandle theType) throw(FederateInternalError) {}
+        TransportationTypeHandle theType) override {}
 
-    virtual void receiveInteraction(
+    void receiveInteraction(
         InteractionClassHandle theInteraction,
         const ParameterHandleValueMap& theParameters,
         const VariableLengthData& userSuppliedTag,
         OrderType sentOrder,
-        TransportationTypeHandle theType) throw(FederateInternalError) {}
+        TransportationTypeHandle theType) override {}
 
-    virtual void removeObjectInstance(
+    void removeObjectInstance(
         ObjectInstanceHandle theObject,
         const VariableLengthData& userSuppliedTag,
-        OrderType sentOrder) throw(FederateInternalError) {}
+        OrderType sentOrder) override {}
 
-    virtual void timeRegulationEnabled(
-        double theFederateTime) throw(FederateInternalError) {}
+    void timeRegulationEnabled(double theFederateTime) override {}
 
-    virtual void timeConstrainedEnabled(
-        double theFederateTime) throw(FederateInternalError) {}
+    void timeConstrainedEnabled(double theFederateTime) override {}
 
-    virtual void timeAdvanceGrant(
-        double theTime) throw(FederateInternalError) {}
+    void timeAdvanceGrant(double theTime) override {}
 };
 
 } // namespace rti1516e

@@ -47,7 +47,7 @@ func NewUpdateAttributes(objectId int32, attrs map[any]any, tag []byte) *JavaObj
 // NewReflectAttributes builds a ReflectAttributes notification ready for delivery to federates
 func NewReflectAttributes(objectId int32, attrs map[any]any, tag []byte) *JavaObject {
 	obj := NewJavaObject(ClassDescReflectAttributes)
-	obj.Set("immediate", true)
+	obj.Set("isAsync", true)
 	obj.Set("isFromRti", true)
 	obj.Set("sourceFederate", int32(0))
 	obj.Set("targetFederate", int32(-1))

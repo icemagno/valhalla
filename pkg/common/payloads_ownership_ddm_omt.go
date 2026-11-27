@@ -8,8 +8,10 @@ type DivestOwnershipPayload struct {
 
 func (p DivestOwnershipPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	attrLen := uint32(len(p.Attributes) * 4)
-	totalLen := fixedHeaderSize + attrLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Attributes))*4)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], p.ObjectHandle)
@@ -47,8 +49,10 @@ type AcquireOwnershipPayload struct {
 
 func (p AcquireOwnershipPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	attrLen := uint32(len(p.Attributes) * 4)
-	totalLen := fixedHeaderSize + attrLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Attributes))*4)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], p.ObjectHandle)
@@ -148,8 +152,10 @@ type CreateRegionPayload struct {
 
 func (p CreateRegionPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 4
-	dimLen := uint32(len(p.Dimensions) * 4)
-	totalLen := fixedHeaderSize + dimLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Dimensions))*4)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutOffset(buf[0:4], fixedHeaderSize)
@@ -279,8 +285,10 @@ type SubscribeWithRegionPayload struct {
 
 func (p SubscribeWithRegionPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 12
-	attrLen := uint32(len(p.Attributes) * 4)
-	totalLen := fixedHeaderSize + attrLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Attributes))*4)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], p.ObjectClass)
@@ -323,10 +331,15 @@ type UpdateAttributesSpatialPayload struct {
 
 func (p UpdateAttributesSpatialPayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 36 // 4 + 8 + 8 + 8 + 4 + 4
+	attrListSize, err := CheckedSSZAttributeListSize(p.Attributes)
+	if err != nil {
+		return nil, err
+	}
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.Tag)) + uint64(attrListSize))
+	if err != nil {
+		return nil, err
+	}
 	tagLen := uint32(len(p.Tag))
-	attrListSize := SizeSSZAttributeList(p.Attributes)
-
-	totalLen := fixedHeaderSize + tagLen + attrListSize
 	buf := make([]byte, totalLen)
 
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))
@@ -391,8 +404,10 @@ type GetObjectClassHandlePayload struct {
 
 func (p GetObjectClassHandlePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 4
-	nameLen := uint32(len(p.ClassName))
-	totalLen := fixedHeaderSize + nameLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.ClassName)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutOffset(buf[0:4], fixedHeaderSize)
@@ -451,8 +466,10 @@ type GetAttributeHandlePayload struct {
 
 func (p GetAttributeHandlePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	nameLen := uint32(len(p.AttributeName))
-	totalLen := fixedHeaderSize + nameLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.AttributeName)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutInt32(buf[0:4], p.ClassHandle)
@@ -489,8 +506,10 @@ type GetDimensionHandlePayload struct {
 
 func (p GetDimensionHandlePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 4
-	nameLen := uint32(len(p.DimensionName))
-	totalLen := fixedHeaderSize + nameLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.DimensionName)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutOffset(buf[0:4], fixedHeaderSize)
@@ -525,8 +544,10 @@ type GetInteractionClassHandlePayload struct {
 
 func (p GetInteractionClassHandlePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 4
-	nameLen := uint32(len(p.InteractionName))
-	totalLen := fixedHeaderSize + nameLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.InteractionName)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutOffset(buf[0:4], fixedHeaderSize)
@@ -562,8 +583,10 @@ type GetParameterHandlePayload struct {
 
 func (p GetParameterHandlePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 8
-	nameLen := uint32(len(p.ParameterName))
-	totalLen := fixedHeaderSize + nameLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.ParameterName)))
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutInt32(buf[0:4], p.InteractionHandle)
@@ -628,8 +651,10 @@ type MerkleProofResponsePayload struct {
 
 func (p MerkleProofResponsePayload) MarshalBinary() ([]byte, error) {
 	const fixedHeaderSize = 80
-	auditPathLen := uint32(len(p.AuditPath) * 32)
-	totalLen := fixedHeaderSize + auditPathLen
+	totalLen, err := CheckedSSZSize(uint64(fixedHeaderSize) + uint64(len(p.AuditPath))*32)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := make([]byte, totalLen)
 	PutUint32(buf[0:4], uint32(p.ObjectHandle))

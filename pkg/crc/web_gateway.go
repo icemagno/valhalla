@@ -95,22 +95,29 @@ func (g *WebGateway) Addr() net.Addr {
 }
 
 // Stop gracefully shuts down the Web gateway and terminates active WebSocket client connections
+// without holding g.mu during blocking socket Close() calls.
 func (g *WebGateway) Stop() error {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
 	if !g.running {
+		g.mu.Unlock()
 		return nil
 	}
 	g.running = false
 
+	sessions := make([]*WebSession, 0, len(g.sessions))
 	for s := range g.sessions {
-		_ = s.Close()
+		sessions = append(sessions, s)
 	}
 	g.sessions = make(map[*WebSession]struct{})
+	srv := g.server
+	g.mu.Unlock()
 
-	if g.server != nil {
-		_ = g.server.Close()
+	for _, s := range sessions {
+		_ = s.Close()
+	}
+
+	if srv != nil {
+		_ = srv.Close()
 	}
 	return nil
 }

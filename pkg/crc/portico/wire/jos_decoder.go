@@ -226,6 +226,9 @@ func (d *JOSDecoder) ReadObject() (any, error) {
 		if err := binary.Read(d.r, binary.BigEndian, &iLen); err != nil {
 			return nil, err
 		}
+		if iLen < 0 || int(iLen) > maxJOSAllocation {
+			return nil, fmt.Errorf("jos decoder: TC_BLOCKDATALONG length %d out of bounds [0, %d]", iLen, maxJOSAllocation)
+		}
 		buf := make([]byte, iLen)
 		if _, err := io.ReadFull(d.r, buf); err != nil {
 			return nil, err
@@ -255,6 +258,12 @@ func (d *JOSDecoder) assignHandle(obj any) uint32 {
 
 // readClassDesc lê um descritor de classe Java (TC_CLASSDESC ou TC_REFERENCE ou TC_NULL)
 func (d *JOSDecoder) readClassDesc() (*ClassDesc, error) {
+	if d.depth >= maxJOSDepth {
+		return nil, fmt.Errorf("jos decoder: max recursion depth (%d) exceeded in readClassDesc", maxJOSDepth)
+	}
+	d.depth++
+	defer func() { d.depth-- }()
+
 	tc, err := d.ReadByte()
 	if err != nil {
 		return nil, err
@@ -674,7 +683,7 @@ func DeserializePorticoControlMessage(data []byte) (*JavaObject, error) {
 				}
 			case 255: // SendInteraction
 				if len(buf) >= 29 {
-					obj := metamodel.NewJavaObject(metamodel.ClassDescObject)
+					obj := metamodel.NewJavaObject(metamodel.ClassDescSendInteraction)
 					interactionId := int32(binary.BigEndian.Uint32(buf[3:7]))
 					obj.Set("interactionId", interactionId)
 					obj.Set("sourceFederate", int32(binary.BigEndian.Uint32(buf[7:11])))

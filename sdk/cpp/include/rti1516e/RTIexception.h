@@ -5,6 +5,12 @@
 #include <exception>
 #include <string>
 
+#if __cplusplus >= 201703L
+#define RTI1516E_THROW(...)
+#else
+#define RTI1516E_THROW(...) throw(__VA_ARGS__)
+#endif
+
 namespace rti1516e {
 
 class RTIexception : public std::exception {

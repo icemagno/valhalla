@@ -19,4 +19,18 @@ public interface FederateAmbassador {
                                         TransportationTypeHandle theTransport) throws RTIexception {}
 
     default void timeAdvanceGrant(double theTime) throws RTIexception {}
+
+    default void receiveInteraction(int interactionClass,
+                                    java.util.Map<Integer, byte[]> theParameters,
+                                    byte[] userSuppliedTag,
+                                    OrderType sentOrdering,
+                                    TransportationTypeHandle theTransport) throws RTIexception {}
+
+    default void announceSynchronizationPoint(String label, byte[] userSuppliedTag) throws RTIexception {}
+
+    default void federationSynchronized(String label) throws RTIexception {}
+
+    default void synchronizationPointRegistrationSucceeded(String label) throws RTIexception {}
+
+    default void synchronizationPointRegistrationFailed(String label, String reason) throws RTIexception {}
 }

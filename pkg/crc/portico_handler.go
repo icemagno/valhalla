@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc/core"
@@ -180,6 +181,11 @@ func performPorticoHandshake(conn net.Conn, writer io.Writer, reader io.Reader) 
 		if err := flusher.Flush(); err != nil {
 			return err
 		}
+	}
+
+	if dlConn, ok := reader.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = dlConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		defer func() { _ = dlConn.SetReadDeadline(time.Time{}) }()
 	}
 
 	var clientReady int32

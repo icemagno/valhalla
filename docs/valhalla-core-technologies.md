@@ -41,7 +41,7 @@ Valhalla resolves these limitations through a foundational **Architectural Quadr
 │                       3D MORTON CURVES (Z-ORDER SPATIAL HASHING)                       │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
 │ Optional, Zero-Overhead Data Distribution Management (DDM)                             │
-│ 64-bit Integer Coordinate Hashing (6-meter earth voxels in pure bitwise shifts)        │
+│ 64-bit Integer Coordinate Hashing (~9.53-meter earth voxels in pure bitwise shifts)      │
 │ Decoupled from Physics: Full Kinematic Dead Reckoning Fidelity for ICBMs & Satellites  │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -119,7 +119,7 @@ Every entity's attribute values are organized into deterministic binary Merkle t
 ### 5.2. Benefits for Defense and Aerospace Simulation
 * **Tamper-Evident Frame Integrity:** The 56-byte VAL4 protocol header transmits the global `MerkleRoot` in every state update.
 * **Cryptographic Multi-Proofs:** An observer can mathematically prove that an entity had exact coordinates $(X, Y, Z)$ at step $T$ with a compact logarithmic audit path ($\approx 320\text{ bytes}$), without disclosing or archiving gigabytes of raw database logs.
-* **Speed:** Single entity root calculated in **870 ns**; global cached root retrieved in **30 ns**.
+* **Speed:** Single entity Merkle root calculated in **~8.8 µs** (SHA-256 SSZ); incremental 1,000-entity global root update in **~1.33 µs** (0 allocs/op).
 
 ---
 
@@ -185,7 +185,7 @@ Measured under real-world network conditions on Windows x86_64 (`go test -bench`
 | **OMT Polymorphic Check** | **15.4 ns / op** | $500 - 2,500\ \text{ns}$ (pointer chase) | **$30\times - 160\times$ faster** |
 | **Bitset Union (1,000 nodes)** | **33.7 ns / op** | $1,200 - 8,000\ \text{ns}$ (HashSet) | **$35\times - 230\times$ faster** |
 | **Subscriber Matching (150 nodes)**| **275.7 ns / op** | $5,000 - 25,000\ \text{ns}$ | **$18\times - 90\times$ faster** |
-| **Entity Merkle Root (SSZ)** | **870.0 ns / op** | N/A (Not supported in legacy RTIs) | **Cryptographic Innovation** |
+| **Entity Merkle Root (SSZ)** | **~8.8 µs / op** | N/A (Not supported in legacy RTIs) | **Cryptographic Innovation** |
 | **E2E TCP Network Round-Trip** | **89.67 µs** (avg) | $300 - 800\ \mu\text{s}$ (Pitch) / $1 - 60\ \text{ms}$ (Portico) | **$3.5\times - 500\times$ faster** |
 
 ---

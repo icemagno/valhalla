@@ -25,7 +25,24 @@ func (m *FederationManager) CreateFederation(name string) (*FederationExecution,
 }
 
 // CreateFederationWithFOMs creates a new federation execution and ingests specified FOM modules
+// without holding m.mu during filesystem WalkDir / XML parsing I/O.
 func (m *FederationManager) CreateFederationWithFOMs(name string, foms []string) (*FederationExecution, error) {
+	m.mu.RLock()
+	_, alreadyExists := m.federations[name]
+	m.mu.RUnlock()
+	if alreadyExists {
+		return nil, ErrFederationExecutionAlreadyExists
+	}
+
+	// Build federation and perform disk/XML FOM ingestion outside the manager lock
+	fed := NewFederationExecution(0, name)
+	for _, f := range foms {
+		if err := IngestFOMIntoFederation(fed, f); err != nil {
+			return nil, err
+		}
+	}
+	IngestCanonicalDefaults(fed)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -33,22 +50,9 @@ func (m *FederationManager) CreateFederationWithFOMs(name string, foms []string)
 		return nil, ErrFederationExecutionAlreadyExists
 	}
 
-	h := m.nextHandle
+	fed.Handle = m.nextHandle
 	m.nextHandle++
-
-	fed := NewFederationExecution(h, name)
 	m.federations[name] = fed
-
-	// Ingest specified FOM modules
-	for _, f := range foms {
-		if err := IngestFOMIntoFederation(fed, f); err != nil {
-			delete(m.federations, name)
-			return nil, err
-		}
-	}
-
-	// Ingest canonical defaults for standard federations
-	IngestCanonicalDefaults(fed)
 
 	return fed, nil
 }
