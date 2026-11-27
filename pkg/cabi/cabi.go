@@ -45,12 +45,12 @@ import "C"
 import (
 	"errors"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/icemagno/valhalla/pkg/common"
+	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/lrc"
 )
 
@@ -59,62 +59,74 @@ func mapErrorToStatusCode(err error) C.int32_t {
 		return C.VALHALLA_OK
 	}
 
-	// 1. Strict typed error checking
-	switch {
-	case errors.Is(err, lrc.ErrNotConnected):
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	case errors.Is(err, common.ErrFederationExecutionAlreadyExists):
-		return C.VALHALLA_ERR_FEDERATION_EXISTS
-	case errors.Is(err, common.ErrFederationExecutionDoesNotExist):
-		return C.VALHALLA_ERR_FEDERATION_NOT_FOUND
-	case errors.Is(err, common.ErrFederateNameAlreadyInUse):
-		return C.VALHALLA_ERR_FEDERATE_NAME_IN_USE
-	case errors.Is(err, common.ErrFederatesCurrentlyJoined):
-		return C.VALHALLA_ERR_FEDERATES_JOINED
-	case errors.Is(err, lrc.ErrFederateAlreadyExecutionMember), errors.Is(err, lrc.ErrFederateNotExecutionMember), errors.Is(err, common.ErrFederateNotExecutionMember):
-		return C.VALHALLA_ERR_NOT_MEMBER
-	case errors.Is(err, common.ErrAttributeNotOwned):
-		return C.VALHALLA_ERR_NOT_OWNER
-	case errors.Is(err, common.ErrObjectClassNotDefined):
-		return C.VALHALLA_ERR_CLASS_NOT_FOUND
-	case errors.Is(err, common.ErrAttributeNotDefined):
-		return C.VALHALLA_ERR_ATTR_NOT_FOUND
-	case errors.Is(err, common.ErrInteractionClassNotDefined):
-		return C.VALHALLA_ERR_INTERACTION_NOT_FOUND
-	case errors.Is(err, common.ErrObjectInstanceNotKnown):
-		return C.VALHALLA_ERR_OBJECT_NOT_FOUND
+	checkTyped := func(e error) (C.int32_t, bool) {
+		switch {
+		case errors.Is(e, lrc.ErrNotConnected),
+			errors.Is(e, lrc.ErrConnectionClosed):
+			return C.VALHALLA_ERR_NOT_CONNECTED, true
+
+		case errors.Is(e, common.ErrFederationExecutionAlreadyExists):
+			return C.VALHALLA_ERR_FEDERATION_EXISTS, true
+
+		case errors.Is(e, common.ErrFederationExecutionDoesNotExist):
+			return C.VALHALLA_ERR_FEDERATION_NOT_FOUND, true
+
+		case errors.Is(e, common.ErrFederateNameAlreadyInUse),
+			errors.Is(e, common.ErrObjectInstanceNameInUse):
+			return C.VALHALLA_ERR_FEDERATE_NAME_IN_USE, true
+
+		case errors.Is(e, common.ErrFederatesCurrentlyJoined):
+			return C.VALHALLA_ERR_FEDERATES_JOINED, true
+
+		case errors.Is(e, lrc.ErrFederateAlreadyExecutionMember),
+			errors.Is(e, lrc.ErrFederateNotExecutionMember),
+			errors.Is(e, common.ErrFederateNotExecutionMember),
+			errors.Is(e, common.ErrFederateNotFound):
+			return C.VALHALLA_ERR_NOT_MEMBER, true
+
+		case errors.Is(e, common.ErrAttributeNotOwned),
+			errors.Is(e, common.ErrDeletePrivilegeNotHeld):
+			return C.VALHALLA_ERR_NOT_OWNER, true
+
+		case errors.Is(e, common.ErrObjectClassNotDefined),
+			errors.Is(e, core.ErrClassNotFound):
+			return C.VALHALLA_ERR_CLASS_NOT_FOUND, true
+
+		case errors.Is(e, common.ErrAttributeNotDefined),
+			errors.Is(e, core.ErrAttributeNotFound):
+			return C.VALHALLA_ERR_ATTR_NOT_FOUND, true
+
+		case errors.Is(e, common.ErrInteractionClassNotDefined),
+			errors.Is(e, core.ErrInteractionNotFound),
+			errors.Is(e, core.ErrParameterNotFound):
+			return C.VALHALLA_ERR_INTERACTION_NOT_FOUND, true
+
+		case errors.Is(e, common.ErrObjectInstanceNotKnown):
+			return C.VALHALLA_ERR_OBJECT_NOT_FOUND, true
+
+		case errors.Is(e, core.ErrInvalidParentClass),
+			errors.Is(e, core.ErrAmbiguousClass),
+			errors.Is(e, core.ErrAmbiguousInteraction),
+			errors.Is(e, common.ErrInvalidLogicalTime),
+			errors.Is(e, common.ErrInvalidLookahead),
+			errors.Is(e, common.ErrSyncPointLabelNotUnique):
+			return C.VALHALLA_ERR_INVALID_ARG, true
+		}
+		return 0, false
 	}
 
-	// 2. Fallback to message inspection for remote CRC string responses
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "federates currently joined"):
-		return C.VALHALLA_ERR_FEDERATES_JOINED
-	case strings.Contains(msg, "federate name already in use"):
-		return C.VALHALLA_ERR_FEDERATE_NAME_IN_USE
-	case strings.Contains(msg, "already exists"):
-		return C.VALHALLA_ERR_FEDERATION_EXISTS
-	case strings.Contains(msg, "does not exist") || (strings.Contains(msg, "not found") && strings.Contains(msg, "federation")):
-		return C.VALHALLA_ERR_FEDERATION_NOT_FOUND
-	case strings.Contains(msg, "interaction") && (strings.Contains(msg, "not defined") || strings.Contains(msg, "not found")):
-		return C.VALHALLA_ERR_INTERACTION_NOT_FOUND
-	case strings.Contains(msg, "class not defined") || strings.Contains(msg, "class not found") || strings.Contains(msg, "classnotdefined"):
-		return C.VALHALLA_ERR_CLASS_NOT_FOUND
-	case strings.Contains(msg, "attribute not defined") || strings.Contains(msg, "attribute not found") || strings.Contains(msg, "attributenotdefined"):
-		return C.VALHALLA_ERR_ATTR_NOT_FOUND
-	case strings.Contains(msg, "object instance not known") || strings.Contains(msg, "object not found") || strings.Contains(msg, "objectinstancenotknown"):
-		return C.VALHALLA_ERR_OBJECT_NOT_FOUND
-	case strings.Contains(msg, "not member") || strings.Contains(msg, "not execution member"):
-		return C.VALHALLA_ERR_NOT_MEMBER
-	case strings.Contains(msg, "not connected"):
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	case strings.Contains(msg, "not owner") || strings.Contains(msg, "attribute not owned"):
-		return C.VALHALLA_ERR_NOT_OWNER
-	case strings.Contains(msg, "already owned"):
-		return C.VALHALLA_ERR_ALREADY_OWNED
-	default:
-		return C.VALHALLA_ERR_RTI_EXCEPTION
+	if code, ok := checkTyped(err); ok {
+		return code
 	}
+
+	// Canonical resolution for remote error messages
+	if canonical := common.AsCanonicalError(err.Error()); canonical != nil {
+		if code, ok := checkTyped(canonical); ok {
+			return code
+		}
+	}
+
+	return C.VALHALLA_ERR_RTI_EXCEPTION
 }
 
 type ambContext struct {
@@ -391,6 +403,9 @@ func valhalla_destroy_ambassador(amb C.ValhallaAmbassador) {
 
 //export valhalla_set_callbacks
 func valhalla_set_callbacks(amb C.ValhallaAmbassador, callbacks C.ValhallaCallbacks) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -403,7 +418,7 @@ func valhalla_set_callbacks(amb C.ValhallaAmbassador, callbacks C.ValhallaCallba
 
 //export valhalla_connect
 func valhalla_connect(amb C.ValhallaAmbassador, address *C.char) C.int32_t {
-	if address == nil {
+	if amb == nil || address == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -420,6 +435,9 @@ func valhalla_connect(amb C.ValhallaAmbassador, address *C.char) C.int32_t {
 
 //export valhalla_disconnect
 func valhalla_disconnect(amb C.ValhallaAmbassador) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -432,7 +450,7 @@ func valhalla_disconnect(amb C.ValhallaAmbassador) C.int32_t {
 
 //export valhalla_create_federation
 func valhalla_create_federation(amb C.ValhallaAmbassador, fedName *C.char) C.int32_t {
-	if fedName == nil {
+	if amb == nil || fedName == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -448,7 +466,7 @@ func valhalla_create_federation(amb C.ValhallaAmbassador, fedName *C.char) C.int
 
 //export valhalla_create_federation_with_fom
 func valhalla_create_federation_with_fom(amb C.ValhallaAmbassador, fedName *C.char, fomModules **C.char, fomCount C.int32_t) C.int32_t {
-	if fedName == nil || fomCount < 0 || (fomCount > 0 && fomModules == nil) {
+	if amb == nil || fedName == nil || fomCount < 0 || (fomCount > 0 && fomModules == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -474,7 +492,7 @@ func valhalla_create_federation_with_fom(amb C.ValhallaAmbassador, fedName *C.ch
 
 //export valhalla_destroy_federation
 func valhalla_destroy_federation(amb C.ValhallaAmbassador, fedName *C.char) C.int32_t {
-	if fedName == nil {
+	if amb == nil || fedName == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -490,7 +508,7 @@ func valhalla_destroy_federation(amb C.ValhallaAmbassador, fedName *C.char) C.in
 
 //export valhalla_join_federation
 func valhalla_join_federation(amb C.ValhallaAmbassador, federateName, fedName *C.char, outFederateHandle *C.int32_t) C.int32_t {
-	if federateName == nil || fedName == nil {
+	if amb == nil || federateName == nil || fedName == nil || outFederateHandle == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -511,6 +529,9 @@ func valhalla_join_federation(amb C.ValhallaAmbassador, federateName, fedName *C
 
 //export valhalla_resign_federation
 func valhalla_resign_federation(amb C.ValhallaAmbassador) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -523,7 +544,7 @@ func valhalla_resign_federation(amb C.ValhallaAmbassador) C.int32_t {
 
 //export valhalla_register_federation_synchronization_point
 func valhalla_register_federation_synchronization_point(amb C.ValhallaAmbassador, label *C.char, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if label == nil || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || label == nil || tagLen < 0 || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -543,7 +564,7 @@ func valhalla_register_federation_synchronization_point(amb C.ValhallaAmbassador
 
 //export valhalla_synchronization_point_achieved
 func valhalla_synchronization_point_achieved(amb C.ValhallaAmbassador, label *C.char) C.int32_t {
-	if label == nil {
+	if amb == nil || label == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -559,7 +580,7 @@ func valhalla_synchronization_point_achieved(amb C.ValhallaAmbassador, label *C.
 
 //export valhalla_get_object_class_handle
 func valhalla_get_object_class_handle(amb C.ValhallaAmbassador, className *C.char, outHandle *C.int32_t) C.int32_t {
-	if className == nil {
+	if amb == nil || className == nil || outHandle == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -579,7 +600,7 @@ func valhalla_get_object_class_handle(amb C.ValhallaAmbassador, className *C.cha
 
 //export valhalla_get_attribute_handle
 func valhalla_get_attribute_handle(amb C.ValhallaAmbassador, classHandle C.int32_t, attrName *C.char, outHandle *C.int32_t) C.int32_t {
-	if attrName == nil {
+	if amb == nil || attrName == nil || outHandle == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -599,7 +620,7 @@ func valhalla_get_attribute_handle(amb C.ValhallaAmbassador, classHandle C.int32
 
 //export valhalla_get_dimension_handle
 func valhalla_get_dimension_handle(amb C.ValhallaAmbassador, dimName *C.char, outHandle *C.int32_t) C.int32_t {
-	if dimName == nil {
+	if amb == nil || dimName == nil || outHandle == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -619,7 +640,7 @@ func valhalla_get_dimension_handle(amb C.ValhallaAmbassador, dimName *C.char, ou
 
 //export valhalla_publish_object_class
 func valhalla_publish_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -642,6 +663,9 @@ func valhalla_publish_object_class(amb C.ValhallaAmbassador, classHandle C.int32
 
 //export valhalla_unpublish_object_class
 func valhalla_unpublish_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -654,7 +678,7 @@ func valhalla_unpublish_object_class(amb C.ValhallaAmbassador, classHandle C.int
 
 //export valhalla_subscribe_object_class
 func valhalla_subscribe_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -677,6 +701,9 @@ func valhalla_subscribe_object_class(amb C.ValhallaAmbassador, classHandle C.int
 
 //export valhalla_unsubscribe_object_class
 func valhalla_unsubscribe_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -689,6 +716,9 @@ func valhalla_unsubscribe_object_class(amb C.ValhallaAmbassador, classHandle C.i
 
 //export valhalla_publish_interaction_class
 func valhalla_publish_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -701,6 +731,9 @@ func valhalla_publish_interaction_class(amb C.ValhallaAmbassador, interactionCla
 
 //export valhalla_unpublish_interaction_class
 func valhalla_unpublish_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -713,6 +746,9 @@ func valhalla_unpublish_interaction_class(amb C.ValhallaAmbassador, interactionC
 
 //export valhalla_subscribe_interaction_class
 func valhalla_subscribe_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -725,6 +761,9 @@ func valhalla_subscribe_interaction_class(amb C.ValhallaAmbassador, interactionC
 
 //export valhalla_unsubscribe_interaction_class
 func valhalla_unsubscribe_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -737,6 +776,9 @@ func valhalla_unsubscribe_interaction_class(amb C.ValhallaAmbassador, interactio
 
 //export valhalla_register_object
 func valhalla_register_object(amb C.ValhallaAmbassador, classHandle C.int32_t, objectName *C.char, outObjectHandle *C.int32_t) C.int32_t {
+	if amb == nil || outObjectHandle == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -757,7 +799,7 @@ func valhalla_register_object(amb C.ValhallaAmbassador, classHandle C.int32_t, o
 
 //export valhalla_delete_object
 func valhalla_delete_object(amb C.ValhallaAmbassador, objectHandle C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || tagLen < 0 || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -776,7 +818,7 @@ func valhalla_delete_object(amb C.ValhallaAmbassador, objectHandle C.int32_t, ta
 
 //export valhalla_update_attributes
 func valhalla_update_attributes(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrValues **C.uint8_t, attrLens *C.int32_t, attrCount C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -814,7 +856,7 @@ func valhalla_update_attributes(amb C.ValhallaAmbassador, objectHandle C.int32_t
 
 //export valhalla_send_interaction
 func valhalla_send_interaction(amb C.ValhallaAmbassador, interactionClass C.int32_t, paramHandles *C.int32_t, paramValues **C.uint8_t, paramLens *C.int32_t, paramCount C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if paramCount < 0 || (paramCount > 0 && (paramHandles == nil || paramValues == nil || paramLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || paramCount < 0 || (paramCount > 0 && (paramHandles == nil || paramValues == nil || paramLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -852,6 +894,9 @@ func valhalla_send_interaction(amb C.ValhallaAmbassador, interactionClass C.int3
 
 //export valhalla_enable_time_regulation
 func valhalla_enable_time_regulation(amb C.ValhallaAmbassador, lookahead C.double) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -864,6 +909,9 @@ func valhalla_enable_time_regulation(amb C.ValhallaAmbassador, lookahead C.doubl
 
 //export valhalla_enable_time_constrained
 func valhalla_enable_time_constrained(amb C.ValhallaAmbassador) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -876,6 +924,9 @@ func valhalla_enable_time_constrained(amb C.ValhallaAmbassador) C.int32_t {
 
 //export valhalla_time_advance_request
 func valhalla_time_advance_request(amb C.ValhallaAmbassador, time C.double) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -888,6 +939,9 @@ func valhalla_time_advance_request(amb C.ValhallaAmbassador, time C.double) C.in
 
 //export valhalla_next_message_request
 func valhalla_next_message_request(amb C.ValhallaAmbassador, time C.double) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -900,6 +954,9 @@ func valhalla_next_message_request(amb C.ValhallaAmbassador, time C.double) C.in
 
 //export valhalla_heartbeat
 func valhalla_heartbeat(amb C.ValhallaAmbassador) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -912,7 +969,7 @@ func valhalla_heartbeat(amb C.ValhallaAmbassador) C.int32_t {
 
 //export valhalla_divest_ownership
 func valhalla_divest_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -935,7 +992,7 @@ func valhalla_divest_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t,
 
 //export valhalla_acquire_ownership
 func valhalla_acquire_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -958,6 +1015,9 @@ func valhalla_acquire_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t
 
 //export valhalla_query_ownership
 func valhalla_query_ownership(amb C.ValhallaAmbassador, objectHandle, attrHandle C.int32_t, outOwner *C.int32_t, outIsOwned *C.bool) C.int32_t {
+	if amb == nil || outOwner == nil || outIsOwned == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -977,7 +1037,7 @@ func valhalla_query_ownership(amb C.ValhallaAmbassador, objectHandle, attrHandle
 
 //export valhalla_create_region
 func valhalla_create_region(amb C.ValhallaAmbassador, dimensions *C.int32_t, dimCount C.int32_t, outRegionHandle *C.uint32_t) C.int32_t {
-	if dimCount < 0 || (dimCount > 0 && dimensions == nil) {
+	if amb == nil || outRegionHandle == nil || dimCount < 0 || (dimCount > 0 && dimensions == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -1004,6 +1064,9 @@ func valhalla_create_region(amb C.ValhallaAmbassador, dimensions *C.int32_t, dim
 
 //export valhalla_set_range_bounds
 func valhalla_set_range_bounds(amb C.ValhallaAmbassador, regionHandle C.uint32_t, dimension C.int32_t, lowerBound, upperBound C.uint32_t) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -1016,6 +1079,9 @@ func valhalla_set_range_bounds(amb C.ValhallaAmbassador, regionHandle C.uint32_t
 
 //export valhalla_set_metric_bounds
 func valhalla_set_metric_bounds(amb C.ValhallaAmbassador, regionHandle C.uint32_t, minX, maxX, minY, maxY, minZ, maxZ C.double) C.int32_t {
+	if amb == nil {
+		return C.VALHALLA_ERR_INVALID_ARG
+	}
 	ctx, exists := getContext(amb)
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
@@ -1028,7 +1094,7 @@ func valhalla_set_metric_bounds(amb C.ValhallaAmbassador, regionHandle C.uint32_
 
 //export valhalla_subscribe_with_region
 func valhalla_subscribe_with_region(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t, regionHandle C.uint32_t) C.int32_t {
-	if attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
+	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -1051,7 +1117,7 @@ func valhalla_subscribe_with_region(amb C.ValhallaAmbassador, classHandle C.int3
 
 //export valhalla_update_attributes_spatial
 func valhalla_update_attributes_spatial(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrValues **C.uint8_t, attrLens *C.int32_t, attrCount C.int32_t, x, y, z C.double, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
+	if amb == nil || attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)
@@ -1089,7 +1155,7 @@ func valhalla_update_attributes_spatial(amb C.ValhallaAmbassador, objectHandle C
 
 //export valhalla_evoke_callback
 func valhalla_evoke_callback(amb C.ValhallaAmbassador, timeoutSeconds C.double, outEvoked *C.bool) C.int32_t {
-	if timeoutSeconds < 0 {
+	if amb == nil || outEvoked == nil || timeoutSeconds < 0 {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)

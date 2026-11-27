@@ -37,3 +37,61 @@ var (
 	ErrLogicalTimeAlreadyPassed        = errors.New("hla: logical time already passed")
 	ErrRequestForTimeAdvancePending    = errors.New("hla: request for time advance pending")
 )
+
+// AsCanonicalError resolves an error message back to its canonical typed sentinel error
+func AsCanonicalError(msg string) error {
+	switch msg {
+	case ErrFederationExecutionAlreadyExists.Error():
+		return ErrFederationExecutionAlreadyExists
+	case ErrFederationExecutionDoesNotExist.Error():
+		return ErrFederationExecutionDoesNotExist
+	case ErrFederatesCurrentlyJoined.Error():
+		return ErrFederatesCurrentlyJoined
+	case ErrFederateNameAlreadyInUse.Error():
+		return ErrFederateNameAlreadyInUse
+	case ErrFederateNotExecutionMember.Error():
+		return ErrFederateNotExecutionMember
+	case ErrFederateNotFound.Error():
+		return ErrFederateNotFound
+	case ErrSyncPointLabelNotUnique.Error():
+		return ErrSyncPointLabelNotUnique
+	case ErrSyncPointNotFound.Error():
+		return ErrSyncPointNotFound
+	case ErrObjectClassNotDefined.Error():
+		return ErrObjectClassNotDefined
+	case ErrObjectInstanceNotKnown.Error():
+		return ErrObjectInstanceNotKnown
+	case ErrObjectInstanceNameInUse.Error():
+		return ErrObjectInstanceNameInUse
+	case ErrDeletePrivilegeNotHeld.Error():
+		return ErrDeletePrivilegeNotHeld
+	case ErrAttributeNotDefined.Error():
+		return ErrAttributeNotDefined
+	case ErrAttributeNotOwned.Error():
+		return ErrAttributeNotOwned
+	case ErrInteractionClassNotDefined.Error():
+		return ErrInteractionClassNotDefined
+	case ErrInvalidLogicalTime.Error():
+		return ErrInvalidLogicalTime
+	case ErrInvalidLookahead.Error():
+		return ErrInvalidLookahead
+	case ErrInTimeAdvancingState.Error():
+		return ErrInTimeAdvancingState
+	case ErrTimeAdvanceAlreadyInProgress.Error():
+		return ErrTimeAdvanceAlreadyInProgress
+	case ErrTimeRegulationAlreadyEnabled.Error():
+		return ErrTimeRegulationAlreadyEnabled
+	case ErrTimeRegulationNotEnabled.Error():
+		return ErrTimeRegulationNotEnabled
+	case ErrTimeConstrainedAlreadyEnabled.Error():
+		return ErrTimeConstrainedAlreadyEnabled
+	case ErrTimeConstrainedNotEnabled.Error():
+		return ErrTimeConstrainedNotEnabled
+	case ErrLogicalTimeAlreadyPassed.Error():
+		return ErrLogicalTimeAlreadyPassed
+	case ErrRequestForTimeAdvancePending.Error():
+		return ErrRequestForTimeAdvancePending
+	default:
+		return errors.New(msg)
+	}
+}

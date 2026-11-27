@@ -80,7 +80,7 @@ func checkNativeResponse(resp nativeResponse) error {
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return errors.New(errPayload.Message)
+			return common.AsCanonicalError(errPayload.Message)
 		}
 		return ErrInvalidResponse
 	}
@@ -168,7 +168,7 @@ func (a *RTIambassadorImpl) GetObjectClassHandle(className string) (int32, error
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return 0, errors.New(errPayload.Message)
+			return 0, common.AsCanonicalError(errPayload.Message)
 		}
 		return 0, ErrInvalidResponse
 	}
@@ -209,7 +209,7 @@ func (a *RTIambassadorImpl) GetAttributeHandle(classHandle int32, attributeName 
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return 0, errors.New(errPayload.Message)
+			return 0, common.AsCanonicalError(errPayload.Message)
 		}
 		return 0, ErrInvalidResponse
 	}
@@ -247,7 +247,7 @@ func (a *RTIambassadorImpl) GetDimensionHandle(dimensionName string) (int32, err
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return 0, errors.New(errPayload.Message)
+			return 0, common.AsCanonicalError(errPayload.Message)
 		}
 		return 0, ErrInvalidResponse
 	}
@@ -318,7 +318,7 @@ func (a *RTIambassadorImpl) JoinFederationExecution(federateName, federationName
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return 0, errors.New(errPayload.Message)
+			return 0, common.AsCanonicalError(errPayload.Message)
 		}
 		return 0, ErrInvalidResponse
 	}
@@ -709,7 +709,7 @@ func (a *RTIambassadorImpl) RegisterObjectInstance(objectClass int32, objectName
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return 0, errors.New(errPayload.Message)
+			return 0, common.AsCanonicalError(errPayload.Message)
 		}
 		return 0, ErrInvalidResponse
 	}
@@ -877,7 +877,7 @@ func (a *RTIambassadorImpl) EnableTimeRegulation(lookahead float64) error {
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return errors.New(errPayload.Message)
+			return common.AsCanonicalError(errPayload.Message)
 		}
 		return ErrInvalidResponse
 	}
@@ -929,7 +929,7 @@ func (a *RTIambassadorImpl) EnableTimeConstrained() error {
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return errors.New(errPayload.Message)
+			return common.AsCanonicalError(errPayload.Message)
 		}
 		return ErrInvalidResponse
 	}
@@ -1410,7 +1410,7 @@ func (a *RTIambassadorImpl) QueryAttributeOwnership(objectHandle int32, attribut
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return 0, false, errors.New(errPayload.Message)
+			return 0, false, common.AsCanonicalError(errPayload.Message)
 		}
 		return 0, false, ErrInvalidResponse
 	}
@@ -1457,7 +1457,7 @@ func (a *RTIambassadorImpl) CreateRegion(dimensions []int32) (uint32, error) {
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return 0, errors.New(errPayload.Message)
+			return 0, common.AsCanonicalError(errPayload.Message)
 		}
 		return 0, ErrInvalidResponse
 	}
@@ -1669,7 +1669,7 @@ func (a *RTIambassadorImpl) GetObjectMerkleProof(objectHandle int32) (*common.Me
 	if resp.Header.MsgType == common.NativeMsgError {
 		var errPayload common.ErrorResponsePayload
 		if err := errPayload.UnmarshalBinary(resp.Payload); err == nil {
-			return nil, errors.New(errPayload.Message)
+			return nil, common.AsCanonicalError(errPayload.Message)
 		}
 		return nil, ErrInvalidResponse
 	}

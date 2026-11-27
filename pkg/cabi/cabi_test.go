@@ -5,18 +5,33 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc"
+	"github.com/icemagno/valhalla/pkg/crc/core"
+	"github.com/icemagno/valhalla/pkg/lrc"
 )
 
 const (
 	ValhallaOK             = 0
 	ValhallaErrNotConnected = 1
 	ValhallaErrInvalidArg  = 2
+	ValhallaErrRtiException = 3
+	ValhallaErrNotOwner    = 4
+	ValhallaErrFederationExists = 6
+	ValhallaErrFederationNotFound = 7
+	ValhallaErrClassNotFound = 8
+	ValhallaErrAttrNotFound = 9
+	ValhallaErrObjectNotFound = 10
 	ValhallaErrNotMember   = 11
+	ValhallaErrFederatesJoined = 12
+	ValhallaErrFederateNameInUse = 13
+	ValhallaErrInteractionNotFound = 14
 )
 
 func TestCABI_NullPointerSafety(t *testing.T) {
@@ -30,6 +45,59 @@ func TestCABI_NullPointerSafety(t *testing.T) {
 	for i, code := range results {
 		if code != ValhallaErrInvalidArg {
 			t.Fatalf("null pointer check %d returned code %d, expected %d (VALHALLA_ERR_INVALID_ARG)", i, code, ValhallaErrInvalidArg)
+		}
+	}
+
+	nullAmbResults := CABI_NullAmbassadorChecks()
+	for i, code := range nullAmbResults {
+		if code != ValhallaErrInvalidArg {
+			t.Fatalf("null ambassador check %d returned code %d, expected %d (VALHALLA_ERR_INVALID_ARG)", i, code, ValhallaErrInvalidArg)
+		}
+	}
+}
+
+func TestCABI_TypedErrorMapping(t *testing.T) {
+	cases := []struct {
+		name     string
+		err      error
+		expected int32
+	}{
+		{"nil error", nil, ValhallaOK},
+		{"direct federation exists", common.ErrFederationExecutionAlreadyExists, ValhallaErrFederationExists},
+		{"wrapped federation exists", fmt.Errorf("context: %w", common.ErrFederationExecutionAlreadyExists), ValhallaErrFederationExists},
+		{"direct federation not found", common.ErrFederationExecutionDoesNotExist, ValhallaErrFederationNotFound},
+		{"wrapped federation not found", fmt.Errorf("rpc failure: %w", common.ErrFederationExecutionDoesNotExist), ValhallaErrFederationNotFound},
+		{"direct federates joined", common.ErrFederatesCurrentlyJoined, ValhallaErrFederatesJoined},
+		{"wrapped federates joined", fmt.Errorf("destroy failed: %w", common.ErrFederatesCurrentlyJoined), ValhallaErrFederatesJoined},
+		{"direct federate name in use", common.ErrFederateNameAlreadyInUse, ValhallaErrFederateNameInUse},
+		{"wrapped federate name in use", fmt.Errorf("join failed: %w", common.ErrFederateNameAlreadyInUse), ValhallaErrFederateNameInUse},
+		{"direct class not defined", common.ErrObjectClassNotDefined, ValhallaErrClassNotFound},
+		{"wrapped core class not found", fmt.Errorf("metamodel: %w", core.ErrClassNotFound), ValhallaErrClassNotFound},
+		{"direct attr not defined", common.ErrAttributeNotDefined, ValhallaErrAttrNotFound},
+		{"wrapped core attr not found", fmt.Errorf("omt: %w", core.ErrAttributeNotFound), ValhallaErrAttrNotFound},
+		{"direct interaction not defined", common.ErrInteractionClassNotDefined, ValhallaErrInteractionNotFound},
+		{"wrapped core interaction not found", fmt.Errorf("fom: %w", core.ErrInteractionNotFound), ValhallaErrInteractionNotFound},
+		{"direct object not known", common.ErrObjectInstanceNotKnown, ValhallaErrObjectNotFound},
+		{"wrapped object not known", fmt.Errorf("reflect error: %w", common.ErrObjectInstanceNotKnown), ValhallaErrObjectNotFound},
+		{"direct attribute not owned", common.ErrAttributeNotOwned, ValhallaErrNotOwner},
+		{"wrapped delete priv not held", fmt.Errorf("delete failed: %w", common.ErrDeletePrivilegeNotHeld), ValhallaErrNotOwner},
+		{"direct not member", common.ErrFederateNotExecutionMember, ValhallaErrNotMember},
+		{"wrapped lrc not member", fmt.Errorf("membership required: %w", lrc.ErrFederateNotExecutionMember), ValhallaErrNotMember},
+		{"wrapped lrc already member", fmt.Errorf("cannot join twice: %w", lrc.ErrFederateAlreadyExecutionMember), ValhallaErrNotMember},
+		{"direct not connected", lrc.ErrNotConnected, ValhallaErrNotConnected},
+		{"wrapped connection closed", fmt.Errorf("socket EOF: %w", lrc.ErrConnectionClosed), ValhallaErrNotConnected},
+		{"invalid parent class", core.ErrInvalidParentClass, ValhallaErrInvalidArg},
+		{"ambiguous class", core.ErrAmbiguousClass, ValhallaErrInvalidArg},
+		{"ambiguous interaction", core.ErrAmbiguousInteraction, ValhallaErrInvalidArg},
+		{"invalid logical time", common.ErrInvalidLogicalTime, ValhallaErrInvalidArg},
+		{"invalid lookahead", common.ErrInvalidLookahead, ValhallaErrInvalidArg},
+		{"unknown custom error falls back to rti exception", errors.New("some unexpected internal panic"), ValhallaErrRtiException},
+	}
+
+	for _, tc := range cases {
+		code := CABI_TestMapError(tc.err)
+		if code != tc.expected {
+			t.Errorf("error mapping for %s: got code %d, expected %d", tc.name, code, tc.expected)
 		}
 	}
 }

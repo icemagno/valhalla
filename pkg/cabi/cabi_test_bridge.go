@@ -356,6 +356,41 @@ func CABI_NullPointerChecks(amb uintptr) []int32 {
 		int32(valhalla_send_interaction(cAmb, 1, nil, nil, nil, 2, nil, 0)),
 		int32(valhalla_register_federation_synchronization_point(cAmb, nil, nil, 0)),
 		int32(valhalla_synchronization_point_achieved(cAmb, nil)),
+		int32(valhalla_query_ownership(cAmb, 1, 1, nil, nil)),
+		int32(valhalla_create_region(cAmb, nil, 1, nil)),
+		int32(valhalla_evoke_callback(cAmb, 0, nil)),
+		int32(valhalla_register_object(cAmb, 1, nil, nil)),
+		int32(valhalla_publish_object_class(cAmb, 1, nil, 5)),
+		int32(valhalla_subscribe_object_class(cAmb, 1, nil, 5)),
+		int32(valhalla_divest_ownership(cAmb, 1, nil, 5)),
+		int32(valhalla_acquire_ownership(cAmb, 1, nil, 5)),
+		int32(valhalla_subscribe_with_region(cAmb, 1, nil, 5, 100)),
+		int32(valhalla_update_attributes(cAmb, 1, nil, nil, nil, 5, nil, 0)),
+		int32(valhalla_update_attributes_spatial(cAmb, 1, nil, nil, nil, 5, 0, 0, 0, nil, 0)),
 	}
 	return results
+}
+
+func CABI_NullAmbassadorChecks() []int32 {
+	results := []int32{
+		int32(valhalla_connect(nil, nil)),
+		int32(valhalla_disconnect(nil)),
+		int32(valhalla_create_federation(nil, nil)),
+		int32(valhalla_destroy_federation(nil, nil)),
+		int32(valhalla_join_federation(nil, nil, nil, nil)),
+		int32(valhalla_resign_federation(nil)),
+		int32(valhalla_get_object_class_handle(nil, nil, nil)),
+		int32(valhalla_get_attribute_handle(nil, 1, nil, nil)),
+		int32(valhalla_get_dimension_handle(nil, nil, nil)),
+		int32(valhalla_register_object(nil, 1, nil, nil)),
+		int32(valhalla_delete_object(nil, 1, nil, 0)),
+		int32(valhalla_send_interaction(nil, 1, nil, nil, nil, 0, nil, 0)),
+		int32(valhalla_heartbeat(nil)),
+		int32(valhalla_evoke_callback(nil, 0, nil)),
+	}
+	return results
+}
+
+func CABI_TestMapError(err error) int32 {
+	return int32(mapErrorToStatusCode(err))
 }
