@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -101,6 +102,7 @@ type Logger interface {
 	Trace(format string, args ...interface{})
 	SetLevel(level LogLevel)
 	GetLevel() LogLevel
+	SetOutput(w io.Writer)
 }
 
 // valhallaLogger is the high-performance decoupled asynchronous Logger implementation.
@@ -108,6 +110,7 @@ type valhallaLogger struct {
 	mu     sync.RWMutex
 	level  LogLevel
 	output io.Writer
+	outMu  sync.Mutex // Guards writes to this specific logger's output
 	module string
 }
 
@@ -117,13 +120,15 @@ type logEntry struct {
 	module    string
 	message   string
 	output    io.Writer
+	logger    *valhallaLogger
 	flushDone chan struct{}
 }
 
 var (
-	globalLogger Logger
-	once         sync.Once
-	logQueue     = make(chan logEntry, 10000) // Decoupled FIFO buffer
+	globalLogger    Logger
+	once            sync.Once
+	logQueue        = make(chan logEntry, 10000) // Decoupled FIFO buffer
+	droppedLogCount uint64                      // Cumulative count of dropped non-critical logs on saturation
 )
 
 const (
@@ -134,6 +139,35 @@ const (
 	colorGray   = "\033[90m"
 )
 
+func formatEntry(entry logEntry) string {
+	color := ""
+	switch entry.level {
+	case "WARN ":
+		color = colorYellow
+	case "ERROR", "CRIT ":
+		color = colorRed
+	case "DEBUG":
+		color = colorGray
+	case "TRACE":
+		color = colorBlue
+	}
+
+	if color != "" {
+		return fmt.Sprintf("[%s] %s[%s]%s [%s] %s\n",
+			entry.timestamp, color, entry.level, colorReset, entry.module, entry.message)
+	}
+	return fmt.Sprintf("[%s] [%s] [%s] %s\n",
+		entry.timestamp, entry.level, entry.module, entry.message)
+}
+
+func writeEntry(out io.Writer, entry logEntry) {
+	if out == nil {
+		out = os.Stdout
+	}
+	line := formatEntry(entry)
+	_, _ = io.WriteString(out, line)
+}
+
 func init() {
 	// Background asynchronous worker for out-of-hotpath logging I/O
 	go func() {
@@ -143,29 +177,12 @@ func init() {
 				continue
 			}
 
-			out := entry.output
-			if out == nil {
-				out = os.Stdout
-			}
-
-			color := ""
-			switch entry.level {
-			case "WARN ":
-				color = colorYellow
-			case "ERROR", "CRIT ":
-				color = colorRed
-			case "DEBUG":
-				color = colorGray
-			case "TRACE":
-				color = colorBlue
-			}
-
-			if color != "" {
-				fmt.Fprintf(out, "[%s] %s[%s]%s [%s] %s\n",
-					entry.timestamp, color, entry.level, colorReset, entry.module, entry.message)
+			if entry.logger != nil {
+				entry.logger.outMu.Lock()
+				writeEntry(entry.output, entry)
+				entry.logger.outMu.Unlock()
 			} else {
-				fmt.Fprintf(out, "[%s] [%s] [%s] %s\n",
-					entry.timestamp, entry.level, entry.module, entry.message)
+				writeEntry(entry.output, entry)
 			}
 		}
 	}()
@@ -174,11 +191,34 @@ func init() {
 // Flush blocks until all currently queued messages are written to output.
 func Flush() {
 	done := make(chan struct{})
+	logQueue <- logEntry{flushDone: done}
+	<-done
+}
+
+// FlushTimeout blocks until all currently queued messages are written or timeout expires.
+func FlushTimeout(timeout time.Duration) bool {
+	done := make(chan struct{})
 	select {
 	case logQueue <- logEntry{flushDone: done}:
-		<-done
-	default:
+		select {
+		case <-done:
+			return true
+		case <-time.After(timeout):
+			return false
+		}
+	case <-time.After(timeout):
+		return false
 	}
+}
+
+// DroppedCount returns the number of non-critical messages dropped due to queue saturation.
+func DroppedCount() uint64 {
+	return atomic.LoadUint64(&droppedLogCount)
+}
+
+// ResetDroppedCount resets the counter of dropped log messages.
+func ResetDroppedCount() {
+	atomic.StoreUint64(&droppedLogCount, 0)
 }
 
 // InitGlobalLogger initializes the global logger without a module name.
@@ -230,6 +270,12 @@ func (l *valhallaLogger) GetLevel() LogLevel {
 	return l.level
 }
 
+func (l *valhallaLogger) SetOutput(w io.Writer) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.output = w
+}
+
 func (l *valhallaLogger) log(level LogLevel, format string, args ...interface{}) {
 	currentLevel := l.GetLevel()
 	if gl, ok := getConfigLogLevel(); ok {
@@ -240,18 +286,39 @@ func (l *valhallaLogger) log(level LogLevel, format string, args ...interface{})
 		return
 	}
 
-	// Non-blocking asynchronous dispatch to queue
-	select {
-	case logQueue <- logEntry{
+	l.mu.RLock()
+	out := l.output
+	mod := l.module
+	l.mu.RUnlock()
+
+	entry := logEntry{
 		timestamp: time.Now().Format("15:04:05.000"),
 		level:     level.String(),
-		module:    l.module,
+		module:    mod,
 		message:   fmt.Sprintf(format, args...),
-		output:    l.output,
-	}:
-	default:
-		// Drop message if buffer overflows (10k items) to protect simulation latency
+		output:    out,
+		logger:    l,
 	}
+
+	// Non-blocking asynchronous dispatch to queue
+	select {
+	case logQueue <- entry:
+		return
+	default:
+		// Queue saturated!
+	}
+
+	// For critical events (ERROR and CRITICAL), NEVER DROP!
+	// Fall back to synchronous write under l.outMu to guarantee immediate, reliable delivery.
+	if level >= LevelError {
+		l.outMu.Lock()
+		writeEntry(out, entry)
+		l.outMu.Unlock()
+		return
+	}
+
+	// For non-critical events (TRACE, DEBUG, INFO, WARN), track drop count explicitly
+	atomic.AddUint64(&droppedLogCount, 1)
 }
 
 func (l *valhallaLogger) Debug(f string, a ...interface{})    { l.log(LevelDebug, f, a...) }
