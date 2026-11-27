@@ -145,6 +145,11 @@ func TestHLA4_WebProfile_11Stages(t *testing.T) {
 	t.Log("[Stage 1/11] Connect action...")
 	callAction("connect", nil)
 
+	// Point canonical FOM dir to the test fixture FOM directory for this integration test
+	prevFOMDir := crc.CanonicalFOMDir
+	crc.CanonicalFOMDir = "../../examples/java-federate/foms"
+	defer func() { crc.CanonicalFOMDir = prevFOMDir }()
+
 	// -------------------------------------------------------------------------
 	// Stage 2: Create Federation with FOM & Join
 	// -------------------------------------------------------------------------

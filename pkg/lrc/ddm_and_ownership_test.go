@@ -287,6 +287,10 @@ func TestSprint6_DynamicFOMResolution(t *testing.T) {
 	}
 	defer amb.Disconnect()
 
+	prevFOMDir := crc.CanonicalFOMDir
+	crc.CanonicalFOMDir = "../../examples/java-federate/foms"
+	defer func() { crc.CanonicalFOMDir = prevFOMDir }()
+
 	// Create with ValhallaAdvanced.xml FOM module
 	if err := amb.CreateFederationExecutionWithFOM(fedName, []string{"ValhallaAdvanced.xml"}); err != nil {
 		t.Fatalf("CreateFederationExecutionWithFOM failed: %v", err)

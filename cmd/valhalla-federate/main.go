@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/lrc"
 )
 
@@ -66,6 +68,21 @@ func (h *FederateCallbackHandler) TimeAdvanceGrant(grantedTime float64) {
 	h.timeCond.Broadcast()
 }
 
+func (h *FederateCallbackHandler) WaitForGrant(target float64, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for h.timeGranted+1e-9 < target {
+		if time.Now().After(deadline) {
+			return false
+		}
+		h.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+		h.mu.Lock()
+	}
+	return true
+}
+
 func main() {
 	addr := flag.String("address", "127.0.0.1:52295", "CRC Server address (ip:port)")
 	fedName := flag.String("federation", "ExampleFederation", "Federation Execution name")
@@ -79,16 +96,19 @@ func main() {
 	fmt.Printf("Connecting to CRC at: %s\n", *addr)
 	fmt.Printf("Federation: %s | Federate: %s (Native VAL4)\n\n", *fedName, *name)
 
-	// Instantiate LRC and Callback Handler
 	handler := NewCallbackHandler()
 	amb := lrc.NewRTIambassador()
 
 	// 1. Connect to CRC
-	log.Printf("[1/5] Connecting to Central RTI Component (CRC)...")
+	log.Printf("[1/6] Connecting to Central RTI Component (CRC)...")
 	if err := amb.Connect(handler, *addr); err != nil {
 		log.Fatalf("[-] Failed to connect to CRC: %v", err)
 	}
-	defer amb.Disconnect()
+	defer func() {
+		if err := amb.Disconnect(); err != nil {
+			log.Printf("[!] Disconnect warning: %v", err)
+		}
+	}()
 	log.Printf("[+] Native connection established successfully via VAL4 preamble!")
 
 	// Background callback evocation goroutine
@@ -99,18 +119,23 @@ func main() {
 			case <-stopCallbacks:
 				return
 			default:
-				_, _ = amb.EvokeCallback(100 * time.Millisecond)
+				if _, err := amb.EvokeCallback(100 * time.Millisecond); err != nil && !errors.Is(err, lrc.ErrNotConnected) {
+					log.Printf("[!] EvokeCallback error: %v", err)
+				}
 			}
 		}
 	}()
 	defer close(stopCallbacks)
 
-	// Graceful signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// 2. Join Federation Execution
-	log.Printf("[2/5] Joining federation execution '%s'...", *fedName)
+	// 2. Create (if needed) & Join Federation Execution
+	log.Printf("[2/6] Ensuring federation execution '%s' exists...", *fedName)
+	if err := amb.CreateFederationExecution(*fedName); err != nil && !errors.Is(err, common.ErrFederationExecutionAlreadyExists) {
+		log.Fatalf("[-] Failed to create federation: %v", err)
+	}
+
 	fedHandle, err := amb.JoinFederationExecution(*name, *fedName)
 	if err != nil {
 		log.Fatalf("[-] Failed to join federation: %v", err)
@@ -119,8 +144,10 @@ func main() {
 
 	// 3. Synchronization Point
 	if *syncPoint != "" {
-		log.Printf("[3/5] Achieving synchronization point '%s'...", *syncPoint)
-		_ = amb.RegisterFederationSynchronizationPoint(*syncPoint, nil)
+		log.Printf("[3/6] Registering/achieving synchronization point '%s'...", *syncPoint)
+		if err := amb.RegisterFederationSynchronizationPoint(*syncPoint, nil); err != nil {
+			log.Printf("[i] Sync point registration notice: %v", err)
+		}
 		if err := amb.SynchronizationPointAchieved(*syncPoint); err != nil {
 			log.Printf("[!] Warning achieving synchronization point: %v", err)
 		} else {
@@ -128,17 +155,36 @@ func main() {
 		}
 	}
 
-	// 4. Object Instance Registration (Standard MIM: HLAobjectRoot = 1)
-	log.Printf("[4/5] Registering object instance in simulation...")
-	objHandle, err := amb.RegisterObjectInstance(1, fmt.Sprintf("%s_Obj", *name))
-	if err != nil {
-		log.Printf("[!] Error registering object: %v", err)
-	} else {
-		log.Printf("[+] Object registered successfully! ObjectHandle: %d", objHandle)
+	// 4. Enable Time Management (Regulating + Constrained)
+	log.Printf("[4/6] Enabling HLA Time Management (lookahead=1.0)...")
+	if err := amb.EnableTimeRegulation(1.0); err != nil {
+		log.Fatalf("[-] Failed to enable time regulation: %v", err)
+	}
+	if err := amb.EnableTimeConstrained(); err != nil {
+		log.Fatalf("[-] Failed to enable time constrained: %v", err)
 	}
 
-	// 5. Simulation Loop
-	log.Printf("[5/5] Federate ready and active in simulation cycle!")
+	// 5. Publish & Register Object Instance using canonical Standard MIM handles
+	rootClass := int32(common.HLAobjectRootHandle)
+	privAttr := int32(common.HLAprivilegeToDeleteObjectHandle)
+	interClass := int32(common.HLAinteractionRootHandle)
+
+	if err := amb.PublishObjectClassAttributes(rootClass, []int32{privAttr}); err != nil {
+		log.Fatalf("[-] Failed to publish HLAobjectRoot: %v", err)
+	}
+	if err := amb.PublishInteractionClass(interClass); err != nil {
+		log.Fatalf("[-] Failed to publish HLAinteractionRoot: %v", err)
+	}
+
+	log.Printf("[5/6] Registering object instance in simulation...")
+	objHandle, err := amb.RegisterObjectInstance(rootClass, fmt.Sprintf("%s_Obj", *name))
+	if err != nil {
+		log.Fatalf("[-] Error registering object: %v", err)
+	}
+	log.Printf("[+] Object registered successfully! ObjectHandle: %d", objHandle)
+
+	// 6. Simulation Loop
+	log.Printf("[6/6] Federate ready and active in simulation cycle!")
 	fmt.Println(">>> Press Ctrl+C to resign and terminate federate gracefully <<<")
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -157,24 +203,25 @@ func main() {
 			return
 
 		case <-ticker.C:
-			// Publish attribute updates
-			if objHandle > 0 {
-				x := 100.0 + float64(step)*10.5
-				y := 200.0 + float64(step)*5.2
-				attrs := map[int32][]byte{
-					562: []byte(fmt.Sprintf("X:%.2f", x)),
-					551: []byte(fmt.Sprintf("Y:%.2f", y)),
-				}
-				_ = amb.UpdateAttributeValues(objHandle, attrs, nil)
-				log.Printf("[Simulation #%d] Object %d attributes updated (X=%.2f, Y=%.2f)", step, objHandle, x, y)
+			attrs := map[int32][]byte{
+				privAttr: []byte(fmt.Sprintf("Step:%d", step)),
+			}
+			if err := amb.UpdateAttributeValues(objHandle, attrs, nil); err != nil {
+				log.Printf("[-] UpdateAttributeValues failed: %v", err)
+			} else {
+				log.Printf("[Simulation #%d] Object %d attributes updated", step, objHandle)
 			}
 
-			// Send periodic interaction (Standard MIM: HLAinteractionRoot = 1)
-			_ = amb.SendInteraction(1, map[int32][]byte{1: []byte(fmt.Sprintf("HeartbeatStep_%d", step))}, nil)
+			if err := amb.SendInteraction(interClass, nil, []byte(fmt.Sprintf("HeartbeatStep_%d", step))); err != nil {
+				log.Printf("[-] SendInteraction failed: %v", err)
+			}
 
-			// Request logical time advance
 			logicalTime := float64(step) * 1.0
-			_ = amb.TimeAdvanceRequest(logicalTime)
+			if err := amb.TimeAdvanceRequest(logicalTime); err != nil {
+				log.Printf("[-] TimeAdvanceRequest(%.2f) failed: %v", logicalTime, err)
+			} else if !handler.WaitForGrant(logicalTime, 5*time.Second) {
+				log.Printf("[!] Timeout waiting for TimeAdvanceGrant(%.2f)", logicalTime)
+			}
 
 			step++
 		}

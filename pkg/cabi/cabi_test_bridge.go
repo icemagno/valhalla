@@ -16,23 +16,28 @@ extern void goBridge_OnFederationSynchronized(char* label);
 extern void goBridge_OnSyncRegSucceeded(char* label);
 extern void goBridge_OnSyncRegFailed(char* label, char* reason);
 
-static void c_on_receive_interaction(int32_t interactionClass, int32_t paramCount, const int32_t* paramHandles, const uint8_t** paramValues, const int32_t* paramLens, const uint8_t* tag, int32_t tagLen) {
+static void c_on_receive_interaction(int32_t interactionClass, int32_t paramCount, const int32_t* paramHandles, const uint8_t** paramValues, const int32_t* paramLens, const uint8_t* tag, int32_t tagLen, void* userData) {
+    (void)userData;
     goBridge_OnReceiveInteraction(interactionClass, paramCount, (int32_t*)paramHandles, (uint8_t**)paramValues, (int32_t*)paramLens, (uint8_t*)tag, tagLen);
 }
 
-static void c_on_announce_sync_point(const char* label, const uint8_t* tag, int32_t tagLen) {
+static void c_on_announce_sync_point(const char* label, const uint8_t* tag, int32_t tagLen, void* userData) {
+    (void)userData;
     goBridge_OnAnnounceSyncPoint((char*)label, (uint8_t*)tag, tagLen);
 }
 
-static void c_on_federation_synchronized(const char* label) {
+static void c_on_federation_synchronized(const char* label, void* userData) {
+    (void)userData;
     goBridge_OnFederationSynchronized((char*)label);
 }
 
-static void c_on_sync_reg_succeeded(const char* label) {
+static void c_on_sync_reg_succeeded(const char* label, void* userData) {
+    (void)userData;
     goBridge_OnSyncRegSucceeded((char*)label);
 }
 
-static void c_on_sync_reg_failed(const char* label, const char* reason) {
+static void c_on_sync_reg_failed(const char* label, const char* reason, void* userData) {
+    (void)userData;
     goBridge_OnSyncRegFailed((char*)label, (char*)reason);
 }
 

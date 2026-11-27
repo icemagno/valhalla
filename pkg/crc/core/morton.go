@@ -115,8 +115,9 @@ type SpatialRegion struct {
 	partMinZ, partMaxZ uint64
 
 	// Common octree ancestor prefix and mask for O(1) branch rejection
-	Prefix     uint64
-	PrefixMask uint64
+	Prefix         uint64
+	PrefixMask     uint64
+	boundsComputed bool
 }
 
 // RecomputeMortonBounds calculates the dilated coordinates and octree prefix mask.
@@ -154,6 +155,7 @@ func (r *SpatialRegion) RecomputeMortonBounds() {
 			r.Prefix = 0
 		}
 	}
+	r.boundsComputed = true
 }
 
 // NewSpatialRegion creates a SpatialRegion from discrete grid coordinates and precomputes Morton bounds.
@@ -201,8 +203,8 @@ func (r SpatialRegion) ContainsPoint(x, y, z uint32) bool {
 //	(code & MortonXMask) in [partMinX, partMaxX] <=> x in [MinX, MaxX]
 //
 // This eliminates coordinate decoding (Compact1By2) and floating-point conversions.
-func (r SpatialRegion) ContainsMorton(code uint64) bool {
-	if r.partMaxX == 0 && r.MaxX > 0 {
+func (r *SpatialRegion) ContainsMorton(code uint64) bool {
+	if !r.boundsComputed {
 		r.RecomputeMortonBounds()
 	}
 
@@ -231,8 +233,8 @@ func (r SpatialRegion) ContainsMorton(code uint64) bool {
 }
 
 // MortonBounds returns the enclosing bounding interval [minCode, maxCode] in Morton space.
-func (r SpatialRegion) MortonBounds() (uint64, uint64) {
-	if r.partMaxX == 0 && r.MaxX > 0 {
+func (r *SpatialRegion) MortonBounds() (uint64, uint64) {
+	if !r.boundsComputed {
 		r.RecomputeMortonBounds()
 	}
 	minCode := (r.partMinZ << 2) | (r.partMinY << 1) | r.partMinX

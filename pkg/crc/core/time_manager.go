@@ -3,6 +3,7 @@ package core
 import (
 	"container/heap"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -398,15 +399,23 @@ func (tm *TimeManager) calculateLBTSLocked(handle common.FederateHandle) float64
 	return minBound
 }
 
-// evaluateAdvancementsLocked iterates over advancing federates and produces TimeGrantEvents
+// evaluateAdvancementsLocked iterates over advancing federates in deterministic handle order
+// and produces TimeGrantEvents.
 func (tm *TimeManager) evaluateAdvancementsLocked() []TimeGrantEvent {
 	var events []TimeGrantEvent
+
+	handles := make([]common.FederateHandle, 0, len(tm.federates))
+	for h := range tm.federates {
+		handles = append(handles, h)
+	}
+	sort.Slice(handles, func(i, j int) bool { return handles[i] < handles[j] })
 
 	for {
 		progress := false
 
-		for handle, fed := range tm.federates {
-			if fed.State == TimeStateGranted {
+		for _, handle := range handles {
+			fed := tm.federates[handle]
+			if fed == nil || fed.State == TimeStateGranted {
 				continue
 			}
 

@@ -92,8 +92,10 @@ func (m *InterestMatcher) PublishObjectClass(fedID common.FederateHandle, class 
 			bs = NewBitset()
 			m.objPublishers[key] = bs
 		}
-		bs.Set(uint32(fedID))
-		m.fedObjPubs[fedID] = append(m.fedObjPubs[fedID], key)
+		if !bs.Contains(uint32(fedID)) {
+			bs.Set(uint32(fedID))
+			m.fedObjPubs[fedID] = append(m.fedObjPubs[fedID], key)
+		}
 	}
 
 	return nil
@@ -142,8 +144,10 @@ func (m *InterestMatcher) SubscribeObjectClass(fedID common.FederateHandle, clas
 			m.objSubscribers[key] = bs
 		}
 		if active {
-			bs.Set(uint32(fedID))
-			m.fedObjSubs[fedID] = append(m.fedObjSubs[fedID], key)
+			if !bs.Contains(uint32(fedID)) {
+				bs.Set(uint32(fedID))
+				m.fedObjSubs[fedID] = append(m.fedObjSubs[fedID], key)
+			}
 		} else {
 			bs.Clear(uint32(fedID))
 		}

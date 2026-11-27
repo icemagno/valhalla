@@ -123,6 +123,9 @@ func BenchmarkMerkleTree_FederationGlobalRoot(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		var r [32]byte
+		r[0] = byte(i)
+		stateTree.UpdateObjectState(common.ObjectInstanceHandle((i%100)+1), r)
 		_ = stateTree.GetGlobalRoot()
 	}
 }

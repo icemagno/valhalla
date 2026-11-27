@@ -53,7 +53,7 @@ public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
     }
 
     private void setupCallbacks() {
-        this.discoverCb = (theObject, theObjectClass, objectName) -> {
+        this.discoverCb = (theObject, theObjectClass, objectName, userData) -> {
             if (fedAmb != null) {
                 try {
                     fedAmb.discoverObjectInstance(
@@ -67,7 +67,7 @@ public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
             }
         };
 
-        this.removeCb = (theObject, tagPtr, tagLen) -> {
+        this.removeCb = (theObject, tagPtr, tagLen, userData) -> {
             if (fedAmb != null) {
                 try {
                     byte[] tag = (tagPtr != null && tagLen > 0) ? tagPtr.getByteArray(0, tagLen) : new byte[0];
@@ -82,7 +82,7 @@ public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
             }
         };
 
-        this.reflectCb = (theObject, attrCount, attrHandlesPtr, attrValuesPtr, attrLensPtr, tagPtr, tagLen) -> {
+        this.reflectCb = (theObject, attrCount, attrHandlesPtr, attrValuesPtr, attrLensPtr, tagPtr, tagLen, userData) -> {
             if (fedAmb != null) {
                 try {
                     AttributeHandleValueMap map = new AttributeHandleValueMap();
@@ -113,7 +113,7 @@ public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
             }
         };
 
-        this.grantCb = (time) -> {
+        this.grantCb = (time, userData) -> {
             if (fedAmb != null) {
                 try {
                     fedAmb.timeAdvanceGrant(time);

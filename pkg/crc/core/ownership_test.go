@@ -67,6 +67,14 @@ func TestOwnershipManager_Lifecycle(t *testing.T) {
 		t.Fatalf("expected unowned after resign, got %d", owner)
 	}
 
-	// 7. Object deletion cleans state
+	// 7. Object deletion cleans state (re-acquire first to ensure deletion actually clears owners)
+	if err := om.AcquireAttributeOwnership(obj, attrs, 3); err != nil {
+		t.Fatalf("expected federate 3 to acquire unowned attrs before deletion test: %v", err)
+	}
 	om.DeleteObjectOwnership(obj)
+	for _, attr := range attrs {
+		if owner, owned := om.QueryAttributeOwnership(obj, attr); owned || owner != 0 {
+			t.Fatalf("expected attr %d to be unowned after DeleteObjectOwnership, got owner=%d owned=%v", attr, owner, owned)
+		}
+	}
 }

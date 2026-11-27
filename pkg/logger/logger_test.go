@@ -65,4 +65,9 @@ func TestLogger_ConcurrentLogging(t *testing.T) {
 	}
 	wg.Wait()
 	Flush()
+
+	logged := strings.Count(buf.String(), "CONC_MOD")
+	if logged != 50*20 {
+		t.Fatalf("expected 1000 concurrent log lines, got %d", logged)
+	}
 }

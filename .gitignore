@@ -8,6 +8,7 @@ bin/
 *.dll
 *.so
 *.dylib
+*.a
 
 # Test binary, built with `go test -c`
 *.test
@@ -42,7 +43,6 @@ target/
 # Third-party runtime, distribution & jar binaries
 portico-3.0/
 *.jar
-!portico-3.0-homolog/**/*.jar
 
 # Packaged releases
 releases/

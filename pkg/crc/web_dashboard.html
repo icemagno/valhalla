@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Valhalla RTI - HLA-4 Tactical Web Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0e14; color: #d3c6aa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; display: flex; flex-direction: column; height: 100vh; }
+  header { background: #131920; border-bottom: 2px solid #2d3b4d; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .logo { font-size: 1.25rem; font-weight: bold; color: #7fbbb3; display: flex; align-items: center; gap: 8px; }
+  .badge { background: #3a516b; color: #e5e9f0; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 340px; background: #0f141c; border-right: 1px solid #1f2a37; padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+  .card { background: #141c26; border: 1px solid #233142; border-radius: 6px; padding: 12px; }
+  .card h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #a7c080; margin-bottom: 8px; }
+  .stat-row { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px; }
+  .stat-val { color: #83c092; font-weight: bold; }
+  .radar-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; background: radial-gradient(circle at center, #0d1520 0%, #080c12 100%); }
+  canvas { border-radius: 50%; box-shadow: 0 0 40px rgba(127, 187, 179, 0.15); background: #090e15; }
+  .log-panel { height: 160px; background: #0b0f14; border-top: 1px solid #1f2a37; padding: 8px 16px; overflow-y: auto; font-size: 0.75rem; }
+  .log-line { margin-bottom: 2px; }
+  .log-info { color: #7fbbb3; }
+  .log-rx { color: #a7c080; }
+  .log-warn { color: #dbbc7f; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <span>PROJECT VALHALLA</span>
+    <span class="badge">IEEE 1516-2025 (HLA-4)</span>
+    <span class="badge" style="background:#2d4a3e; color:#a7c080;">WEB PROFILE ACTIVE</span>
+  </div>
+  <div style="font-size:0.8rem; color:#859289;" id="connStatus">Connecting to WebSocket...</div>
+</header>
+<div class="main">
+  <div class="sidebar">
+    <div class="card">
+      <h3>Active Federation</h3>
+      <div class="stat-row"><span>Status:</span><span class="stat-val" id="fedStatus">Listening</span></div>
+      <div class="stat-row"><span>Federation:</span><span class="stat-val" id="fedName">-</span></div>
+      <div class="stat-row"><span>My Handle:</span><span class="stat-val" id="fedHandle">-</span></div>
+    </div>
+    <div class="card">
+      <h3>Spatial Entities (DDM 3D)</h3>
+      <div class="stat-row"><span>Tracked Objects:</span><span class="stat-val" id="objCount">0</span></div>
+      <div class="stat-row"><span>Reflections Rx:</span><span class="stat-val" id="reflectCount">0</span></div>
+    </div>
+    <div class="card" style="flex:1;">
+      <h3>Entities List</h3>
+      <div id="entityList" style="font-size:0.8rem; display:flex; flex-direction:column; gap:4px;">No entities active</div>
+    </div>
+  </div>
+  <div class="radar-container">
+    <canvas id="radar" width="460" height="460"></canvas>
+  </div>
+</div>
+<div class="log-panel" id="logPanel"></div>
+
+<script>
+  const logEl = document.getElementById('logPanel');
+  function addLog(text, cls = 'log-info') {
+    const el = document.createElement('div');
+    el.className = 'log-line ' + cls;
+    el.textContent = '[' + new Date().toLocaleTimeString() + '] ' + text;
+    logEl.appendChild(el);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  const canvas = document.getElementById('radar');
+  const ctx = canvas.getContext('2d');
+  const entities = {};
+  let sweepAngle = 0;
+  let totalReflects = 0;
+
+  function drawRadar() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const r = cx - 10;
+
+    ctx.strokeStyle = '#1b2b3a';
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i <= 4; i++) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, (r / 4) * i, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r);
+    ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+    ctx.stroke();
+
+    sweepAngle = (sweepAngle + 0.02) % (Math.PI * 2);
+    ctx.strokeStyle = 'rgba(127, 187, 179, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(sweepAngle) * r, cy + Math.sin(sweepAngle) * r);
+    ctx.stroke();
+
+    for (const id in entities) {
+      const e = entities[id];
+      const ex = cx + ((e.x - 500) / 500) * (r * 0.85);
+      const ey = cy + ((e.y - 500) / 500) * (r * 0.85);
+
+      ctx.fillStyle = '#a7c080';
+      ctx.beginPath();
+      ctx.arc(ex, ey, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#d3c6aa';
+      ctx.font = '10px monospace';
+      ctx.fillText(e.name || ('Entity #' + id), ex + 8, ey + 3);
+    }
+
+    requestAnimationFrame(drawRadar);
+  }
+  requestAnimationFrame(drawRadar);
+
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+  const ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    document.getElementById('connStatus').textContent = 'WebSocket Online';
+    document.getElementById('connStatus').style.color = '#a7c080';
+    addLog('Connected to Valhalla CRC WebSocket endpoint: ' + wsUrl);
+    ws.send(JSON.stringify({ id: 1, action: "connect", params: {} }));
+  };
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if (msg.callback === 'discoverObjectInstance') {
+      const p = msg.params;
+      entities[p.object] = { x: 500, y: 500, name: p.name, class: p.class };
+      addLog('DISCOVER: Object #' + p.object + ' (' + p.name + ') class=' + p.class, 'log-rx');
+      updateEntityList();
+    } else if (msg.callback === 'reflectAttributeValues') {
+      totalReflects++;
+      document.getElementById('reflectCount').textContent = totalReflects;
+      const p = msg.params;
+      if (!entities[p.object]) {
+        entities[p.object] = { x: 500, y: 500, name: 'Track #' + p.object };
+      }
+      const pos = p.attributes['1001'] || Object.values(p.attributes)[0] || '';
+      const match = pos.match(/x=([0-9.]+)[^y]+y=([0-9.]+)/) || pos.match(/([0-9.]+)[,\s]+([0-9.]+)/);
+      if (match) {
+        entities[p.object].x = parseFloat(match[1]);
+        entities[p.object].y = parseFloat(match[2]);
+      }
+      addLog('REFLECT: Object #' + p.object + ' attrs=' + JSON.stringify(p.attributes), 'log-rx');
+      updateEntityList();
+    } else if (msg.callback === 'removeObjectInstance') {
+      delete entities[msg.params.object];
+      addLog('REMOVE: Object #' + msg.params.object, 'log-warn');
+      updateEntityList();
+    }
+  };
+
+  function updateEntityList() {
+    const el = document.getElementById('entityList');
+    const keys = Object.keys(entities);
+    document.getElementById('objCount').textContent = keys.length;
+    el.textContent = '';
+    if (keys.length === 0) {
+      const span = document.createElement('span');
+      span.style.color = '#859289';
+      span.textContent = 'No entities active';
+      el.appendChild(span);
+      return;
+    }
+    keys.forEach(k => {
+      const div = document.createElement('div');
+      div.style.color = '#7fbbb3';
+      div.textContent = '* [' + k + '] ' + entities[k].name;
+      el.appendChild(div);
+    });
+  }
+</script>
+</body>
+</html>

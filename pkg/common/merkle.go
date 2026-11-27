@@ -28,17 +28,16 @@ func ComputeObjectMerkleRoot(attributes map[AttributeHandle][]byte) [32]byte {
 		return [32]byte{}
 	}
 
-	// 1. Extract and deterministically sort attribute handles
-	keys := make([]int, 0, len(attributes))
+	// 1. Extract and deterministically sort attribute handles (unsigned uint32 order, matching SSZ)
+	keys := make([]AttributeHandle, 0, len(attributes))
 	for k := range attributes {
-		keys = append(keys, int(k))
+		keys = append(keys, k)
 	}
-	sort.Ints(keys)
+	sort.Slice(keys, func(i, j int) bool { return uint32(keys[i]) < uint32(keys[j]) })
 
 	// 2. Compute attribute leaf hashes
 	leaves := make([][32]byte, len(keys))
-	for i, k := range keys {
-		h := AttributeHandle(k)
+	for i, h := range keys {
 		leaves[i] = ComputeAttributeLeaf(h, attributes[h])
 	}
 

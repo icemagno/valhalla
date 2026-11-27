@@ -62,4 +62,28 @@ func TestWelcomePack_FullFOMRoundtrip(t *testing.T) {
 	if obj2.Class.Name != "org.portico2.common.messaging.ExtendedSuccessResponse" {
 		t.Errorf("unexpected root class name: %s", obj2.Class.Name)
 	}
+	res2, ok := obj2.Get("results").(*metamodel.JavaObject)
+	if !ok || res2 == nil {
+		t.Fatalf("roundtrip lost results HashMap")
+	}
+	entries2, ok := res2.Get("entries").(map[any]any)
+	if !ok {
+		t.Fatalf("roundtrip results entries missing")
+	}
+	wp2, ok := entries2["result"].(*metamodel.JavaObject)
+	if !ok || wp2 == nil {
+		t.Fatalf("roundtrip lost WelcomePack result object")
+	}
+	fom2, ok := wp2.Get("fom").(*metamodel.JavaObject)
+	if !ok || fom2 == nil {
+		t.Fatalf("roundtrip lost inner FOM ObjectModel")
+	}
+	oc2, ok := fom2.Get("oclasses").(*metamodel.JavaObject)
+	if !ok || oc2 == nil {
+		t.Fatalf("roundtrip lost oclasses inside FOM")
+	}
+	ocEntries2, ok := oc2.Get("entries").(map[any]any)
+	if !ok || len(ocEntries2) != len(ocEntries) {
+		t.Fatalf("roundtrip oclasses count mismatch: got %d, want %d", len(ocEntries2), len(ocEntries))
+	}
 }

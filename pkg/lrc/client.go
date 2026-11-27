@@ -27,12 +27,15 @@ const (
 	DefaultOutQueueBufferSize       = 1024
 )
 
-type callbackItem struct {
+// CallbackItem represents an asynchronous HLA callback queued for evocation.
+type CallbackItem struct {
 	MsgType    uint8
 	Payload    []byte
 	MerkleRoot [32]byte
 	HasMerkle  bool
 }
+
+type callbackItem = CallbackItem
 
 // Client manages the transport connection and native protocol (VAL4) with the CRC
 type Client struct {
@@ -144,10 +147,13 @@ func (c *Client) SendRequest(msgType uint8, fedID, federateID uint32, payload []
 		return nativeResponse{}, err
 	}
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case resp := <-respChan:
 		return resp, resp.Err
-	case <-time.After(timeout):
+	case <-timer.C:
 		return nativeResponse{}, ErrRequestTimeout
 	case <-c.closedChan:
 		return nativeResponse{}, ErrConnectionClosed
@@ -157,6 +163,9 @@ func (c *Client) SendRequest(msgType uint8, fedID, federateID uint32, payload []
 func (c *Client) writePacket(hdr common.NativeHeader, payload []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = c.conn.SetWriteDeadline(time.Time{}) }()
 
 	hdr.PayloadLen = uint32(len(payload))
 	buf := common.WriteNativeHeader(hdr)
@@ -173,7 +182,7 @@ func (c *Client) writePacket(hdr common.NativeHeader, payload []byte) error {
 }
 
 // EnqueueCallback injects an asynchronous callback item into the callback processing queue
-func (c *Client) EnqueueCallback(item callbackItem) {
+func (c *Client) EnqueueCallback(item CallbackItem) {
 	if c.IsClosed() {
 		return
 	}
@@ -269,13 +278,22 @@ func (c *Client) queueLoop() {
 			}
 
 			// Drain buffer into c.callbacks as long as consumer is reading
+			drainTimer := time.NewTimer(500 * time.Millisecond)
+			defer drainTimer.Stop()
 			for len(buffer) > 0 {
 				select {
 				case c.callbacks <- buffer[0]:
 					buffer[0] = callbackItem{}
 					buffer = buffer[1:]
 					atomic.StoreInt64(&c.queueLen, int64(len(buffer)))
-				case <-time.After(500 * time.Millisecond):
+					if !drainTimer.Stop() {
+						select {
+						case <-drainTimer.C:
+						default:
+						}
+					}
+					drainTimer.Reset(500 * time.Millisecond)
+				case <-drainTimer.C:
 					// Consumer stopped reading or abandoned queue; terminate
 					return
 				}

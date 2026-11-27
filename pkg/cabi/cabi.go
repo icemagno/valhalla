@@ -4,50 +4,48 @@ package main
 #include "valhalla_lrc.h"
 #include <stdlib.h>
 
-static void call_discover_object(ValhallaDiscoverObjectCallback cb, int32_t theObject, int32_t theObjectClass, const char* objectName) {
-    if (cb) cb(theObject, theObjectClass, objectName);
+static void call_discover_object(ValhallaDiscoverObjectCallback cb, int32_t theObject, int32_t theObjectClass, const char* objectName, void* userData) {
+    if (cb) cb(theObject, theObjectClass, objectName, userData);
 }
 
-static void call_remove_object(ValhallaRemoveObjectCallback cb, int32_t theObject, const uint8_t* tag, int32_t tagLen) {
-    if (cb) cb(theObject, tag, tagLen);
+static void call_remove_object(ValhallaRemoveObjectCallback cb, int32_t theObject, const uint8_t* tag, int32_t tagLen, void* userData) {
+    if (cb) cb(theObject, tag, tagLen, userData);
 }
 
-static void call_time_grant(ValhallaTimeAdvanceGrantCallback cb, double time) {
-    if (cb) cb(time);
+static void call_time_grant(ValhallaTimeAdvanceGrantCallback cb, double time, void* userData) {
+    if (cb) cb(time, userData);
 }
 
-static void call_reflect_attrs(ValhallaReflectAttributesCallback cb, int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen) {
-    if (cb) cb(theObject, attrCount, attrHandles, attrValues, attrLens, tag, tagLen);
+static void call_reflect_attrs(ValhallaReflectAttributesCallback cb, int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen, void* userData) {
+    if (cb) cb(theObject, attrCount, attrHandles, attrValues, attrLens, tag, tagLen, userData);
 }
 
-static void call_receive_interaction(ValhallaReceiveInteractionCallback cb, int32_t interactionClass, int32_t paramCount, const int32_t* paramHandles, const uint8_t** paramValues, const int32_t* paramLens, const uint8_t* tag, int32_t tagLen) {
-    if (cb) cb(interactionClass, paramCount, paramHandles, paramValues, paramLens, tag, tagLen);
+static void call_receive_interaction(ValhallaReceiveInteractionCallback cb, int32_t interactionClass, int32_t paramCount, const int32_t* paramHandles, const uint8_t** paramValues, const int32_t* paramLens, const uint8_t* tag, int32_t tagLen, void* userData) {
+    if (cb) cb(interactionClass, paramCount, paramHandles, paramValues, paramLens, tag, tagLen, userData);
 }
 
-static void call_announce_sync(ValhallaAnnounceSynchronizationPointCallback cb, const char* label, const uint8_t* tag, int32_t tagLen) {
-    if (cb) cb(label, tag, tagLen);
+static void call_announce_sync(ValhallaAnnounceSynchronizationPointCallback cb, const char* label, const uint8_t* tag, int32_t tagLen, void* userData) {
+    if (cb) cb(label, tag, tagLen, userData);
 }
 
-static void call_federation_sync(ValhallaFederationSynchronizedCallback cb, const char* label) {
-    if (cb) cb(label);
+static void call_federation_sync(ValhallaFederationSynchronizedCallback cb, const char* label, void* userData) {
+    if (cb) cb(label, userData);
 }
 
-static void call_sync_reg_succeeded(ValhallaSynchronizationPointRegistrationSucceededCallback cb, const char* label) {
-    if (cb) cb(label);
+static void call_sync_reg_succeeded(ValhallaSynchronizationPointRegistrationSucceededCallback cb, const char* label, void* userData) {
+    if (cb) cb(label, userData);
 }
 
-static void call_sync_reg_failed(ValhallaSynchronizationPointRegistrationFailedCallback cb, const char* label, const char* reason) {
-    if (cb) cb(label, reason);
+static void call_sync_reg_failed(ValhallaSynchronizationPointRegistrationFailedCallback cb, const char* label, const char* reason, void* userData) {
+    if (cb) cb(label, reason, userData);
 }
 */
 import "C"
 
 import (
 	"errors"
-	"math"
 	"sort"
 	"sync"
-	"time"
 	"unsafe"
 
 	"github.com/icemagno/valhalla/pkg/common"
@@ -150,7 +148,7 @@ func (f *cFedAmbassador) SynchronizationPointRegistrationSucceeded(label string)
 	if cb.onSyncPointRegistrationSucceeded != nil {
 		cLabel := C.CString(label)
 		defer C.free(unsafe.Pointer(cLabel))
-		C.call_sync_reg_succeeded(cb.onSyncPointRegistrationSucceeded, cLabel)
+		C.call_sync_reg_succeeded(cb.onSyncPointRegistrationSucceeded, cLabel, cb.userData)
 	}
 }
 
@@ -161,7 +159,7 @@ func (f *cFedAmbassador) SynchronizationPointRegistrationFailed(label string, re
 		defer C.free(unsafe.Pointer(cLabel))
 		cReason := C.CString(reason)
 		defer C.free(unsafe.Pointer(cReason))
-		C.call_sync_reg_failed(cb.onSyncPointRegistrationFailed, cLabel, cReason)
+		C.call_sync_reg_failed(cb.onSyncPointRegistrationFailed, cLabel, cReason, cb.userData)
 	}
 }
 
@@ -176,7 +174,7 @@ func (f *cFedAmbassador) AnnounceSynchronizationPoint(label string, tag []byte) 
 			defer C.free(cTagPtr)
 			cTag = (*C.uint8_t)(cTagPtr)
 		}
-		C.call_announce_sync(cb.onAnnounceSynchronizationPoint, cLabel, cTag, C.int32_t(len(tag)))
+		C.call_announce_sync(cb.onAnnounceSynchronizationPoint, cLabel, cTag, C.int32_t(len(tag)), cb.userData)
 	}
 }
 
@@ -185,7 +183,7 @@ func (f *cFedAmbassador) FederationSynchronized(label string) {
 	if cb.onFederationSynchronized != nil {
 		cLabel := C.CString(label)
 		defer C.free(unsafe.Pointer(cLabel))
-		C.call_federation_sync(cb.onFederationSynchronized, cLabel)
+		C.call_federation_sync(cb.onFederationSynchronized, cLabel, cb.userData)
 	}
 }
 
@@ -194,7 +192,7 @@ func (f *cFedAmbassador) DiscoverObjectInstance(theObject int32, theObjectClass 
 	if cb.onDiscoverObject != nil {
 		cName := C.CString(objectName)
 		defer C.free(unsafe.Pointer(cName))
-		C.call_discover_object(cb.onDiscoverObject, C.int32_t(theObject), C.int32_t(theObjectClass), cName)
+		C.call_discover_object(cb.onDiscoverObject, C.int32_t(theObject), C.int32_t(theObjectClass), cName, cb.userData)
 	}
 }
 
@@ -207,7 +205,7 @@ func (f *cFedAmbassador) RemoveObjectInstance(theObject int32, tag []byte) {
 			defer C.free(cTagPtr)
 			cTag = (*C.uint8_t)(cTagPtr)
 		}
-		C.call_remove_object(cb.onRemoveObject, C.int32_t(theObject), cTag, C.int32_t(len(tag)))
+		C.call_remove_object(cb.onRemoveObject, C.int32_t(theObject), cTag, C.int32_t(len(tag)), cb.userData)
 	}
 }
 
@@ -281,6 +279,7 @@ func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes m
 			(*C.int32_t)(cLens),
 			cTag,
 			C.int32_t(len(tag)),
+			cb.userData,
 		)
 	}
 }
@@ -357,6 +356,7 @@ func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameter
 			(*C.int32_t)(cLens),
 			cTag,
 			C.int32_t(len(tag)),
+			cb.userData,
 		)
 	}
 }
@@ -364,7 +364,7 @@ func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameter
 func (f *cFedAmbassador) TimeAdvanceGrant(grantTime float64) {
 	cb := f.ctx.getCallbacks()
 	if cb.onTimeAdvanceGrant != nil {
-		C.call_time_grant(cb.onTimeAdvanceGrant, C.double(grantTime))
+		C.call_time_grant(cb.onTimeAdvanceGrant, C.double(grantTime), cb.userData)
 	}
 }
 
@@ -598,600 +598,3 @@ func valhalla_synchronization_point_achieved(amb C.ValhallaAmbassador, label *C.
 	}
 	return C.VALHALLA_OK
 }
-
-//export valhalla_get_object_class_handle
-func valhalla_get_object_class_handle(amb C.ValhallaAmbassador, className *C.char, outHandle *C.int32_t) C.int32_t {
-	if amb == nil || className == nil || outHandle == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	name := C.GoString(className)
-	handle, err := ctx.amb.GetObjectClassHandle(name)
-	if err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	if outHandle != nil {
-		*outHandle = C.int32_t(handle)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_get_attribute_handle
-func valhalla_get_attribute_handle(amb C.ValhallaAmbassador, classHandle C.int32_t, attrName *C.char, outHandle *C.int32_t) C.int32_t {
-	if amb == nil || attrName == nil || outHandle == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	name := C.GoString(attrName)
-	handle, err := ctx.amb.GetAttributeHandle(int32(classHandle), name)
-	if err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	if outHandle != nil {
-		*outHandle = C.int32_t(handle)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_get_dimension_handle
-func valhalla_get_dimension_handle(amb C.ValhallaAmbassador, dimName *C.char, outHandle *C.int32_t) C.int32_t {
-	if amb == nil || dimName == nil || outHandle == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	name := C.GoString(dimName)
-	handle, err := ctx.amb.GetDimensionHandle(name)
-	if err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	if outHandle != nil {
-		*outHandle = C.int32_t(handle)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_publish_object_class
-func valhalla_publish_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(attrCount)
-	attrs := make([]int32, count)
-	if count > 0 && attrHandles != nil {
-		cSlice := unsafe.Slice(attrHandles, count)
-		for i := 0; i < count; i++ {
-			attrs[i] = int32(cSlice[i])
-		}
-	}
-	if err := ctx.amb.PublishObjectClassAttributes(int32(classHandle), attrs); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_unpublish_object_class
-func valhalla_unpublish_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.UnpublishObjectClass(int32(classHandle)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_subscribe_object_class
-func valhalla_subscribe_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(attrCount)
-	attrs := make([]int32, count)
-	if count > 0 && attrHandles != nil {
-		cSlice := unsafe.Slice(attrHandles, count)
-		for i := 0; i < count; i++ {
-			attrs[i] = int32(cSlice[i])
-		}
-	}
-	if err := ctx.amb.SubscribeObjectClassAttributes(int32(classHandle), attrs); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_unsubscribe_object_class
-func valhalla_unsubscribe_object_class(amb C.ValhallaAmbassador, classHandle C.int32_t) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.UnsubscribeObjectClass(int32(classHandle)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_publish_interaction_class
-func valhalla_publish_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.PublishInteractionClass(int32(interactionClass)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_unpublish_interaction_class
-func valhalla_unpublish_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.UnpublishInteractionClass(int32(interactionClass)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_subscribe_interaction_class
-func valhalla_subscribe_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.SubscribeInteractionClass(int32(interactionClass)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_unsubscribe_interaction_class
-func valhalla_unsubscribe_interaction_class(amb C.ValhallaAmbassador, interactionClass C.int32_t) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.UnsubscribeInteractionClass(int32(interactionClass)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_register_object
-func valhalla_register_object(amb C.ValhallaAmbassador, classHandle C.int32_t, objectName *C.char, outObjectHandle *C.int32_t) C.int32_t {
-	if amb == nil || outObjectHandle == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	name := ""
-	if objectName != nil {
-		name = C.GoString(objectName)
-	}
-	handle, err := ctx.amb.RegisterObjectInstance(int32(classHandle), name)
-	if err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	if outObjectHandle != nil {
-		*outObjectHandle = C.int32_t(handle)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_delete_object
-func valhalla_delete_object(amb C.ValhallaAmbassador, objectHandle C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || tagLen < 0 || (tagLen > 0 && tag == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	var goTag []byte
-	if tagLen > 0 && tag != nil {
-		goTag = C.GoBytes(unsafe.Pointer(tag), tagLen)
-	}
-	if err := ctx.amb.DeleteObjectInstance(int32(objectHandle), goTag); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_update_attributes
-func valhalla_update_attributes(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrValues **C.uint8_t, attrLens *C.int32_t, attrCount C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(attrCount)
-	attrs := make(map[int32][]byte, count)
-	if count > 0 && attrHandles != nil && attrValues != nil && attrLens != nil {
-		cHdls := unsafe.Slice(attrHandles, count)
-		cVals := unsafe.Slice(attrValues, count)
-		cLns := unsafe.Slice(attrLens, count)
-		for i := 0; i < count; i++ {
-			h := int32(cHdls[i])
-			ln := int(cLns[i])
-			if ln < 0 {
-				return C.VALHALLA_ERR_INVALID_ARG
-			}
-			if ln > 0 && cVals[i] != nil {
-				attrs[h] = C.GoBytes(unsafe.Pointer(cVals[i]), C.int(ln))
-			} else {
-				attrs[h] = []byte{}
-			}
-		}
-	}
-	var goTag []byte
-	if tagLen > 0 && tag != nil {
-		goTag = C.GoBytes(unsafe.Pointer(tag), tagLen)
-	}
-	if err := ctx.amb.UpdateAttributeValues(int32(objectHandle), attrs, goTag); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_send_interaction
-func valhalla_send_interaction(amb C.ValhallaAmbassador, interactionClass C.int32_t, paramHandles *C.int32_t, paramValues **C.uint8_t, paramLens *C.int32_t, paramCount C.int32_t, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || paramCount < 0 || (paramCount > 0 && (paramHandles == nil || paramValues == nil || paramLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(paramCount)
-	params := make(map[int32][]byte, count)
-	if count > 0 && paramHandles != nil && paramValues != nil && paramLens != nil {
-		cHdls := unsafe.Slice(paramHandles, count)
-		cVals := unsafe.Slice(paramValues, count)
-		cLns := unsafe.Slice(paramLens, count)
-		for i := 0; i < count; i++ {
-			h := int32(cHdls[i])
-			ln := int(cLns[i])
-			if ln < 0 {
-				return C.VALHALLA_ERR_INVALID_ARG
-			}
-			if ln > 0 && cVals[i] != nil {
-				params[h] = C.GoBytes(unsafe.Pointer(cVals[i]), C.int(ln))
-			} else {
-				params[h] = []byte{}
-			}
-		}
-	}
-	var goTag []byte
-	if tagLen > 0 && tag != nil {
-		goTag = C.GoBytes(unsafe.Pointer(tag), tagLen)
-	}
-	if err := ctx.amb.SendInteraction(int32(interactionClass), params, goTag); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_enable_time_regulation
-func valhalla_enable_time_regulation(amb C.ValhallaAmbassador, lookahead C.double) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.EnableTimeRegulation(float64(lookahead)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_enable_time_constrained
-func valhalla_enable_time_constrained(amb C.ValhallaAmbassador) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.EnableTimeConstrained(); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_time_advance_request
-func valhalla_time_advance_request(amb C.ValhallaAmbassador, time C.double) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.TimeAdvanceRequest(float64(time)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_next_message_request
-func valhalla_next_message_request(amb C.ValhallaAmbassador, time C.double) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.NextMessageRequest(float64(time)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_heartbeat
-func valhalla_heartbeat(amb C.ValhallaAmbassador) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.Heartbeat(); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_divest_ownership
-func valhalla_divest_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(attrCount)
-	attrs := make([]int32, count)
-	if count > 0 && attrHandles != nil {
-		cSlice := unsafe.Slice(attrHandles, count)
-		for i := 0; i < count; i++ {
-			attrs[i] = int32(cSlice[i])
-		}
-	}
-	if err := ctx.amb.UnconditionalAttributeOwnershipDivestiture(int32(objectHandle), attrs); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_acquire_ownership
-func valhalla_acquire_ownership(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(attrCount)
-	attrs := make([]int32, count)
-	if count > 0 && attrHandles != nil {
-		cSlice := unsafe.Slice(attrHandles, count)
-		for i := 0; i < count; i++ {
-			attrs[i] = int32(cSlice[i])
-		}
-	}
-	if err := ctx.amb.AcquireAttributeOwnership(int32(objectHandle), attrs); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_query_ownership
-func valhalla_query_ownership(amb C.ValhallaAmbassador, objectHandle, attrHandle C.int32_t, outOwner *C.int32_t, outIsOwned *C.bool) C.int32_t {
-	if amb == nil || outOwner == nil || outIsOwned == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	owner, isOwned, err := ctx.amb.QueryAttributeOwnership(int32(objectHandle), int32(attrHandle))
-	if err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	if outOwner != nil {
-		*outOwner = C.int32_t(owner)
-	}
-	if outIsOwned != nil {
-		*outIsOwned = C.bool(isOwned)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_create_region
-func valhalla_create_region(amb C.ValhallaAmbassador, dimensions *C.int32_t, dimCount C.int32_t, outRegionHandle *C.uint32_t) C.int32_t {
-	if amb == nil || outRegionHandle == nil || dimCount < 0 || (dimCount > 0 && dimensions == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(dimCount)
-	dims := make([]int32, count)
-	if count > 0 && dimensions != nil {
-		cSlice := unsafe.Slice(dimensions, count)
-		for i := 0; i < count; i++ {
-			dims[i] = int32(cSlice[i])
-		}
-	}
-	handle, err := ctx.amb.CreateRegion(dims)
-	if err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	if outRegionHandle != nil {
-		*outRegionHandle = C.uint32_t(handle)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_set_range_bounds
-func valhalla_set_range_bounds(amb C.ValhallaAmbassador, regionHandle C.uint32_t, dimension C.int32_t, lowerBound, upperBound C.uint32_t) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.SetRangeBounds(uint32(regionHandle), int32(dimension), uint32(lowerBound), uint32(upperBound)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_set_metric_bounds
-func valhalla_set_metric_bounds(amb C.ValhallaAmbassador, regionHandle C.uint32_t, minX, maxX, minY, maxY, minZ, maxZ C.double) C.int32_t {
-	if amb == nil {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	if err := ctx.amb.SetMetricBounds(uint32(regionHandle), float64(minX), float64(maxX), float64(minY), float64(maxY), float64(minZ), float64(maxZ)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_subscribe_with_region
-func valhalla_subscribe_with_region(amb C.ValhallaAmbassador, classHandle C.int32_t, attrHandles *C.int32_t, attrCount C.int32_t, regionHandle C.uint32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && attrHandles == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(attrCount)
-	attrs := make([]int32, count)
-	if count > 0 && attrHandles != nil {
-		cSlice := unsafe.Slice(attrHandles, count)
-		for i := 0; i < count; i++ {
-			attrs[i] = int32(cSlice[i])
-		}
-	}
-	if err := ctx.amb.SubscribeObjectClassAttributesWithRegion(int32(classHandle), attrs, uint32(regionHandle)); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_update_attributes_spatial
-func valhalla_update_attributes_spatial(amb C.ValhallaAmbassador, objectHandle C.int32_t, attrHandles *C.int32_t, attrValues **C.uint8_t, attrLens *C.int32_t, attrCount C.int32_t, x, y, z C.double, tag *C.uint8_t, tagLen C.int32_t) C.int32_t {
-	if amb == nil || attrCount < 0 || (attrCount > 0 && (attrHandles == nil || attrValues == nil || attrLens == nil)) || tagLen < 0 || (tagLen > 0 && tag == nil) {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	count := int(attrCount)
-	attrs := make(map[int32][]byte, count)
-	if count > 0 && attrHandles != nil && attrValues != nil && attrLens != nil {
-		cHdls := unsafe.Slice(attrHandles, count)
-		cVals := unsafe.Slice(attrValues, count)
-		cLns := unsafe.Slice(attrLens, count)
-		for i := 0; i < count; i++ {
-			h := int32(cHdls[i])
-			ln := int(cLns[i])
-			if ln < 0 {
-				return C.VALHALLA_ERR_INVALID_ARG
-			}
-			if ln > 0 && cVals[i] != nil {
-				attrs[h] = C.GoBytes(unsafe.Pointer(cVals[i]), C.int(ln))
-			} else {
-				attrs[h] = []byte{}
-			}
-		}
-	}
-	var goTag []byte
-	if tagLen > 0 && tag != nil {
-		goTag = C.GoBytes(unsafe.Pointer(tag), tagLen)
-	}
-	if err := ctx.amb.UpdateAttributeValuesWithSpatial(int32(objectHandle), attrs, float64(x), float64(y), float64(z), goTag); err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	return C.VALHALLA_OK
-}
-
-//export valhalla_evoke_callback
-func valhalla_evoke_callback(amb C.ValhallaAmbassador, timeoutSeconds C.double, outEvoked *C.bool) C.int32_t {
-	tSec := float64(timeoutSeconds)
-	if amb == nil || outEvoked == nil || math.IsNaN(tSec) || math.IsInf(tSec, 0) || tSec < 0 {
-		return C.VALHALLA_ERR_INVALID_ARG
-	}
-	ctx, exists := getContext(amb)
-	if !exists {
-		return C.VALHALLA_ERR_NOT_CONNECTED
-	}
-	evoked, err := ctx.amb.EvokeCallback(time.Duration(float64(timeoutSeconds) * float64(time.Second)))
-	if err != nil {
-		return mapErrorToStatusCode(err)
-	}
-	if outEvoked != nil {
-		*outEvoked = C.bool(evoked)
-	}
-	return C.VALHALLA_OK
-}
-
-func main() {}

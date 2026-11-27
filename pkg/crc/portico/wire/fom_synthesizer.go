@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/icemagno/valhalla/pkg/crc/core"
@@ -43,6 +44,7 @@ func SynthesizePorticoObjectModel(omt *core.OMTRegistry) *metamodel.JavaObject {
 	omt.ForEachObjectClass(func(cls *core.ObjectClass) {
 		allObjects = append(allObjects, cls)
 	})
+	sort.Slice(allObjects, func(i, j int) bool { return allObjects[i].Handle < allObjects[j].Handle })
 
 	for _, cls := range allObjects {
 		h := int32(cls.Handle)
@@ -120,6 +122,7 @@ func SynthesizePorticoObjectModel(omt *core.OMTRegistry) *metamodel.JavaObject {
 	omt.ForEachInteractionClass(func(inter *core.InteractionClass) {
 		allInteractions = append(allInteractions, inter)
 	})
+	sort.Slice(allInteractions, func(i, j int) bool { return allInteractions[i].Handle < allInteractions[j].Handle })
 
 	for _, inter := range allInteractions {
 		h := int32(inter.Handle)

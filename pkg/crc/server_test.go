@@ -357,6 +357,7 @@ func TestServer_DedicatedNativePort_ZeroLatency(t *testing.T) {
 		MsgType:    NativeMsgJoin,
 		ReqID:      2,
 	}
+	start := time.Now()
 	if err := session.SendMessage(joinHdr, joinPayload); err != nil {
 		t.Fatalf("Failed to send NativeMsgJoin: %v", err)
 	}
@@ -365,8 +366,12 @@ func TestServer_DedicatedNativePort_ZeroLatency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read Native response on dedicated port: %v", err)
 	}
+	elapsed := time.Since(start)
 	if respHdr.MsgType != NativeMsgJoinSuccess {
 		t.Errorf("Expected NativeMsgJoinSuccess (%d), got %d", NativeMsgJoinSuccess, respHdr.MsgType)
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("Dedicated native port Join RTT too high: %v (expected < 200ms)", elapsed)
 	}
 }
 

@@ -117,18 +117,13 @@ func TestRTIambassador_FullNativeLifecycle(t *testing.T) {
 	}
 
 	// 6. Evocar callbacks para processar FederationSynchronized
-	time.Sleep(50 * time.Millisecond)
-	evoked, err := amb.EvokeCallback(200 * time.Millisecond)
-	if err != nil {
-		t.Fatalf("EvokeCallback falhou: %v", err)
-	}
-	if !evoked {
-		t.Log("nenhum callback evocado imediatamente (normal)")
+	if err := amb.EvokeMultipleCallbacks(20*time.Millisecond, 300*time.Millisecond); err != nil {
+		t.Fatalf("EvokeMultipleCallbacks falhou: %v", err)
 	}
 
 	fedAmb.mu.Lock()
-	if fedAmb.synchronized && fedAmb.syncedLabel != "ReadyToRun" {
-		t.Errorf("rotulo de sincronizacao invalido: %s", fedAmb.syncedLabel)
+	if !fedAmb.synchronized || fedAmb.syncedLabel != "ReadyToRun" {
+		t.Fatalf("esperado FederationSynchronized('ReadyToRun'), obtido synchronized=%v label=%q", fedAmb.synchronized, fedAmb.syncedLabel)
 	}
 	fedAmb.mu.Unlock()
 
@@ -163,12 +158,13 @@ func TestRTIambassador_FullNativeLifecycle(t *testing.T) {
 	}
 
 	// Processar callback de TAG (TimeAdvanceGrant)
-	time.Sleep(50 * time.Millisecond)
-	_, _ = amb.EvokeCallback(200 * time.Millisecond)
+	if err := amb.EvokeMultipleCallbacks(20*time.Millisecond, 300*time.Millisecond); err != nil {
+		t.Fatalf("EvokeMultipleCallbacks para TAG falhou: %v", err)
+	}
 
 	fedAmb.mu.Lock()
 	if fedAmb.timeGranted != 1.0 {
-		t.Logf("TAG processado: %.1f", fedAmb.timeGranted)
+		t.Fatalf("esperado TAG = 1.0, obtido %.2f", fedAmb.timeGranted)
 	}
 	fedAmb.mu.Unlock()
 

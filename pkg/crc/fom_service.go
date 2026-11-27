@@ -1,6 +1,7 @@
 package crc
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,45 +13,65 @@ import (
 
 var logFOM = logger.NewLogger("FOM-Service")
 
-// ResolveFOMPath searches for a FOM file on disk across common repository and distribution directories.
+// CanonicalFOMDir is the official, canonical directory (relative to the CRC execution directory)
+// where all FOM XML modules are recursively discovered.
+var CanonicalFOMDir = "foms"
+
+// ResolveFOMPath searches for a FOM file strictly inside CanonicalFOMDir (./foms) using
+// deterministic recursive directory traversal, regardless of how subdirectories are organized.
 func ResolveFOMPath(rawPath string) string {
-	cleanPath := strings.TrimPrefix(rawPath, "file:///")
+	trimmed := strings.TrimSpace(rawPath)
+	if trimmed == "" {
+		return ""
+	}
+
+	cleanPath := strings.TrimPrefix(trimmed, "file:///")
 	cleanPath = strings.TrimPrefix(cleanPath, "file://")
 	cleanPath = strings.TrimPrefix(cleanPath, "file:")
+	normPath := filepath.ToSlash(strings.ReplaceAll(cleanPath, "\\", "/"))
 
-	normPath := strings.ReplaceAll(cleanPath, "\\", "/")
-
-	// 1. Direct path check
-	if _, err := os.Stat(normPath); err == nil {
-		return normPath
+	rootDir := CanonicalFOMDir
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return ""
+	}
+	if info, err := os.Stat(absRoot); err != nil || !info.IsDir() {
+		return ""
 	}
 
-	base := filepath.Base(normPath)
-
-	// 2. Standard search locations
-	candidates := []string{
-		filepath.Join("foms", base),
-		filepath.Join("bin", "foms", base),
-		filepath.Join("..", "foms", base),
-		filepath.Join("..", "..", "foms", base),
-		filepath.Join("examples", "java-federate", "foms", base),
-		filepath.Join("..", "..", "examples", "java-federate", "foms", base),
-		filepath.Join("dist", "bin", "foms", base),
-		filepath.Join("..", "..", "dist", "bin", "foms", base),
-		filepath.Join("examples", "java-federate", "foms", "siso-rpr-v2.0", base),
-		filepath.Join("test", "resources", "rpr-fom-v2.0", base),
-		filepath.Join("resources", "rpr-fom-v2.0", base),
-		filepath.Join("..", "test", "resources", "rpr-fom-v2.0", base),
-		filepath.Join("..", "..", "test", "resources", "rpr-fom-v2.0", base),
-	}
-
-	for _, target := range candidates {
-		if _, err := os.Stat(target); err == nil {
-			return target
+	// 1. Direct relative sub-path match inside ./foms (supports disambiguating e.g. "simA/FOM.xml" or "foms/simA/FOM.xml")
+	relCandidate := strings.TrimPrefix(normPath, "./")
+	relCandidate = strings.TrimPrefix(relCandidate, "foms/")
+	if relCandidate != "" && !filepath.IsAbs(relCandidate) {
+		joined := filepath.Clean(filepath.Join(absRoot, filepath.FromSlash(relCandidate)))
+		if rel, err := filepath.Rel(absRoot, joined); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if info, err := os.Stat(joined); err == nil && !info.IsDir() {
+				return joined
+			}
 		}
 	}
 
-	return ""
+	// 2. Deterministic recursive search inside ./foms by filename (filepath.WalkDir visits in lexical order)
+	base := filepath.Base(normPath)
+	if base == "" || base == "." || base == "/" || base == ".." {
+		return ""
+	}
+
+	var found string
+	_ = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if d.Name() == base {
+			found = path
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // IngestFOMIntoFederation parses a FOM module (file path, URL, or raw XML string) into the federation's OMT registry.

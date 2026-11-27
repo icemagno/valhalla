@@ -786,3 +786,65 @@ func (r *OMTRegistry) GetAllDimensions() []*DimensionDef {
 	}
 	return dims
 }
+
+// EnsureObjectClass implements metamodel.OMTBuilder, returning an existing child class or creating it.
+func (r *OMTRegistry) EnsureObjectClass(parentHandle common.ObjectClassHandle, name string) (common.ObjectClassHandle, error) {
+	if existing, exists := r.GetChildObjectClass(parentHandle, name); exists {
+		return existing.Handle, nil
+	}
+	cls, err := r.AddObjectClass(name, parentHandle)
+	if err != nil {
+		return 0, err
+	}
+	return cls.Handle, nil
+}
+
+// EnsureAttribute implements metamodel.OMTBuilder, returning an existing attribute or creating it.
+func (r *OMTRegistry) EnsureAttribute(classHandle common.ObjectClassHandle, name, datatype string) (common.AttributeHandle, error) {
+	if existing, err := r.ResolveAttributeByName(classHandle, name); err == nil {
+		return existing.Handle, nil
+	}
+	attr, err := r.AddAttribute(classHandle, name, datatype)
+	if err != nil {
+		return 0, err
+	}
+	return attr.Handle, nil
+}
+
+// EnsureInteractionClass implements metamodel.OMTBuilder, returning an existing child interaction or creating it.
+func (r *OMTRegistry) EnsureInteractionClass(parentHandle common.InteractionClassHandle, name string) (common.InteractionClassHandle, error) {
+	if existing, exists := r.GetChildInteractionClass(parentHandle, name); exists {
+		return existing.Handle, nil
+	}
+	inter, err := r.AddInteractionClass(name, parentHandle)
+	if err != nil {
+		return 0, err
+	}
+	return inter.Handle, nil
+}
+
+// EnsureParameter implements metamodel.OMTBuilder, returning an existing parameter or creating it.
+func (r *OMTRegistry) EnsureParameter(interHandle common.InteractionClassHandle, name, datatype string) (common.ParameterHandle, error) {
+	param, err := r.AddParameter(interHandle, name, datatype)
+	if err == nil {
+		return param.Handle, nil
+	}
+	if errors.Is(err, ErrDuplicateParameter) {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+		if inter, ok := r.interactionClasses[interHandle]; ok {
+			if h, exists := inter.ParamNameToHandle[name]; exists {
+				return h, nil
+			}
+		}
+	}
+	return 0, err
+}
+
+// EnsureDimension implements metamodel.OMTBuilder, returning an existing dimension or registering it.
+func (r *OMTRegistry) EnsureDimension(name, datatype string, upperBound int64) (common.DimensionHandle, error) {
+	if existing, ok := r.GetDimensionByName(name); ok {
+		return existing.Handle, nil
+	}
+	return r.RegisterDimension(name, datatype, upperBound)
+}

@@ -184,12 +184,13 @@ func TestMerkleDesync_ConsensusAndDivergence(t *testing.T) {
 		t.Fatalf("state root mismatch after spatial update: Publisher (%x) vs Subscriber (%x)", ambA.GetLocalStateRoot(), ambB.GetLocalStateRoot())
 	}
 
-	// 7. Adversarial Test: Deliberately corrupt Subscriber's local state with a ghost entity
-	implB, ok := ambB.(*lrc.RTIambassadorImpl)
-	if !ok {
-		t.Fatalf("ambB does not implement *lrc.RTIambassadorImpl")
+	// 7. Adversarial Test: Inject a divergent entity directly into the CRC's Merkle state tree
+	// without notifying Subscriber (simulating real state divergence without any LRC backdoor).
+	fedExec, exists := server.FederationManager().GetFederation(fedName)
+	if !exists {
+		t.Fatalf("federation %q not found on CRC", fedName)
 	}
-	implB.CorruptLocalStateForTesting(common.ObjectInstanceHandle(999), 1, []byte("GhostEntityInSubscriber"))
+	fedExec.StateTree().UpdateEntityAttribute(common.ObjectInstanceHandle(999), 1, []byte("DivergentEntityInCRC"))
 
 	// Publisher sends another valid update on obj1
 	if err := ambA.UpdateAttributeValues(obj1Handle, map[int32][]byte{attrHandle: []byte("TriggerDivergence")}, []byte("tag3")); err != nil {

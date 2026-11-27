@@ -29,39 +29,39 @@ public interface IValhallaLrc extends Library {
     int VALHALLA_ERR_INTERACTION_NOT_FOUND = 14;
 
     interface DiscoverObjectCallback extends Callback {
-        void invoke(int theObject, int theObjectClass, String objectName);
+        void invoke(int theObject, int theObjectClass, String objectName, Pointer userData);
     }
 
     interface RemoveObjectCallback extends Callback {
-        void invoke(int theObject, Pointer tag, int tagLen);
+        void invoke(int theObject, Pointer tag, int tagLen, Pointer userData);
     }
 
     interface ReflectAttributesCallback extends Callback {
-        void invoke(int theObject, int attrCount, Pointer attrHandles, Pointer attrValues, Pointer attrLens, Pointer tag, int tagLen);
+        void invoke(int theObject, int attrCount, Pointer attrHandles, Pointer attrValues, Pointer attrLens, Pointer tag, int tagLen, Pointer userData);
     }
 
     interface TimeAdvanceGrantCallback extends Callback {
-        void invoke(double time);
+        void invoke(double time, Pointer userData);
     }
 
     interface ReceiveInteractionCallback extends Callback {
-        void invoke(int interactionClass, int paramCount, Pointer paramHandles, Pointer paramValues, Pointer paramLens, Pointer tag, int tagLen);
+        void invoke(int interactionClass, int paramCount, Pointer paramHandles, Pointer paramValues, Pointer paramLens, Pointer tag, int tagLen, Pointer userData);
     }
 
     interface AnnounceSynchronizationPointCallback extends Callback {
-        void invoke(String label, Pointer tag, int tagLen);
+        void invoke(String label, Pointer tag, int tagLen, Pointer userData);
     }
 
     interface FederationSynchronizedCallback extends Callback {
-        void invoke(String label);
+        void invoke(String label, Pointer userData);
     }
 
     interface SynchronizationPointRegistrationSucceededCallback extends Callback {
-        void invoke(String label);
+        void invoke(String label, Pointer userData);
     }
 
     interface SynchronizationPointRegistrationFailedCallback extends Callback {
-        void invoke(String label, String reason);
+        void invoke(String label, String reason, Pointer userData);
     }
 
     @Structure.FieldOrder({
@@ -73,7 +73,8 @@ public interface IValhallaLrc extends Library {
         "onAnnounceSynchronizationPoint",
         "onFederationSynchronized",
         "onSyncPointRegistrationSucceeded",
-        "onSyncPointRegistrationFailed"
+        "onSyncPointRegistrationFailed",
+        "userData"
     })
     class ValhallaCallbacks extends Structure {
         public static class ByValue extends ValhallaCallbacks implements Structure.ByValue {}
@@ -87,6 +88,7 @@ public interface IValhallaLrc extends Library {
         public FederationSynchronizedCallback onFederationSynchronized;
         public SynchronizationPointRegistrationSucceededCallback onSyncPointRegistrationSucceeded;
         public SynchronizationPointRegistrationFailedCallback onSyncPointRegistrationFailed;
+        public Pointer userData;
 
         @Override
         protected List<String> getFieldOrder() {
@@ -99,7 +101,8 @@ public interface IValhallaLrc extends Library {
                 "onAnnounceSynchronizationPoint",
                 "onFederationSynchronized",
                 "onSyncPointRegistrationSucceeded",
-                "onSyncPointRegistrationFailed"
+                "onSyncPointRegistrationFailed",
+                "userData"
             );
         }
     }

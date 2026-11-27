@@ -294,8 +294,12 @@ func TestTimeManager_ConcurrencyRaceFree(t *testing.T) {
 	for i := 1; i <= numFederates; i++ {
 		h := common.FederateHandle(i)
 		tm.RegisterFederate(h)
-		_ = tm.EnableTimeRegulation(h, 0.5)
-		_ = tm.EnableTimeConstrained(h)
+		if err := tm.EnableTimeRegulation(h, 0.5); err != nil {
+			t.Fatalf("EnableTimeRegulation(%d) failed: %v", i, err)
+		}
+		if err := tm.EnableTimeConstrained(h); err != nil {
+			t.Fatalf("EnableTimeConstrained(%d) failed: %v", i, err)
+		}
 	}
 
 	wg.Add(numFederates)
@@ -307,12 +311,26 @@ func TestTimeManager_ConcurrencyRaceFree(t *testing.T) {
 				target := float64(step) * 0.5
 				_, _ = tm.TimeAdvanceRequest(handle, target)
 				tm.Heartbeat(handle)
-				_ = tm.CalculateLBTS(handle)
+				lbts := tm.CalculateLBTS(handle)
+				if lbts < 0 {
+					t.Errorf("negative LBTS %f for federate %d", lbts, handle)
+				}
 			}
 		}(h)
 	}
 
 	wg.Wait()
+
+	for i := 1; i <= numFederates; i++ {
+		h := common.FederateHandle(i)
+		st, err := tm.GetStatus(h)
+		if err != nil {
+			t.Fatalf("federate %d missing after concurrent run: %v", i, err)
+		}
+		if !st.IsRegulating || !st.IsConstrained || st.CurrentTime < 0 {
+			t.Fatalf("federate %d corrupted state: %+v", i, st)
+		}
+	}
 }
 
 func BenchmarkTimeManager_CalculateLBTS(b *testing.B) {

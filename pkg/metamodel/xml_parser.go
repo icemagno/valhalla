@@ -4,11 +4,20 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/icemagno/valhalla/pkg/common"
-	"github.com/icemagno/valhalla/pkg/crc/core"
 )
+
+// OMTBuilder decouples IEEE 1516-2010 FOM XML parsing from pkg/crc/core concrete types.
+type OMTBuilder interface {
+	EnsureObjectClass(parentHandle common.ObjectClassHandle, name string) (common.ObjectClassHandle, error)
+	EnsureAttribute(classHandle common.ObjectClassHandle, name, datatype string) (common.AttributeHandle, error)
+	EnsureInteractionClass(parentHandle common.InteractionClassHandle, name string) (common.InteractionClassHandle, error)
+	EnsureParameter(interHandle common.InteractionClassHandle, name, datatype string) (common.ParameterHandle, error)
+	EnsureDimension(name, datatype string, upperBound int64) (common.DimensionHandle, error)
+}
 
 // XMLObjectModel represents the root <objectModel> element of an IEEE 1516-2010 FOM module.
 type XMLObjectModel struct {
@@ -53,8 +62,16 @@ type XMLParameter struct {
 	DataType string `xml:"dataType"`
 }
 
-// ParseFOMFile reads an IEEE 1516-2010 XML FOM file from disk and merges it into the OMTRegistry.
-func ParseFOMFile(omt *core.OMTRegistry, filePath string) error {
+func isNilOMTBuilder(omt OMTBuilder) bool {
+	if omt == nil {
+		return true
+	}
+	v := reflect.ValueOf(omt)
+	return v.Kind() == reflect.Ptr && v.IsNil()
+}
+
+// ParseFOMFile reads an IEEE 1516-2010 XML FOM file from disk and merges it into the target OMTBuilder.
+func ParseFOMFile(omt OMTBuilder, filePath string) error {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read FOM file '%s': %w", filePath, err)
@@ -63,9 +80,9 @@ func ParseFOMFile(omt *core.OMTRegistry, filePath string) error {
 }
 
 // ParseFOMXML parses an in-memory byte slice containing an IEEE 1516-2010 XML FOM and merges
-// its object classes, attributes, interactions, and parameters into the target OMTRegistry.
-func ParseFOMXML(omt *core.OMTRegistry, data []byte) error {
-	if omt == nil {
+// its object classes, attributes, interactions, parameters, and dimensions into the target OMTBuilder.
+func ParseFOMXML(omt OMTBuilder, data []byte) error {
+	if isNilOMTBuilder(omt) {
 		return fmt.Errorf("target OMTRegistry cannot be nil")
 	}
 
@@ -92,14 +109,16 @@ func ParseFOMXML(omt *core.OMTRegistry, data []byte) error {
 	for _, dim := range fom.Dimensions {
 		name := strings.TrimSpace(dim.Name)
 		if name != "" {
-			_, _ = omt.RegisterDimension(name, dim.DataType, dim.UpperBound)
+			if _, err := omt.EnsureDimension(name, dim.DataType, dim.UpperBound); err != nil {
+				return fmt.Errorf("failed to register dimension '%s': %w", name, err)
+			}
 		}
 	}
 
 	return nil
 }
 
-func mergeObjectClass(omt *core.OMTRegistry, node XMLObjectClass, parentHandle common.ObjectClassHandle) error {
+func mergeObjectClass(omt OMTBuilder, node XMLObjectClass, parentHandle common.ObjectClassHandle) error {
 	name := strings.TrimSpace(node.Name)
 	if name == "" {
 		return nil
@@ -107,24 +126,17 @@ func mergeObjectClass(omt *core.OMTRegistry, node XMLObjectClass, parentHandle c
 
 	var currentHandle common.ObjectClassHandle
 
-	if name == core.HLAobjectRootName {
-		currentHandle = core.HLAobjectRootHandle
+	if name == common.HLAobjectRootName {
+		currentHandle = common.HLAobjectRootHandle
 	} else {
 		if parentHandle == 0 {
-			parentHandle = core.HLAobjectRootHandle
+			parentHandle = common.HLAobjectRootHandle
 		}
-
-		// Look up if this class already exists under the parent
-		existing, exists := omt.GetChildObjectClass(parentHandle, name)
-		if exists {
-			currentHandle = existing.Handle
-		} else {
-			newCls, err := omt.AddObjectClass(name, parentHandle)
-			if err != nil {
-				return fmt.Errorf("failed to add object class '%s': %w", name, err)
-			}
-			currentHandle = newCls.Handle
+		h, err := omt.EnsureObjectClass(parentHandle, name)
+		if err != nil {
+			return fmt.Errorf("failed to add object class '%s': %w", name, err)
 		}
+		currentHandle = h
 	}
 
 	// Merge attributes defined on this class
@@ -134,18 +146,15 @@ func mergeObjectClass(omt *core.OMTRegistry, node XMLObjectClass, parentHandle c
 			continue
 		}
 		// Skip privilegeToDelete if on HLAobjectRoot as it's already pre-installed
-		if name == core.HLAobjectRootName && attrName == core.HLAprivilegeToDeleteObjectName {
+		if name == common.HLAobjectRootName && attrName == common.HLAprivilegeToDeleteObjectName {
 			continue
 		}
-		// Only add if not already present
-		if _, err := omt.ResolveAttributeByName(currentHandle, attrName); err != nil {
-			dt := strings.TrimSpace(attr.DataType)
-			if dt == "" {
-				dt = "HLAASCIIstring"
-			}
-			if _, err := omt.AddAttribute(currentHandle, attrName, dt); err != nil {
-				return fmt.Errorf("failed to add attribute '%s' to class '%s': %w", attrName, name, err)
-			}
+		dt := strings.TrimSpace(attr.DataType)
+		if dt == "" {
+			dt = "HLAASCIIstring"
+		}
+		if _, err := omt.EnsureAttribute(currentHandle, attrName, dt); err != nil {
+			return fmt.Errorf("failed to add attribute '%s' to class '%s': %w", attrName, name, err)
 		}
 	}
 
@@ -159,7 +168,7 @@ func mergeObjectClass(omt *core.OMTRegistry, node XMLObjectClass, parentHandle c
 	return nil
 }
 
-func mergeInteractionClass(omt *core.OMTRegistry, node XMLInteractionClass, parentHandle common.InteractionClassHandle) error {
+func mergeInteractionClass(omt OMTBuilder, node XMLInteractionClass, parentHandle common.InteractionClassHandle) error {
 	name := strings.TrimSpace(node.Name)
 	if name == "" {
 		return nil
@@ -167,24 +176,17 @@ func mergeInteractionClass(omt *core.OMTRegistry, node XMLInteractionClass, pare
 
 	var currentHandle common.InteractionClassHandle
 
-	if name == core.HLAinteractionRootName {
-		currentHandle = core.HLAinteractionRootHandle
+	if name == common.HLAinteractionRootName {
+		currentHandle = common.HLAinteractionRootHandle
 	} else {
 		if parentHandle == 0 {
-			parentHandle = core.HLAinteractionRootHandle
+			parentHandle = common.HLAinteractionRootHandle
 		}
-
-		// Look up if this interaction already exists under the parent
-		existing, exists := omt.GetChildInteractionClass(parentHandle, name)
-		if exists {
-			currentHandle = existing.Handle
-		} else {
-			newInter, err := omt.AddInteractionClass(name, parentHandle)
-			if err != nil {
-				return fmt.Errorf("failed to add interaction class '%s': %w", name, err)
-			}
-			currentHandle = newInter.Handle
+		h, err := omt.EnsureInteractionClass(parentHandle, name)
+		if err != nil {
+			return fmt.Errorf("failed to add interaction class '%s': %w", name, err)
 		}
+		currentHandle = h
 	}
 
 	// Merge parameters
@@ -197,10 +199,8 @@ func mergeInteractionClass(omt *core.OMTRegistry, node XMLInteractionClass, pare
 		if dt == "" {
 			dt = "HLAASCIIstring"
 		}
-		// Try adding parameter (AddParameter checks duplicates internally)
-		if _, err := omt.AddParameter(currentHandle, paramName, dt); err != nil {
-			// If already exists, ignore
-			_ = err
+		if _, err := omt.EnsureParameter(currentHandle, paramName, dt); err != nil {
+			return fmt.Errorf("failed to add parameter '%s' to interaction '%s': %w", paramName, name, err)
 		}
 	}
 

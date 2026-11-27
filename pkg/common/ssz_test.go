@@ -4,6 +4,7 @@
 package common
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -312,21 +313,35 @@ func TestSSZIntegerOverflowAttack(t *testing.T) {
 	}
 
 	p := &UpdateAttributesPayload{}
-	_ = p.UnmarshalBinary(malicious)
+	if err := p.UnmarshalBinary(malicious); err == nil {
+		t.Fatalf("UpdateAttributesPayload accepted malicious uint32 overflow offsets without error")
+	}
 
 	p2 := &SendInteractionPayload{}
-	_ = p2.UnmarshalBinary(malicious)
+	if err := p2.UnmarshalBinary(malicious); err == nil {
+		t.Fatalf("SendInteractionPayload accepted malicious uint32 overflow offsets without error")
+	}
 
 	p3 := &UpdateAttributesSpatialPayload{}
-	_ = p3.UnmarshalBinary(malicious)
+	if err := p3.UnmarshalBinary(malicious); err == nil {
+		t.Fatalf("UpdateAttributesSpatialPayload accepted malicious uint32 overflow offsets without error")
+	}
 }
 
 func TestSSZMerkleization(t *testing.T) {
-	// Test basic Merkleization primitives
+	// Golden vector 1: Eth2 SSZ hash_tree_root(uint32(42)) == little-endian 42 zero-padded to 32 bytes
+	var want42 [32]byte
+	want42[0] = 42
 	h1 := HashTreeRootUint32(42)
-	h2 := HashTreeRootUint32(42)
-	if h1 != h2 {
-		t.Fatalf("expected identical root for same scalar")
+	if h1 != want42 {
+		t.Fatalf("SSZ uint32(42) golden vector mismatch: got %x, want %x", h1, want42)
+	}
+
+	// Golden vector 2: SHA-256(zero32 || zero32) == f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b
+	zeroPair := HashPair([32]byte{}, [32]byte{})
+	wantZeroPair := "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b"
+	if got := fmt.Sprintf("%x", zeroPair); got != wantZeroPair {
+		t.Fatalf("SSZ HashPair(zero, zero) golden vector mismatch: got %s, want %s", got, wantZeroPair)
 	}
 
 	h3 := HashTreeRootUint32(43)
@@ -334,7 +349,7 @@ func TestSSZMerkleization(t *testing.T) {
 		t.Fatalf("different values must produce different root")
 	}
 
-	// Byte list merkleization
+	// Byte list merkleization determinism
 	data := []byte("Project Valhalla Sovereign HLA-4")
 	root1 := HashTreeRootByteList(data, 1024)
 	root2 := HashTreeRootByteList(data, 1024)
@@ -375,7 +390,10 @@ func TestSSZListFirstOffsetZeroRejection(t *testing.T) {
 }
 
 func BenchmarkHashTreeRootByteList_1MB(b *testing.B) {
-	data := []byte("AttributeValueBenchmarkDataPayload1234567890")
+	data := make([]byte, 1024*1024)
+	for i := range data {
+		data[i] = byte(i)
+	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {

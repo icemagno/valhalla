@@ -214,7 +214,6 @@ func (f *FederationExecution) Join(name, fedType string, proto ProtocolType, ses
 		Protocol:     proto,
 		Session:      sess,
 		JoinedAt:     time.Now(),
-		Lookahead:    0.1,
 	}
 
 	f.federates[id] = fed

@@ -31,13 +31,12 @@ static inline std::wstring toWide(const std::string& str) {
     return out;
 }
 
-static thread_local ValhallaRTIambassador* t_activeAmbassador = nullptr;
-
-static void c_onDiscoverObject(int32_t theObject, int32_t theObjectClass, const char* objectName) {
+static void c_onDiscoverObject(int32_t theObject, int32_t theObjectClass, const char* objectName, void* userData) {
     try {
-        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
             std::string s(objectName ? objectName : "");
-            t_activeAmbassador->getFederateAmbassador()->discoverObjectInstance(
+            self->getFederateAmbassador()->discoverObjectInstance(
                 ObjectInstanceHandle(theObject),
                 ObjectClassHandle(theObjectClass),
                 toWide(s));
@@ -47,11 +46,12 @@ static void c_onDiscoverObject(int32_t theObject, int32_t theObjectClass, const 
     }
 }
 
-static void c_onRemoveObject(int32_t theObject, const uint8_t* tag, int32_t tagLen) {
+static void c_onRemoveObject(int32_t theObject, const uint8_t* tag, int32_t tagLen, void* userData) {
     try {
-        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
             VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
-            t_activeAmbassador->getFederateAmbassador()->removeObjectInstance(
+            self->getFederateAmbassador()->removeObjectInstance(
                 ObjectInstanceHandle(theObject),
                 userTag,
                 OrderType::RECEIVE);
@@ -60,15 +60,16 @@ static void c_onRemoveObject(int32_t theObject, const uint8_t* tag, int32_t tagL
     }
 }
 
-static void c_onReflectAttributes(int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen) {
+static void c_onReflectAttributes(int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen, void* userData) {
     try {
-        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
             AttributeHandleValueMap valMap;
             for (int32_t i = 0; i < attrCount; ++i) {
                 valMap[AttributeHandle(attrHandles[i])] = VariableLengthData(attrValues[i], attrLens[i]);
             }
             VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
-            t_activeAmbassador->getFederateAmbassador()->reflectAttributeValues(
+            self->getFederateAmbassador()->reflectAttributeValues(
                 ObjectInstanceHandle(theObject),
                 valMap,
                 userTag,
@@ -79,10 +80,11 @@ static void c_onReflectAttributes(int32_t theObject, int32_t attrCount, const in
     }
 }
 
-static void c_onTimeAdvanceGrant(double time) {
+static void c_onTimeAdvanceGrant(double time, void* userData) {
     try {
-        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
-            t_activeAmbassador->getFederateAmbassador()->timeAdvanceGrant(time);
+        auto* self = static_cast<ValhallaRTIambassador*>(userData);
+        if (self && self->getFederateAmbassador()) {
+            self->getFederateAmbassador()->timeAdvanceGrant(time);
         }
     } catch (...) {
     }
@@ -101,6 +103,7 @@ ValhallaRTIambassador::ValhallaRTIambassador()
     cbs.onRemoveObject = c_onRemoveObject;
     cbs.onReflectAttributes = c_onReflectAttributes;
     cbs.onTimeAdvanceGrant = c_onTimeAdvanceGrant;
+    cbs.userData = this;
     int32_t st = valhalla_set_callbacks(m_amb, cbs);
     if (st != VALHALLA_OK) {
         valhalla_destroy_ambassador(m_amb);
@@ -694,10 +697,8 @@ bool ValhallaRTIambassador::evokeCallback(
     double approximateMinimumTimeInSeconds)
     throw(CallNotAllowedFromWithinCallback,
           RTIinternalError) {
-    t_activeAmbassador = this;
     _Bool evoked = false;
     int32_t st = valhalla_evoke_callback(m_amb, approximateMinimumTimeInSeconds, &evoked);
-    t_activeAmbassador = nullptr;
     if (st != VALHALLA_OK) {
         throw RTIinternalError(L"evokeCallback failed with status " + std::to_wstring(st));
     }

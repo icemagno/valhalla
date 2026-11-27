@@ -172,6 +172,10 @@ func TestResources_RPR_FOM_FullMetamodelIngestion(t *testing.T) {
 	}
 
 	// 5. Ingestão via FederationManager com todos os 14 módulos
+	prevFOMDir := crc.CanonicalFOMDir
+	crc.CanonicalFOMDir = "resources"
+	defer func() { crc.CanonicalFOMDir = prevFOMDir }()
+
 	fedMgr := crc.NewFederationManager()
 	var modulePaths []string
 	for _, m := range rprModules {

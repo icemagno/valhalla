@@ -4,6 +4,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/icemagno/valhalla/pkg/common"
 )
@@ -59,6 +60,9 @@ func (s *NativeSession) SendMessage(hdr NativeHeader, payload []byte) error {
 	if s.isClosed {
 		return net.ErrClosed
 	}
+
+	_ = s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = s.conn.SetWriteDeadline(time.Time{}) }()
 
 	hdr.PayloadLen = uint32(len(payload))
 	buf := WriteNativeHeader(hdr)

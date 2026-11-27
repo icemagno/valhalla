@@ -284,8 +284,35 @@ export class RTIambassador {
         await this.sendRequest('timeAdvanceRequest', { time });
     }
 
+    private callbackQueue: Array<{ callback: string; params: any }> = [];
+    private callbackWaiters: Array<(evoked: boolean) => void> = [];
+
     public async evokeCallback(timeoutSeconds = 0.05): Promise<boolean> {
-        return true;
+        if (this.callbackQueue.length > 0) {
+            const next = this.callbackQueue.shift()!;
+            this.dispatchCallback(next.callback, next.params);
+            return true;
+        }
+        const timeoutMs = Math.max(0, Math.floor(timeoutSeconds * 1000));
+        if (timeoutMs === 0) {
+            return false;
+        }
+        return new Promise<boolean>((resolve) => {
+            let settled = false;
+            const waiter = (evoked: boolean) => {
+                if (!settled) {
+                    settled = true;
+                    clearTimeout(timer);
+                    resolve(evoked);
+                }
+            };
+            const timer = setTimeout(() => {
+                const idx = this.callbackWaiters.indexOf(waiter);
+                if (idx >= 0) this.callbackWaiters.splice(idx, 1);
+                waiter(false);
+            }, timeoutMs);
+            this.callbackWaiters.push(waiter);
+        });
     }
 
     public getFederateHandle(): number {
@@ -353,7 +380,18 @@ export class RTIambassador {
 
     private handleCallback(callback: string, params: any): void {
         this.emit(callback, params);
+        if (this.callbackWaiters.length > 0) {
+            const waiter = this.callbackWaiters.shift()!;
+            this.dispatchCallback(callback, params);
+            waiter(true);
+            return;
+        }
+        if (this.callbackQueue.length < 4096) {
+            this.callbackQueue.push({ callback, params });
+        }
+    }
 
+    private dispatchCallback(callback: string, params: any): void {
         if (!this.fedAmb) return;
 
         switch (callback) {

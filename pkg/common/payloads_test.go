@@ -45,25 +45,45 @@ func TestPayloads_RoundTrip(t *testing.T) {
 
 	t.Run("OMTHandleResolutionPayloads", func(t *testing.T) {
 		p1 := GetObjectClassHandlePayload{ClassName: "TacticalEntity"}
-		d1, _ := p1.MarshalBinary()
+		d1, err := p1.MarshalBinary()
+		if err != nil {
+			t.Fatalf("p1 MarshalBinary failed: %v", err)
+		}
 		var p1Dec GetObjectClassHandlePayload
-		_ = p1Dec.UnmarshalBinary(d1)
+		if err := p1Dec.UnmarshalBinary(d1); err != nil {
+			t.Fatalf("p1 UnmarshalBinary failed: %v", err)
+		}
 		if p1 != p1Dec {
 			t.Errorf("Mismatch: %+v vs %+v", p1, p1Dec)
 		}
 
 		p2 := GetAttributeHandlePayload{ClassHandle: 1001, AttributeName: "Position"}
-		d2, _ := p2.MarshalBinary()
+		d2, err := p2.MarshalBinary()
+		if err != nil {
+			t.Fatalf("p2 MarshalBinary failed: %v", err)
+		}
+		// Golden vector check: 4B LE ClassHandle (1001 = 0xe9,0x03,0x00,0x00) + 4B LE offset (8) + "Position"
+		wantD2 := append([]byte{0xe9, 0x03, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00}, []byte("Position")...)
+		if !bytes.Equal(d2, wantD2) {
+			t.Fatalf("GetAttributeHandlePayload SSZ golden vector mismatch:\ngot:  %x\nwant: %x", d2, wantD2)
+		}
 		var p2Dec GetAttributeHandlePayload
-		_ = p2Dec.UnmarshalBinary(d2)
+		if err := p2Dec.UnmarshalBinary(d2); err != nil {
+			t.Fatalf("p2 UnmarshalBinary failed: %v", err)
+		}
 		if p2 != p2Dec {
 			t.Errorf("Mismatch: %+v vs %+v", p2, p2Dec)
 		}
 
 		p3 := GetDimensionHandlePayload{DimensionName: "DimensionX"}
-		d3, _ := p3.MarshalBinary()
+		d3, err := p3.MarshalBinary()
+		if err != nil {
+			t.Fatalf("p3 MarshalBinary failed: %v", err)
+		}
 		var p3Dec GetDimensionHandlePayload
-		_ = p3Dec.UnmarshalBinary(d3)
+		if err := p3Dec.UnmarshalBinary(d3); err != nil {
+			t.Fatalf("p3 UnmarshalBinary failed: %v", err)
+		}
 		if p3 != p3Dec {
 			t.Errorf("Mismatch: %+v vs %+v", p3, p3Dec)
 		}

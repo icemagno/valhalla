@@ -14,6 +14,11 @@ int main(void) {
     printf("[C-TEST] Disconnecting idle ambassador...\n");
     int32_t rc = valhalla_disconnect(amb);
     printf("[C-TEST] valhalla_disconnect returned %d\n", rc);
+    if (rc != VALHALLA_OK && rc != VALHALLA_ERR_NOT_CONNECTED) {
+        printf("[C-TEST] FAIL: unexpected disconnect status %d\n", rc);
+        valhalla_destroy_ambassador(amb);
+        return 1;
+    }
 
     printf("[C-TEST] Destroying Ambassador...\n");
     valhalla_destroy_ambassador(amb);

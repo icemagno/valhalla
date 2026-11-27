@@ -11,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/icemagno/valhalla/pkg/common"
 )
@@ -342,6 +343,8 @@ func (s *WebSession) SendPong(payload []byte) error {
 	if s.closed {
 		return net.ErrClosed
 	}
+	_ = s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = s.conn.SetWriteDeadline(time.Time{}) }()
 	if len(payload) > 125 {
 		payload = payload[:125]
 	}

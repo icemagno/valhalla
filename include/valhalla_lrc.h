@@ -27,16 +27,16 @@ extern "C" {
 
 typedef void* ValhallaAmbassador;
 
-// Callback function pointer types for C FederateAmbassador
-typedef void (*ValhallaDiscoverObjectCallback)(int32_t theObject, int32_t theObjectClass, const char* objectName);
-typedef void (*ValhallaRemoveObjectCallback)(int32_t theObject, const uint8_t* tag, int32_t tagLen);
-typedef void (*ValhallaReflectAttributesCallback)(int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen);
-typedef void (*ValhallaTimeAdvanceGrantCallback)(double time);
-typedef void (*ValhallaReceiveInteractionCallback)(int32_t interactionClass, int32_t paramCount, const int32_t* paramHandles, const uint8_t** paramValues, const int32_t* paramLens, const uint8_t* tag, int32_t tagLen);
-typedef void (*ValhallaAnnounceSynchronizationPointCallback)(const char* label, const uint8_t* tag, int32_t tagLen);
-typedef void (*ValhallaFederationSynchronizedCallback)(const char* label);
-typedef void (*ValhallaSynchronizationPointRegistrationSucceededCallback)(const char* label);
-typedef void (*ValhallaSynchronizationPointRegistrationFailedCallback)(const char* label, const char* reason);
+// Callback function pointer types for C FederateAmbassador (each receives userData)
+typedef void (*ValhallaDiscoverObjectCallback)(int32_t theObject, int32_t theObjectClass, const char* objectName, void* userData);
+typedef void (*ValhallaRemoveObjectCallback)(int32_t theObject, const uint8_t* tag, int32_t tagLen, void* userData);
+typedef void (*ValhallaReflectAttributesCallback)(int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen, void* userData);
+typedef void (*ValhallaTimeAdvanceGrantCallback)(double time, void* userData);
+typedef void (*ValhallaReceiveInteractionCallback)(int32_t interactionClass, int32_t paramCount, const int32_t* paramHandles, const uint8_t** paramValues, const int32_t* paramLens, const uint8_t* tag, int32_t tagLen, void* userData);
+typedef void (*ValhallaAnnounceSynchronizationPointCallback)(const char* label, const uint8_t* tag, int32_t tagLen, void* userData);
+typedef void (*ValhallaFederationSynchronizedCallback)(const char* label, void* userData);
+typedef void (*ValhallaSynchronizationPointRegistrationSucceededCallback)(const char* label, void* userData);
+typedef void (*ValhallaSynchronizationPointRegistrationFailedCallback)(const char* label, const char* reason, void* userData);
 
 typedef struct {
     ValhallaDiscoverObjectCallback onDiscoverObject;
@@ -48,6 +48,7 @@ typedef struct {
     ValhallaFederationSynchronizedCallback onFederationSynchronized;
     ValhallaSynchronizationPointRegistrationSucceededCallback onSyncPointRegistrationSucceeded;
     ValhallaSynchronizationPointRegistrationFailedCallback onSyncPointRegistrationFailed;
+    void* userData;
 } ValhallaCallbacks;
 
 // Lifecycle

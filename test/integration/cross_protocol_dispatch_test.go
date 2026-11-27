@@ -284,25 +284,35 @@ func TestCrossProtocol_PorticoToWeb_ReflectAttributes(t *testing.T) {
 	_ = clientThor.SendPacket(wire.NewControlRequest(wire.MsgUpdateAttributes, 5, uint16(wpInfo.FederateHandle), 0, uint32(len(uavPayload))), uavPayload)
 	_, _, _ = clientThor.ReadPacketTimeout(1 * time.Second)
 
-	// 4. Web reads notification frame
+	// 4. Web reads notification frames: catch-up discoverObjectInstance followed by reflectAttributeValues
 	_ = wsConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	opcode, framePayload, err := readWSFrame(wsReader)
-	if err != nil {
-		t.Fatalf("Web client did not receive reflection notification: %v", err)
-	}
+	var gotReflect bool
+	for i := 0; i < 2 && !gotReflect; i++ {
+		opcode, framePayload, err := readWSFrame(wsReader)
+		if err != nil {
+			t.Fatalf("Web client did not receive reflection notification: %v", err)
+		}
 
-	if opcode != 1 {
-		t.Fatalf("PROTOCOL CORRUPTION: Expected Text frame opcode 1 (JSON), got %d!", opcode)
-	}
+		if opcode != 1 {
+			t.Fatalf("PROTOCOL CORRUPTION: Expected Text frame opcode 1 (JSON), got %d!", opcode)
+		}
 
-	var notif map[string]interface{}
-	if err := json.Unmarshal(framePayload, &notif); err != nil {
-		t.Fatalf("PROTOCOL CORRUPTION: Web client received invalid JSON: %v, raw: %s", err, string(framePayload))
-	}
+		var notif map[string]interface{}
+		if err := json.Unmarshal(framePayload, &notif); err != nil {
+			t.Fatalf("PROTOCOL CORRUPTION: Web client received invalid JSON: %v, raw: %s", err, string(framePayload))
+		}
 
-	cb, _ := notif["callback"].(string)
-	if cb != "reflectAttributeValues" {
-		t.Fatalf("Expected callback 'reflectAttributeValues', got %q", cb)
+		cb, _ := notif["callback"].(string)
+		if cb == "discoverObjectInstance" {
+			continue
+		}
+		if cb != "reflectAttributeValues" {
+			t.Fatalf("Expected callback 'reflectAttributeValues', got %q", cb)
+		}
+		gotReflect = true
+	}
+	if !gotReflect {
+		t.Fatalf("Web client never received reflectAttributeValues notification")
 	}
 }
 

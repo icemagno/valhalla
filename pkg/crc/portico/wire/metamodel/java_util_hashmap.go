@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
 )
 
 const maxMetamodelCollectionSize = 100000
@@ -35,23 +36,44 @@ var ClassDescHashMap = &ClassDesc{
 		binary.BigEndian.PutUint32(blk[4:8], uint32(count))
 		w.WriteBlockData(blk[:])
 
-		// 2. Escrever pares alternados (Key -> Value)
+		// 2. Escrever pares alternados (Key -> Value) em ordem determinística
 		switch m := obj.Get("entries").(type) {
 		case map[string]any:
-			for k, v := range m {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
 				if err := w.WriteObject(k); err != nil {
 					return err
 				}
-				if err := w.WriteObject(v); err != nil {
+				if err := w.WriteObject(m[k]); err != nil {
 					return err
 				}
 			}
 		case map[any]any:
+			type kvEntry struct {
+				sortKey string
+				key     any
+				val     any
+			}
+			items := make([]kvEntry, 0, len(m))
 			for k, v := range m {
-				if err := w.WriteObject(k); err != nil {
+				sk := fmt.Sprintf("%T:%v", k, k)
+				if jo, ok := k.(*JavaObject); ok {
+					if iv, ok2 := jo.Get("value").(int32); ok2 {
+						sk = fmt.Sprintf("int32:%011d", int64(iv)+2147483648)
+					}
+				}
+				items = append(items, kvEntry{sortKey: sk, key: k, val: v})
+			}
+			sort.Slice(items, func(i, j int) bool { return items[i].sortKey < items[j].sortKey })
+			for _, it := range items {
+				if err := w.WriteObject(it.key); err != nil {
 					return err
 				}
-				if err := w.WriteObject(v); err != nil {
+				if err := w.WriteObject(it.val); err != nil {
 					return err
 				}
 			}

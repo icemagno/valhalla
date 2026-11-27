@@ -6,6 +6,39 @@ import (
 )
 
 func TestMortonEncodeDecode(t *testing.T) {
+	// Independent Morton 3D golden vectors (bit-interleaving Z<<2 | Y<<1 | X)
+	golden := []struct {
+		x, y, z uint32
+		want    uint64
+	}{
+		{0, 0, 0, 0x0},
+		{1, 0, 0, 0x1},
+		{0, 1, 0, 0x2},
+		{0, 0, 1, 0x4},
+		{1, 1, 1, 0x7},
+		{2, 0, 0, 0x8},
+		{0, 2, 0, 0x10},
+		{0, 0, 2, 0x20},
+		{3, 5, 6, 0x1AB},
+	}
+	for _, g := range golden {
+		got := EncodeMorton3D(g.x, g.y, g.z)
+		if got != g.want {
+			t.Fatalf("EncodeMorton3D(%d,%d,%d) = 0x%X, want golden 0x%X", g.x, g.y, g.z, got, g.want)
+		}
+	}
+
+	// Flat region test (MaxX == 0, MaxY > 0, MaxZ > 0) without pre-calling RecomputeMortonBounds
+	flat := SpatialRegion{MinX: 0, MaxX: 0, MinY: 10, MaxY: 20, MinZ: 5, MaxZ: 15}
+	inside := EncodeMorton3D(0, 15, 10)
+	outside := EncodeMorton3D(1, 15, 10)
+	if !flat.ContainsMorton(inside) {
+		t.Fatalf("flat region with MaxX==0 failed to contain interior point (0,15,10)")
+	}
+	if flat.ContainsMorton(outside) {
+		t.Fatalf("flat region with MaxX==0 falsely contained exterior point (1,15,10)")
+	}
+
 	testCases := []struct {
 		x, y, z uint32
 	}{

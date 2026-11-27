@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/icemagno/valhalla/pkg/common"
@@ -195,25 +193,9 @@ func performPorticoHandshake(conn net.Conn, writer io.Writer, reader io.Reader) 
 	return nil
 }
 
-// resolveFOMPath searches for a FOM file on disk strictly as ./foms/<ARQUIVO>.xml or bin/foms/<ARQUIVO>.xml
+// resolveFOMPath delegates to the unified ResolveFOMPath in fom_service.go
 func resolveFOMPath(rawPath string) string {
-	cleanPath := strings.TrimPrefix(rawPath, "file:///")
-	cleanPath = strings.TrimPrefix(cleanPath, "file://")
-	cleanPath = strings.TrimPrefix(cleanPath, "file:")
-
-	normPath := strings.ReplaceAll(cleanPath, "\\", "/")
-	base := filepath.Base(normPath)
-
-	candidates := []string{
-		filepath.Join("foms", base),
-		filepath.Join("bin", "foms", base),
-	}
-	for _, target := range candidates {
-		if _, err := os.Stat(target); err == nil {
-			return target
-		}
-	}
-	return ""
+	return ResolveFOMPath(rawPath)
 }
 
 // ingestPorticoFOMModules extracts and parses FOM XML modules from the Portico CreateFederation payload
