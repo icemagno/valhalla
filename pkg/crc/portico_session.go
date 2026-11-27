@@ -129,47 +129,59 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 	switch msgType {
 	case common.NativeMsgDiscoverObject:
 		var disc common.DiscoverObjectInstancePayload
-		if err := disc.UnmarshalBinary(payload); err == nil {
-			if p, err := wire.BuildDiscoverObjectPayload(int32(disc.ObjectHandle), int32(disc.ClassHandle), disc.ObjectName); err == nil {
-				wireMsgType = wire.MsgDiscoverObject
-				wirePayload = p
-			}
+		if err := disc.UnmarshalBinary(payload); err != nil {
+			return fmt.Errorf("portico session: unmarshal DiscoverObject failed: %w", err)
 		}
+		p, err := wire.BuildDiscoverObjectPayload(int32(disc.ObjectHandle), int32(disc.ClassHandle), disc.ObjectName)
+		if err != nil {
+			return fmt.Errorf("portico session: build DiscoverObject payload failed: %w", err)
+		}
+		wireMsgType = wire.MsgDiscoverObject
+		wirePayload = p
 
 	case common.NativeMsgRemoveObjectInstance:
 		var rem common.RemoveObjectInstancePayload
-		if err := rem.UnmarshalBinary(payload); err == nil {
-			if p, err := wire.BuildDeleteObjectPayload(int32(rem.ObjectHandle), rem.Tag); err == nil {
-				wireMsgType = wire.MsgDeleteObject
-				wirePayload = p
-			}
+		if err := rem.UnmarshalBinary(payload); err != nil {
+			return fmt.Errorf("portico session: unmarshal RemoveObjectInstance failed: %w", err)
 		}
+		p, err := wire.BuildDeleteObjectPayload(int32(rem.ObjectHandle), rem.Tag)
+		if err != nil {
+			return fmt.Errorf("portico session: build DeleteObject payload failed: %w", err)
+		}
+		wireMsgType = wire.MsgDeleteObject
+		wirePayload = p
 
 	case common.NativeMsgReflectAttributes:
 		var uav common.UpdateAttributesPayload
-		if err := uav.UnmarshalBinary(payload); err == nil {
-			attrsMap := make(map[int32][]byte, len(uav.Attributes))
-			for k, v := range uav.Attributes {
-				attrsMap[int32(k)] = v
-			}
-			if p, err := wire.BuildReflectAttributesPayload(int32(uav.ObjectHandle), attrsMap, uav.Tag); err == nil {
-				wireMsgType = wire.MsgReflectAttributes
-				wirePayload = p
-			}
+		if err := uav.UnmarshalBinary(payload); err != nil {
+			return fmt.Errorf("portico session: unmarshal ReflectAttributes failed: %w", err)
 		}
+		attrsMap := make(map[int32][]byte, len(uav.Attributes))
+		for k, v := range uav.Attributes {
+			attrsMap[int32(k)] = v
+		}
+		p, err := wire.BuildReflectAttributesPayload(int32(uav.ObjectHandle), attrsMap, uav.Tag)
+		if err != nil {
+			return fmt.Errorf("portico session: build ReflectAttributes payload failed: %w", err)
+		}
+		wireMsgType = wire.MsgReflectAttributes
+		wirePayload = p
 
 	case common.NativeMsgReceiveInteraction:
 		var inter common.SendInteractionPayload
-		if err := inter.UnmarshalBinary(payload); err == nil {
-			paramsMap := make(map[int32][]byte, len(inter.Parameters))
-			for k, v := range inter.Parameters {
-				paramsMap[int32(k)] = v
-			}
-			if p, err := wire.BuildReceiveInteractionPayload(int32(inter.ClassHandle), paramsMap, inter.Tag); err == nil {
-				wireMsgType = wire.MsgReceiveInteraction
-				wirePayload = p
-			}
+		if err := inter.UnmarshalBinary(payload); err != nil {
+			return fmt.Errorf("portico session: unmarshal ReceiveInteraction failed: %w", err)
 		}
+		paramsMap := make(map[int32][]byte, len(inter.Parameters))
+		for k, v := range inter.Parameters {
+			paramsMap[int32(k)] = v
+		}
+		p, err := wire.BuildReceiveInteractionPayload(int32(inter.ClassHandle), paramsMap, inter.Tag)
+		if err != nil {
+			return fmt.Errorf("portico session: build ReceiveInteraction payload failed: %w", err)
+		}
+		wireMsgType = wire.MsgReceiveInteraction
+		wirePayload = p
 
 	case common.NativeMsgAnnounceSyncPoint:
 		var label string
@@ -184,10 +196,12 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 				label = string(payload)
 			}
 		}
-		if p, err := wire.BuildAnnounceSyncPointPayload(label); err == nil {
-			wireMsgType = wire.MsgAnnounceSyncPoint
-			wirePayload = p
+		p, err := wire.BuildAnnounceSyncPointPayload(label)
+		if err != nil {
+			return fmt.Errorf("portico session: build AnnounceSyncPoint payload failed: %w", err)
 		}
+		wireMsgType = wire.MsgAnnounceSyncPoint
+		wirePayload = p
 
 	case common.NativeMsgFederationSynchronized:
 		var label string
@@ -197,19 +211,24 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 		} else {
 			label = string(payload)
 		}
-		if p, err := wire.BuildFederationSynchronizedPayload(label); err == nil {
-			wireMsgType = wire.MsgFederationSynchronized
-			wirePayload = p
+		p, err := wire.BuildFederationSynchronizedPayload(label)
+		if err != nil {
+			return fmt.Errorf("portico session: build FederationSynchronized payload failed: %w", err)
 		}
+		wireMsgType = wire.MsgFederationSynchronized
+		wirePayload = p
 
 	case common.NativeMsgTimeAdvanceGrant:
 		var t common.TimeFloat64Payload
-		if err := t.UnmarshalBinary(payload); err == nil {
-			if p, err := wire.BuildTimeAdvanceGrantPayload(s.id, t.Time); err == nil {
-				wireMsgType = wire.MsgTimeAdvanceGrant
-				wirePayload = p
-			}
+		if err := t.UnmarshalBinary(payload); err != nil {
+			return fmt.Errorf("portico session: unmarshal TimeAdvanceGrant failed: %w", err)
 		}
+		p, err := wire.BuildTimeAdvanceGrantPayload(s.id, t.Time)
+		if err != nil {
+			return fmt.Errorf("portico session: build TimeAdvanceGrant payload failed: %w", err)
+		}
+		wireMsgType = wire.MsgTimeAdvanceGrant
+		wirePayload = p
 	}
 
 	hdr := wire.Header{
