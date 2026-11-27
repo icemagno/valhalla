@@ -294,18 +294,23 @@ func (s *WebSession) SendReflectAttributes(objHandle int32, attrs map[common.Att
 	})
 }
 
-func (s *WebSession) SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, _ bool, _ float64) error {
+func (s *WebSession) SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, hasTime bool, timestamp float64) error {
 	strParams := make(map[string]string, len(params))
 	for k, v := range params {
 		strParams[strconv.Itoa(int(k))] = string(v)
 	}
+	payloadParams := map[string]interface{}{
+		"interactionClass": classHandle,
+		"parameters":       strParams,
+		"tag":              string(tag),
+	}
+	if hasTime {
+		payloadParams["hasTime"] = true
+		payloadParams["timestamp"] = timestamp
+	}
 	return s.SendJSON(map[string]interface{}{
 		"callback": "receiveInteraction",
-		"params": map[string]interface{}{
-			"interactionClass": classHandle,
-			"parameters":       strParams,
-			"tag":              string(tag),
-		},
+		"params":   payloadParams,
 	})
 }
 

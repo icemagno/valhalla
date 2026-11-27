@@ -3,16 +3,23 @@ package wire
 import (
 	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
+	"github.com/icemagno/valhalla/pkg/logger"
 )
 
-// BuildSuccessResponsePayload constrói dinamicamente em Go a ResponseMessage de sucesso oficial
-func BuildSuccessResponsePayload() []byte {
-	resp := metamodel.NewResponseMessage(false)
-	data, err := SerializePorticoControlMessage(resp)
+var logWireTemplates = logger.NewLogger("Portico-Wire")
+
+func mustSerializeControl(op string, obj *metamodel.JavaObject) []byte {
+	data, err := SerializePorticoControlMessage(obj)
 	if err != nil {
+		logWireTemplates.Error("failed to serialize %s: %v", op, err)
 		return nil
 	}
 	return data
+}
+
+// BuildSuccessResponsePayload constrói dinamicamente em Go a ResponseMessage de sucesso oficial
+func BuildSuccessResponsePayload() []byte {
+	return mustSerializeControl("SuccessResponse", metamodel.NewResponseMessage(false))
 }
 
 // BuildCreateFederationResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
@@ -34,11 +41,7 @@ func BuildCreateFederationResponsePayload(fedHandle int32, optFedName ...string)
 		}
 	}
 
-	data, err := SerializePorticoControlMessage(resp)
-	if err != nil {
-		return nil
-	}
-	return data
+	return mustSerializeControl("CreateFederationResponse", resp)
 }
 
 // BuildWelcomePackPayload constrói dinamicamente em Go o WelcomePack oficial com handles atribuídos
@@ -88,11 +91,7 @@ func BuildErrorResponsePayload(errMsg string) []byte {
 	if errMsg != "" {
 		resp.Set("exception", errMsg)
 	}
-	data, err := SerializePorticoControlMessage(resp)
-	if err != nil {
-		return nil
-	}
-	return data
+	return mustSerializeControl("ErrorResponse", resp)
 }
 
 // BuildDoubleResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
@@ -100,11 +99,7 @@ func BuildErrorResponsePayload(errMsg string) []byte {
 func BuildDoubleResponsePayload(val float64) []byte {
 	dblObj := metamodel.NewJavaDouble(val)
 	resp := metamodel.NewExtendedSuccessResponse(dblObj)
-	data, err := SerializePorticoControlMessage(resp)
-	if err != nil {
-		return nil
-	}
-	return data
+	return mustSerializeControl("DoubleResponse", resp)
 }
 
 // BuildIntegerResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
@@ -112,11 +107,7 @@ func BuildDoubleResponsePayload(val float64) []byte {
 func BuildIntegerResponsePayload(val int32) []byte {
 	intObj := metamodel.NewJavaInteger(val)
 	resp := metamodel.NewExtendedSuccessResponse(intObj)
-	data, err := SerializePorticoControlMessage(resp)
-	if err != nil {
-		return nil
-	}
-	return data
+	return mustSerializeControl("IntegerResponse", resp)
 }
 
 // BuildRegisterObjectResponsePayload constrói dinamicamente em Go a ExtendedSuccessResponse
@@ -134,11 +125,7 @@ func BuildRegisterObjectResponsePayload(objHandle, classHandle int32, objName st
 		}
 	}
 
-	data, err := SerializePorticoControlMessage(resp)
-	if err != nil {
-		return nil
-	}
-	return data
+	return mustSerializeControl("RegisterObjectResponse", resp)
 }
 
 // BuildTimeAdvanceGrantPayload constrói o payload de notificação TimeAdvanceGrant

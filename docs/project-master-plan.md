@@ -176,7 +176,7 @@ flowchart TD
 
 #### Tasks
 * **Task 6.1: 3D Morton Coordinate Transformer**
-  * Map Geocentric ECEF $(X, Y, Z)$ coordinates into 64-bit Morton integers (21 bits per axis, $\approx 6\text{--}\text{meter}$ global voxel resolution).
+  * Map Geocentric ECEF $(X, Y, Z)$ coordinates into 64-bit Morton integers (21 bits per axis, $\approx 9.54\text{--}\text{meter}$ voxel resolution across ±10,000 km).
 * **Task 6.2: Bitwise Spatial Routing**
   * Implement bounding box Morton range decomposition. Spatial containment reduces to bitwise shifts and prefix masks (`(code >> shift) == prefix`).
 * **Task 6.3: Zero-Overhead Opt-In Architecture**

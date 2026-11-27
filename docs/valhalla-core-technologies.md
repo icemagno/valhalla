@@ -19,7 +19,7 @@ Traditional commercial and open-source RTIs (developed primarily between 1995 an
 
 Valhalla resolves these limitations through a foundational **Architectural Quadriad**:
 1. **Interval Encoding (Euler Tour):** Solves OMT polymorphic class inheritance checks in strict $O(1)$ CPU time (< 1 nanosecond).
-2. **Dynamic Vector Bitsets:** Replaces hash tables with 64-bit hardware bitmasks (`TrailingZeros64` / `POPCNT`), resolving pub/sub routing across hundreds of federates in under 275 nanoseconds.
+2. **Dynamic Vector Bitsets:** Replaces hash tables with 64-bit hardware bitmasks (`TrailingZeros64` / `POPCNT`), resolving pub/sub routing across hundreds of federates in ~306 nanoseconds.
 3. **SSZ Sparse Merkle State Trees:** Embeds a deterministic 32-byte `hash_tree_root` into every frame, providing compact cryptographic audit proofs (multiproofs) without external storage.
 4. **3D Morton Space-Filling Curves (Z-Order Hashing) for DDM:** Replaces legacy spatial grid structures with 64-bit integer spatial indexing, ensuring zero-overhead class subscriptions while supporting high-speed orbital and ballistic trajectories (e.g., LEO satellites and ICBMs) via kinematic Dead Reckoning.
 
@@ -36,7 +36,7 @@ Valhalla resolves these limitations through a foundational **Architectural Quadr
 ├──────────────────────────┼──────────────────────────┼──────────────────────────────────┤
 │ OMT Polymorphic Checks   │ Sub/Pub Interest Match   │ Cryptographic Audit Proofs       │
 │ Solved in O(1) CPU Time  │ Boolean Algebra in CPU   │ 32-Byte Merkle Roots per Frame   │
-│ (< 1 Nanosecond)         │ (275 ns for 150 nodes)   │ Tamper-Evident Simulation State  │
+│ (< 1 Nanosecond)         │ (~306 ns for 150 nodes)  │ Tamper-Evident Simulation State  │
 ├──────────────────────────┴──────────────────────────┴──────────────────────────────────┤
 │                       3D MORTON CURVES (Z-ORDER SPATIAL HASHING)                       │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
@@ -96,7 +96,7 @@ Word 1 (Handles 64-127) : [ 1 0 0 0 ... 0 1 ] (Federates #64 and #127)
 ### 4.3. Set Operations via Hardware Bitwise Algebra
 * **Polymorphic Union:** $B_{\text{result}} = B_{\text{concrete}} \lor B_{\text{ancestor}}$ executed in hardware via 64-bit `OR` instructions.
 * **Zero-Allocation Extraction:** Active federate IDs are extracted via the x86 `TZCNT` / ARM64 `CLZ` instruction (`bits.TrailingZeros64`) in $O(k)$ time, skipping zero-bit blocks completely.
-* **Empirical Speed:** Routing an update across 150 concurrent subscribers takes **275.7 nanoseconds**.
+* **Empirical Speed:** Routing an update across 150 concurrent subscribers takes **~306.1 nanoseconds**.
 
 ---
 
@@ -135,7 +135,7 @@ Valhalla addresses spatial filtering using **64-bit 3D Morton Space-Filling Curv
 * Continuous metric coordinates $(X, Y, Z)$ are discretized into 21-bit integers.
 * Bits are interleaved into a single 64-bit integer (`uint64`):
   $$\text{Morton3D}(X, Y, Z) = \text{interleave}(X_{21}, Y_{21}, Z_{21})$$
-* **Resolution:** 21 bits per axis across the diameter of the Earth yields an orthogonal spatial resolution of **$\approx 6$ meters per voxel** in a single register.
+* **Resolution:** 21 bits per axis across the ±10,000 km ECEF cube yields an orthogonal spatial resolution of **$\approx 9.54$ meters per voxel** in a single register.
 * **Nanosecond Spatial Filtering:** Checking whether an entity falls within a spatial extent reduces to a bitwise shift and prefix comparison:
   ```go
   inExtent := (entityMortonCode >> shift) == extentPrefix
@@ -145,7 +145,7 @@ Valhalla addresses spatial filtering using **64-bit 3D Morton Space-Filling Curv
 Valhalla maintains absolute fidelity with the IEEE 1516 standard:
 1. **100% Opt-In Architecture:** Spatial DDM is completely optional. Federates that subscribe via standard Declaration Management (`SubscribeObjectClassAttributes`) receive global class broadcasts with zero CPU overhead.
 2. **Decoupled from Physics:** The RTI acts purely as a communication filter, never as an intrusive physics solver.
-3. **Dead Reckoning Alignment:** Fast-moving objects (such as Mach 20+ ICBMs at $7\ \text{km/s}$ or LEO satellites at $7.8\ \text{km/s}$) leverage standard **Kinematic Dead Reckoning**. Publishers transmit full kinetic vectors $(\vec{P}_0, \vec{V}_0, \vec{A}_0)$, allowing distant subscribers to extrapolate smooth positions locally while threshold-based updates are routed instantaneously via Valhalla's ultra-low latency stack (**89.67 µs E2E**).
+3. **Dead Reckoning Alignment:** Fast-moving objects (such as Mach 20+ ICBMs at $7\ \text{km/s}$ or LEO satellites at $7.8\ \text{km/s}$) leverage standard **Kinematic Dead Reckoning**. Publishers transmit full kinetic vectors $(\vec{P}_0, \vec{V}_0, \vec{A}_0)$, allowing distant subscribers to extrapolate smooth positions locally while threshold-based updates are routed instantaneously via Valhalla's ultra-low latency stack (**~81.5 µs E2E loopback**).
 
 ---
 
@@ -184,9 +184,9 @@ Measured under real-world network conditions on Windows x86_64 (`go test -bench`
 | :--- | :--- | :--- | :--- |
 | **OMT Polymorphic Check** | **15.4 ns / op** | $500 - 2,500\ \text{ns}$ (pointer chase) | **$30\times - 160\times$ faster** |
 | **Bitset Union (1,000 nodes)** | **33.7 ns / op** | $1,200 - 8,000\ \text{ns}$ (HashSet) | **$35\times - 230\times$ faster** |
-| **Subscriber Matching (150 nodes)**| **275.7 ns / op** | $5,000 - 25,000\ \text{ns}$ | **$18\times - 90\times$ faster** |
+| **Subscriber Matching (150 nodes)**| **~306.1 ns / op** | $5,000 - 25,000\ \text{ns}$ | **$16\times - 80\times$ faster** |
 | **Entity Merkle Root (SSZ)** | **~8.8 µs / op** | N/A (Not supported in legacy RTIs) | **Cryptographic Innovation** |
-| **E2E TCP Network Round-Trip** | **89.67 µs** (avg) | $300 - 800\ \mu\text{s}$ (Pitch) / $1 - 60\ \text{ms}$ (Portico) | **$3.5\times - 500\times$ faster** |
+| **E2E TCP Network Round-Trip** | **~81.5 µs** (loopback avg) | $300 - 800\ \mu\text{s}$ (Pitch) / $1 - 60\ \text{ms}$ (Portico) | **$3.5\times - 500\times$ faster** |
 
 ---
 

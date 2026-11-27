@@ -497,7 +497,9 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 
 	case common.NativeMsgReceiveInteraction:
 		var interPayload common.SendInteractionPayload
-		if err := interPayload.UnmarshalBinary(cb.Payload); err == nil {
+		if err := interPayload.UnmarshalBinary(cb.Payload); err != nil {
+			logLRC.Warn("failed to decode ReceiveInteraction callback: %v", err)
+		} else {
 			params := make(map[int32][]byte, len(interPayload.Parameters))
 			for k, v := range interPayload.Parameters {
 				params[int32(k)] = v
@@ -507,7 +509,9 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 
 	case common.NativeMsgTimeAdvanceGrant:
 		var timePayload common.TimeFloat64Payload
-		if err := timePayload.UnmarshalBinary(cb.Payload); err == nil {
+		if err := timePayload.UnmarshalBinary(cb.Payload); err != nil {
+			logLRC.Warn("failed to decode TimeAdvanceGrant callback: %v", err)
+		} else {
 			fedAmb.TimeAdvanceGrant(timePayload.Time)
 		}
 	}

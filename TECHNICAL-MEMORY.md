@@ -255,7 +255,7 @@ Audited official Portico source classes (`openlvc/portico`):
    * Polymorphic inheritance verification in $O(1)$: **15.4 ns/op**. Attribute inheritance resolution: **23.2 ns/op**.
 2. **Vectorized Bitset Pub/Sub Router (`pkg/crc/core/interest_matcher.go`):**
    * Subscriptions mapped to 64-bit contiguous bitsets (`*Bitset`). Handle extraction via `bits.TrailingZeros64` in $O(k)$.
-   * Boolean union of 1,000 federates: **33.7 ns/op**. Polymorphic attribute subscriber resolution: **275.7 ns/op** for 150 concurrent federates.
+   * Boolean union of 1,000 federates: **~39.9 ns/op** (1 alloc). Polymorphic attribute subscriber resolution: **~306.1 ns/op** for 150 concurrent federates.
 
 ---
 
@@ -284,7 +284,7 @@ Audited official Portico source classes (`openlvc/portico`):
    * Formalized the 4 core pillars: Euler Tour tree flattening, Vectorized bitsets, SSZ Merkle trees, and **3D Morton Space-Filling Curves (Z-Order Hashing)** for Data Distribution Management (DDM).
    * 64-bit Morton codes map ECEF global metric coordinates with ~9.5 m voxel resolution, executing containment checks via bitwise shifts and masks in $< 2\ \text{ns}$.
 2. **Official Whitepapers Published:**
-   * Published `docs/valhalla-core-technologies.md`, `docs/core-development-plan.md`, and translated `docs/benchmark.md` and `BENCHMARK.md` to English.
+   * Published `docs/valhalla-core-technologies.md`, `docs/core-development-plan.md`, and consolidated empirical benchmarks in `BENCHMARK.md`.
 
 ---
 

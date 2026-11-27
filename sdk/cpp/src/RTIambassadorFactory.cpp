@@ -9,7 +9,7 @@ RTIambassadorFactory::RTIambassadorFactory() {}
 RTIambassadorFactory::~RTIambassadorFactory() throw() {}
 
 std::unique_ptr<RTIambassador> RTIambassadorFactory::createRTIambassador()
-    throw(RTIinternalError) {
+    RTI1516E_THROW(RTIinternalError) {
     return std::unique_ptr<RTIambassador>(new ValhallaRTIambassador());
 }
 

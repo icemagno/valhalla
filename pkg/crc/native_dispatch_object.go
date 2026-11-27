@@ -312,12 +312,18 @@ func (ctx *nativeContext) handleOwnershipManagement(hdr NativeHeader, payload []
 			return true, nil
 		}
 		owner, isOwned := ctx.currentFed.OwnershipManager().QueryAttributeOwnership(common.ObjectInstanceHandle(req.ObjectHandle), common.AttributeHandle(req.AttributeHandle))
-		respPayload, _ := common.QueryOwnershipResponsePayload{
+		respPayload, err := common.QueryOwnershipResponsePayload{
 			ObjectHandle:    req.ObjectHandle,
 			AttributeHandle: req.AttributeHandle,
 			OwnerHandle:     uint32(owner),
 			IsOwned:         isOwned,
 		}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,

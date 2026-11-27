@@ -13,7 +13,7 @@ public:
     virtual ~RTIambassadorFactory() throw();
 
     virtual std::unique_ptr<RTIambassador> createRTIambassador()
-        throw(RTIinternalError);
+        RTI1516E_THROW(RTIinternalError);
 };
 
 } // namespace rti1516e
