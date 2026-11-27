@@ -200,6 +200,9 @@ if timeout > 0 {
 ```
 A chamada a `time.After` em loops rápidos aloca um novo canal e estrutura de timer a cada iteração, retida na memória até o término do timeout. Sob chamadas frequentes de bombeamento de eventos, causa **pressão excessiva no Garbage Collector (GC)**. O padrão correto requer `time.NewTimer` reaproveitado ou zerado com `Reset()`.
 
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E APROVADO** (commit `4830cfa`)  
+> Implementado gerenciamento de timers via `sync.Pool` com `acquireTimer(d)` e `releaseTimer(t)` executando `Stop()`, drenagem de canal `t.C` e `Reset(d)` seguro, eliminando completamente as alocações de `time.After`. Implementados dois caminhos de fast-path em `EvokeCallback`: (1) caminho não-bloqueante para `timeout <= 0` com `default:`, eliminando o bug de bloqueio infinito em `EvokeCallback(0)` quando a fila está vazia; (2) caminho de despacho imediato quando já existem eventos no buffer, consumindo sem qualquer interação com timers. Resultados empíricos de benchmark: latência reduzida de 225,0 ns/op para 39,98 ns (~5.6x mais rápido), alocações de heap reduzidas de 248 B/op (3 allocs/op) para **estritos 0 B/op e 0 allocs/op**. Validado via `pkg/lrc/evoke_test.go` e `pkg/lrc/evoke_benchmark_test.go` sob `go test -race ./...` com 100% PASS e 0 data races.
+
 ### 🐢 5.3. Latência Forçada de 50 ms no Multiplexador de Porta
 Em [`pkg/crc/multiplexer.go`](pkg/crc/multiplexer.go#L30-L51), toda conexão que chega à porta `:52295` é submetida a um `Peek(4)` com timeout de 50 ms. Como o Portico opera em modo "Server-First" (aguardando mensagem do servidor), ele sempre incorre em **atraso forçado de 50 ms na conexão**. Adicionalmente, clientes nativos em redes de alta latência que demorarem mais de 50 ms para enviar o preâmbulo `VAL4` são erroneamente classificados como Portico.
 
@@ -251,4 +254,5 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **2.2** | Motor Anti-Stall em Background no CRC e Protocolo de Heartbeat Implícito e Explícito | `8726ea5` | **✅ CORRIGIDO** |
 | **3.3** | Fila Elástica e Eliminação de Descarte Silencioso de Callbacks no LRC com Alerta de Saturação | `9bb73d2`, `db39373` | **✅ CORRIGIDO** |
 | **3.4** | Fallback Síncrono de Logs ERROR/CRITICAL sob Saturação e Bloqueio Efetivo de Flush | `5a68331` | **✅ CORRIGIDO** |
+| **5.2** | Eliminação de Alocações em EvokeCallback via sync.Pool de Timers e Fast-Paths Não-Bloqueantes | `4830cfa` | **✅ CORRIGIDO** |
 
