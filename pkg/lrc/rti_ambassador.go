@@ -1054,6 +1054,39 @@ func (a *RTIambassadorImpl) Heartbeat() error {
 	return checkNativeResponse(resp)
 }
 
+var timerPool = sync.Pool{
+	New: func() interface{} {
+		t := time.NewTimer(time.Hour)
+		if !t.Stop() {
+			select {
+			case <-t.C:
+			default:
+			}
+		}
+		return t
+	},
+}
+
+func acquireTimer(d time.Duration) *time.Timer {
+	v := timerPool.Get()
+	if v == nil {
+		return time.NewTimer(d)
+	}
+	t := v.(*time.Timer)
+	t.Reset(d)
+	return t
+}
+
+func releaseTimer(t *time.Timer) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	timerPool.Put(t)
+}
+
 // EvokeCallback delivers one pending callback to the FederateAmbassador if available.
 // If the callback queue has reached saturation, it returns ErrCallbackQueueSaturated
 // to explicitly alert the federate to message loss.
@@ -1067,10 +1100,48 @@ func (a *RTIambassadorImpl) EvokeCallback(timeout time.Duration) (bool, error) {
 		return false, ErrNotConnected
 	}
 
-	var timer <-chan time.Time
-	if timeout > 0 {
-		timer = time.After(timeout)
+	// 1. Non-blocking fast path when timeout <= 0
+	if timeout <= 0 {
+		select {
+		case cb := <-client.callbacks:
+			a.dispatchCallback(cb, fedAmb)
+			if client.IsQueueSaturated() {
+				return true, ErrCallbackQueueSaturated
+			}
+			return true, nil
+		case <-client.closedChan:
+			select {
+			case cb := <-client.callbacks:
+				a.dispatchCallback(cb, fedAmb)
+				if client.IsQueueSaturated() {
+					return true, ErrCallbackQueueSaturated
+				}
+				return true, nil
+			default:
+				return false, ErrConnectionClosed
+			}
+		default:
+			if client.IsQueueSaturated() {
+				return false, ErrCallbackQueueSaturated
+			}
+			return false, nil
+		}
 	}
+
+	// 2. Immediate dispatch fast path: avoid acquiring any timer if a callback is already available
+	select {
+	case cb := <-client.callbacks:
+		a.dispatchCallback(cb, fedAmb)
+		if client.IsQueueSaturated() {
+			return true, ErrCallbackQueueSaturated
+		}
+		return true, nil
+	default:
+	}
+
+	// 3. Timed wait using pooled reusable timer (zero heap allocations)
+	timer := acquireTimer(timeout)
+	defer releaseTimer(timer)
 
 	select {
 	case cb := <-client.callbacks:
@@ -1079,7 +1150,7 @@ func (a *RTIambassadorImpl) EvokeCallback(timeout time.Duration) (bool, error) {
 			return true, ErrCallbackQueueSaturated
 		}
 		return true, nil
-	case <-timer:
+	case <-timer.C:
 		if client.IsQueueSaturated() {
 			return false, ErrCallbackQueueSaturated
 		}
