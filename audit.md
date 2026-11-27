@@ -90,6 +90,9 @@ O projeto demonstra engenhosidade na concepção de estruturas de dados e no par
 * **Realidade no Código:**
   O teste [`test/resources_test.go`](test/resources_test.go#L52-L60) não ingere o metamodelo nem instancia classes; ele apenas realiza um `xml.Unmarshal` básico verificando se o nó raiz é `<objectModel>`. Os testes do parser real ([`pkg/metamodel/xml_parser_test.go`](pkg/metamodel/xml_parser_test.go#L80)) ingerem somente 2 dos 14 módulos (`RPR-Base` e `RPR-Physical`).
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commit `4c96732`)  
+> Implementada suíte completa de ingestão e compilação ponta-a-ponta de todos os 14 módulos oficiais do RPR-FOM v2.0 (SISO-STD-001-2015) em `pkg/metamodel/xml_parser_test.go` (`TestXMLParser_All14_RPR_FOM_Modules`) e `test/resources_test.go` (`TestResources_RPR_FOM_FullMetamodelIngestion`). O parser OMT compilou incrementalmente os 14 módulos (Foundation, Enumerations, Base, Physical, Aggregate, Communication, DER, Logistics, Minefield, SE, SIMAN, Switches, UA e Warfare) em um único `core.OMTRegistry` consistente, gerando 128 intervalos de Euler Tour para classes de objetos e 158 para classes de interação, comprovando herança $O(1)$ entre módulos (`Aircraft` $\to$ `Platform` $\to$ `PhysicalEntity` $\to$ `BaseEntity` $\to$ `HLAobjectRoot`). Validada a instanciação ponta-a-ponta de federação tática real (`RPR_Tactical_Simulation`) via `crc.FederationManager.CreateFederationWithFOMs` carregando a totalidade dos módulos em disco através do `FOM-Service` com resolução de caminhos multinível em `ResolveFOMPath`. Validado com 100% PASS sob `go test -race ./...` e 0 data races.
+
 ### 🔴 1.8. Estrutura de Diretórios Fictícia no README
 * O [README.md](README.md#L87-L91) indica os pacotes `pkg/euler/`, `pkg/fom/`, `pkg/morton/`, `pkg/vector/`, `pkg/ssz/` e `pkg/crypto/`. Nenhum deles existe na raiz de `pkg/` (foram fundidos em `pkg/crc/core` ou não existem).
 
