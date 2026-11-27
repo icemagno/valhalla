@@ -87,32 +87,43 @@ Project Valhalla separates source packages, language SDKs, test suites, and dist
 
 ```
 hla-rti/
-├── dist/                               # Ready-to-go compiled binaries
-│   ├── bin/                            # Native binaries (valhalla-crc, valhalla_lrc.dll, libvalhalla_lrc.so)
-│   └── java/                           # Java Client SDK distribution (valhalla-lrc.jar fat JAR with embedded DLL + SO)
 ├── cmd/                                # Application entry points
-│   ├── valhalla-crc/                   # Central RTI Component (CRC server)
-│   └── valhalla-federate/              # Native Go HLA-4 test federate (LRC)
-├── examples/                           # Standalone end-user reference federates
-│   └── java-federate/                  # Standalone Maven Java federate consuming Valhalla via GitHub mvn-repo
+│   ├── valhalla-crc/                   # Central RTI Component (CRC server binary)
+│   └── valhalla-federate/              # Native Go HLA-4 federate (LRC client binary)
+├── dist/                               # Ready-to-go compiled binaries and distribution artifacts
+│   ├── bin/                            # Native binaries (valhalla-crc, valhalla_lrc.dll, libvalhalla_lrc.so)
+│   ├── include/                        # C/C++ distribution headers (rti1516e standard interfaces)
+│   ├── java/                           # Java Client SDK distribution (valhalla-lrc.jar fat JAR with embedded DLL + SO)
+│   ├── lib/                            # Import/static libraries (librti1516e.a)
+│   └── web/                            # HLA-4 Web Profile JavaScript/TypeScript bundle
+├── docs/                               # Architectural deliberations, whitepapers & specifications
+├── examples/                           # Standalone reference federates across supported languages
+│   ├── cpp-federate/                   # Standalone C++17 federate consuming Valhalla via CMake
+│   ├── java-federate/                  # Standalone Maven Java federate consuming Valhalla via IEEE 1516e
+│   └── web-federate/                   # Standalone HTML5/WebSocket tactical radar web federate
+├── foms/                               # Standard HLA Object Model Template (FOM/MIM) XML schemas
 ├── pkg/                                # Core Go implementation packages
 │   ├── cabi/                           # C-ABI / CGo export layer for native LRC dynamic library
-│   ├── common/                         # SSZ encoding, protocol messages, Merkle trees, PQC
-│   ├── crc/                            # CRC server engine, state management, DDM, session multiplexing
-│   ├── euler/                          # Euler Tour class hierarchy indexing
-│   ├── fom/                            # RPR-FOM XML parser and schema definitions
-│   ├── lrc/                            # Native Go Local RTI Component (LRC client)
-│   ├── morton/                         # 3D Morton space-filling curves for DDM
-│   └── vector/                         # 64-bit vectorized bitset operations
+│   ├── common/                         # Canonical handles, SSZ codecs, wire protocol catalog, Merkle state
+│   ├── crc/                            # Central RTI Component executive server & session multiplexer
+│   │   ├── core/                       # Simulation engines: OMT Euler Tour, Bitsets, 3D Morton DDM, Merkle trees
+│   │   └── portico/                    # Portico wire protocol (JOS codec, message catalog, transport)
+│   ├── logger/                         # High-throughput non-blocking asynchronous logging engine
+│   ├── lrc/                            # Sovereign Go Local RTI Component (RTIambassador client)
+│   └── metamodel/                      # IEEE 1516-2010 Modular XML FOM parser and schema compiler
+├── portico-3.0-homolog/                # Official homologation test suite for Portico IEEE 1516e compatibility
+├── scripts/                            # Build automation, packaging, and release scripts
 ├── sdk/                                # Language-specific client SDKs
-│   ├── c/                              # Native C/C++ Client SDK (headers, wrapper, CMake integration)
-│   └── java/                           # Native Java Client SDK (IEEE 1516e interfaces + embedded JNA)
-├── scripts/                            # Build automation and release scripts (build-sdk, publish-maven)
-├── test/                               # Verification suites & test federates
-│   ├── c_test/                         # Native C verification federate
-│   ├── integration/                    # Cross-dialect integration test scenarios
-│   └── java_test/                      # Java IEEE 1516e verification federate
-└── docs/                               # Architectural deliberations & whitepapers
+│   ├── c/                              # Native C Client SDK (headers, CGo wrapper, CMake integration)
+│   ├── cpp/                            # Modern C++17 Client SDK (RAII wrappers, CMake target)
+│   ├── java/                           # Native Java Client SDK (canonical IEEE 1516e interfaces + JNA)
+│   └── web/                            # HLA-4 Web Profile client SDK (WebSocket RFC 6455)
+└── test/                               # Verification suites & test federates
+    ├── benchmark/                      # End-to-end network latency & Layer 1 algorithmic benchmarks
+    ├── c_test/                         # Native C verification test federate
+    ├── integration/                    # Cross-dialect integration test scenarios (Native, Portico, Web)
+    ├── java_test/                      # Java IEEE 1516e verification federate
+    └── resources/                      # Official SISO RPR-FOM v2.0 (SISO-STD-001-2015) XML schemas
 ```
 
 ### What is Produced When Compiling LRC?
@@ -120,6 +131,8 @@ When you compile the Local RTI Component (LRC), the build produces:
 1. **Native C-ABI Shared Libraries (`dist/bin/valhalla_lrc.dll` and `dist/bin/libvalhalla_lrc.so`):** Zero-dependency shared dynamic libraries exporting standard C functions for connection, federation execution, publication/subscription, object registration, attribute reflection, 3D Morton DDM routing, and attribute ownership handover.
 2. **C Header Files (`sdk/c/include/valhalla_lrc.h`):** Complete C/C++ interface definition allowing direct integration into C, C++, Rust, Python, or legacy simulation engines.
 3. **Java SDK Fat JAR (`dist/java/valhalla-lrc.jar`):** A standalone, fully self-contained Java archive implementing the canonical **IEEE 1516e (`hla.rti1516e.*`)** interfaces. It internally embeds **both** the Windows DLL and Linux SO native shared libraries alongside shaded JNA. End users simply drop `valhalla-lrc.jar` onto their Java classpath or declare it in Maven without installing external prerequisites or configuring system library paths.
+4. **C++17 Static Library & Headers (`dist/lib/librti1516e.a` and `dist/include/rti1516e/`):** Standard IEEE 1516e C++ interface library and header files for native C++ simulations.
+5. **HLA-4 Web Profile Client Bundle (`dist/web/valhalla-hla.js`):** Lightweight RFC 6455 WebSocket client library with TypeScript definitions (`dist/web/valhalla-hla.d.ts`) for browser and Node.js federates.
 
 ---
 

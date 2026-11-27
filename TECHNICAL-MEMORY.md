@@ -85,7 +85,7 @@ Identified the 7 core friction points in distributed simulation:
 ### 10. Practical Implementation Completed (Sprint 0)
 1. **Repository & Directory Structure:**
    * Go module initialized: `github.com/icemagno/valhalla`.
-   * Standard Go layout structured: `/cmd`, `/pkg/portico/wire`, `/pkg/portico/transport`, `/pkg/ssz`, `/pkg/crypto`, `/pkg/omt`, `/pkg/hla4`, `/test/resources/rpr-fom-v2.0`, `/test/integration`.
+   * Standard Go layout structured: `/cmd`, `/pkg/cabi`, `/pkg/common`, `/pkg/crc`, `/pkg/logger`, `/pkg/lrc`, `/pkg/metamodel`, `/sdk`, `/dist`, `/examples`, `/test`.
 2. **Visual Identity & Documentation:**
    * Official logo created in `assets/logo.svg` (Nordic shield with four cardinal arrows in orange and green).
    * `README.md` established with Apache 2.0, Go 1.25+, HLA-4, and Portico badges.
