@@ -199,7 +199,6 @@ const (
 var (
 	ErrBufferTooShort  = errors.New("portico wire: buffer menor que 12 bytes do cabecalho")
 	ErrPayloadTooLarge = errors.New("portico wire: tamanho do payload excede 24 bits (16 MB)")
-	ErrInvalidCallType = errors.New("portico wire: calltype invalido")
 )
 
 // Header representa com fidelidade absoluta de bits o cabecalho de 12 bytes do Portico (Header.java)

@@ -82,11 +82,17 @@ func SynthesizePorticoObjectModel(omt *core.OMTRegistry) *metamodel.JavaObject {
 			}
 		}
 
-		// Instantiate ACMetadata attributes
+		// Instantiate ACMetadata attributes in deterministic ascending handle order
 		attrsMap := oc.Get("attributes").(*metamodel.JavaObject)
 		attrEntries := attrsMap.Get("entries").(map[any]any)
 
+		sortedAttrs := make([]*core.AttributeDef, 0, len(cls.Attributes))
 		for _, attr := range cls.Attributes {
+			sortedAttrs = append(sortedAttrs, attr)
+		}
+		sort.Slice(sortedAttrs, func(i, j int) bool { return sortedAttrs[i].Handle < sortedAttrs[j].Handle })
+
+		for _, attr := range sortedAttrs {
 			ah := int32(attr.Handle)
 			if ah > maxHandle {
 				maxHandle = ah
@@ -162,11 +168,17 @@ func SynthesizePorticoObjectModel(omt *core.OMTRegistry) *metamodel.JavaObject {
 			}
 		}
 
-		// Instantiate PCMetadata parameters
+		// Instantiate PCMetadata parameters in deterministic ascending handle order
 		paramsMap := ic.Get("parameters").(*metamodel.JavaObject)
 		paramEntries := paramsMap.Get("entries").(map[any]any)
 
+		sortedParams := make([]*core.ParameterDef, 0, len(inter.Parameters))
 		for _, param := range inter.Parameters {
+			sortedParams = append(sortedParams, param)
+		}
+		sort.Slice(sortedParams, func(i, j int) bool { return sortedParams[i].Handle < sortedParams[j].Handle })
+
+		for _, param := range sortedParams {
 			ph := int32(param.Handle)
 			if ph > maxHandle {
 				maxHandle = ph

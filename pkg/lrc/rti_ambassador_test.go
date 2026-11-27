@@ -516,7 +516,7 @@ func TestRTIambassador_DeclarationAndPubSubRouting(t *testing.T) {
 	}
 
 	// Aguardar entrega de rede e evocar callbacks no Subscriber
-	time.Sleep(50 * time.Millisecond)
+	// Evocar callback com timeout determinístico (sem time.Sleep arbitrário)
 
 	// Callback 1: DiscoverObjectInstance
 	evoked, err := ambSub.EvokeCallback(200 * time.Millisecond)
@@ -553,7 +553,7 @@ func TestRTIambassador_DeclarationAndPubSubRouting(t *testing.T) {
 	}
 
 	// Aguardar e evocar callback de interação no Subscriber
-	time.Sleep(50 * time.Millisecond)
+	// Evocar callback com timeout determinístico (sem time.Sleep arbitrário)
 	evoked, err = ambSub.EvokeCallback(200 * time.Millisecond)
 	if err != nil || !evoked {
 		t.Fatalf("falha ao evocar callback de interação no Subscriber: %v (evoked=%v)", err, evoked)
@@ -616,7 +616,7 @@ func TestRTIambassador_ObjectLifecycle_DeleteAndRemove(t *testing.T) {
 	}
 
 	// Aguardar e evocar callback de descoberta no Watcher
-	time.Sleep(40 * time.Millisecond)
+	// Evocar callback com timeout determinístico (sem time.Sleep arbitrário)
 	_, _ = ambWatcher.EvokeCallback(100 * time.Millisecond)
 	watcherAmb.mu.Lock()
 	discObj := watcherAmb.discoveredObj
@@ -638,7 +638,7 @@ func TestRTIambassador_ObjectLifecycle_DeleteAndRemove(t *testing.T) {
 	}
 
 	// 7. Watcher recebe callback RemoveObjectInstance
-	time.Sleep(40 * time.Millisecond)
+	// Evocar callback com timeout determinístico (sem time.Sleep arbitrário)
 	evoked, err := ambWatcher.EvokeCallback(100 * time.Millisecond)
 	if err != nil || !evoked {
 		t.Fatalf("Watcher falhou ao evocar callback de remoção: %v", err)
@@ -707,7 +707,7 @@ func TestRTIambassador_CatchUpDiscovery(t *testing.T) {
 	}
 
 	// 4. Late Fed evoca callback -> Deve receber a descoberta retrospectiva (Catch-Up) da entidade pré-existente
-	time.Sleep(50 * time.Millisecond)
+	// Evocar callback com timeout determinístico (sem time.Sleep arbitrário)
 	evoked, err := ambLate.EvokeCallback(200 * time.Millisecond)
 	if err != nil || !evoked {
 		t.Fatalf("Late Fed falhou ao receber catch-up discovery: %v", err)

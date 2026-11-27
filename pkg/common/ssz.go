@@ -28,7 +28,6 @@ var Endian = binary.LittleEndian
 // SSZ Specification Errors
 var (
 	ErrSSZBufferTooShort    = errors.New("ssz: buffer smaller than minimum expected container size")
-	ErrSSZInvalidSize       = errors.New("ssz: buffer size does not match exact fixed container size")
 	ErrSSZTrailingBytes     = errors.New("ssz: unconsumed trailing bytes at end of container")
 	ErrSSZInvalidOffset     = errors.New("ssz: offset table violates monotonic ordering or bounds")
 	ErrSSZInvalidBoolean    = errors.New("ssz: invalid boolean value (must be 0x00 or 0x01)")
@@ -504,12 +503,6 @@ func DecodeSSZStringList(data []byte, start, end uint32) ([]string, error) {
 // ============================================================================
 // 5. CANONICAL SSZ LIST[CONTAINER] FOR ATTRIBUTES & PARAMETERS
 // ============================================================================
-
-// SSZAttributeEntry represents an attribute handle and its binary value.
-type SSZAttributeEntry struct {
-	Handle uint32
-	Value  []byte
-}
 
 func encodeSSZHandleMap[K sszHandleKey](dst []byte, offset uint32, entries map[K][]byte) uint32 {
 	count := uint32(len(entries))

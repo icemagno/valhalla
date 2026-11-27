@@ -17,6 +17,13 @@ type porticoContext struct {
 // handleFederationManagement handles Portico federation lifecycle (Create, Join, Resign, Destroy, Disconnect)
 func (ctx *porticoContext) handleFederationManagement(hdr wire.Header, payload []byte) (bool, error) {
 	switch hdr.MessageType {
+	case wire.MsgRtiProbe, wire.MsgConnect:
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		logCRCPortico.Info("Portico %s acknowledged (reqID=%d)", hdr.MessageType.String(), hdr.RequestId)
+		return true, nil
+
 	case wire.MsgCreateFederation:
 		var fedName string
 		obj, err := wire.DeserializePorticoControlMessage(payload)

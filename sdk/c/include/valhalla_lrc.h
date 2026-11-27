@@ -66,7 +66,9 @@ int32_t valhalla_create_federation(ValhallaAmbassador amb, char* fedName);
 int32_t valhalla_create_federation_with_fom(ValhallaAmbassador amb, char* fedName, char** fomModules, int32_t fomCount);
 int32_t valhalla_destroy_federation(ValhallaAmbassador amb, char* fedName);
 int32_t valhalla_join_federation(ValhallaAmbassador amb, char* federateName, char* fedName, int32_t* outFederateHandle);
+int32_t valhalla_join_federation_with_type(ValhallaAmbassador amb, char* federateName, char* federateType, char* fedName, int32_t* outFederateHandle);
 int32_t valhalla_resign_federation(ValhallaAmbassador amb);
+int32_t valhalla_resign_federation_with_action(ValhallaAmbassador amb, uint8_t resignAction);
 
 // Synchronization Points
 int32_t valhalla_register_federation_synchronization_point(ValhallaAmbassador amb, char* label, uint8_t* tag, int32_t tagLen);

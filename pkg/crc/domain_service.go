@@ -18,13 +18,59 @@ func dispatchTimeGrants(currentFed *FederationExecution, grants []core.TimeGrant
 			continue
 		}
 		// Deliver any queued TSO messages first in strictly non-decreasing time order
+		sink, hasSink := fed.Session.(DomainEventSink)
 		for _, msg := range grant.Messages {
-			if err := fed.Session.SendNotificationWithMerkle(msg.MsgType, msg.Payload, msg.MerkleRoot); err != nil {
-				logCRCDomain.Warn("failed to deliver TSO message %d to federate %d: %v", msg.MsgType, grant.Federate, err)
+			switch msg.Kind {
+			case core.TSOEventReflectAttributes:
+				if hasSink {
+					if err := sink.SendReflectAttributes(msg.ObjectHandle, msg.Attributes, msg.Tag, true, msg.Timestamp, msg.MerkleRoot); err != nil {
+						logCRCDomain.Warn("failed to deliver TSO ReflectAttributes to federate %d: %v", grant.Federate, err)
+					}
+					continue
+				}
+				payload, err := common.UpdateAttributesPayload{
+					ObjectHandle: common.ObjectInstanceHandle(msg.ObjectHandle),
+					Attributes:   msg.Attributes,
+					Tag:          msg.Tag,
+					HasTime:      true,
+					Time:         msg.Timestamp,
+				}.MarshalBinary()
+				if err != nil {
+					logCRCDomain.Error("failed to marshal TSO ReflectAttributes: %v", err)
+					continue
+				}
+				if err := fed.Session.SendNotificationWithMerkle(NativeMsgReflectAttributes, payload, msg.MerkleRoot); err != nil {
+					logCRCDomain.Warn("failed to deliver TSO ReflectAttributes to federate %d: %v", grant.Federate, err)
+				}
+			case core.TSOEventReceiveInteraction:
+				if hasSink {
+					if err := sink.SendReceiveInteraction(msg.ClassHandle, msg.Parameters, msg.Tag, true, msg.Timestamp); err != nil {
+						logCRCDomain.Warn("failed to deliver TSO ReceiveInteraction to federate %d: %v", grant.Federate, err)
+					}
+					continue
+				}
+				payload, err := common.SendInteractionPayload{
+					ClassHandle: common.InteractionClassHandle(msg.ClassHandle),
+					Parameters:  msg.Parameters,
+					Tag:         msg.Tag,
+					HasTime:     true,
+					Time:        msg.Timestamp,
+				}.MarshalBinary()
+				if err != nil {
+					logCRCDomain.Error("failed to marshal TSO ReceiveInteraction: %v", err)
+					continue
+				}
+				if err := fed.Session.SendNotification(NativeMsgReceiveInteraction, payload); err != nil {
+					logCRCDomain.Warn("failed to deliver TSO ReceiveInteraction to federate %d: %v", grant.Federate, err)
+				}
+			default:
+				if err := fed.Session.SendNotificationWithMerkle(msg.MsgType, msg.Payload, msg.MerkleRoot); err != nil {
+					logCRCDomain.Warn("failed to deliver TSO message %d to federate %d: %v", msg.MsgType, grant.Federate, err)
+				}
 			}
 		}
 		// Deliver TimeAdvanceGrant via DomainEventSink when available (single-pass per protocol)
-		if sink, ok := fed.Session.(DomainEventSink); ok {
+		if hasSink {
 			if err := sink.SendTimeAdvanceGrant(grant.Time); err != nil {
 				logCRCDomain.Warn("failed to deliver TimeAdvanceGrant to federate %d: %v", grant.Federate, err)
 			}
@@ -286,17 +332,26 @@ func (f *FederationExecution) UpdateAndRouteAttributes(
 		}
 
 		if hasTime && f.TimeManager() != nil && f.TimeManager().IsConstrained(subID) {
-			ravPayload, err := getSSZPayload()
-			if err != nil {
-				return globalRoot, err
+			attrsClone := make(map[common.AttributeHandle][]byte, len(attrs))
+			for k, v := range attrs {
+				cp := make([]byte, len(v))
+				copy(cp, v)
+				attrsClone[k] = cp
+			}
+			var tagClone []byte
+			if len(tag) > 0 {
+				tagClone = make([]byte, len(tag))
+				copy(tagClone, tag)
 			}
 			grants, err := f.TimeManager().EnqueueTSOMessage(core.TSOMessage{
-				Sender:     common.FederateHandle(senderID),
-				Receiver:   subID,
-				Timestamp:  timestamp,
-				MsgType:    NativeMsgReflectAttributes,
-				Payload:    ravPayload,
-				MerkleRoot: globalRoot,
+				Sender:       common.FederateHandle(senderID),
+				Receiver:     subID,
+				Timestamp:    timestamp,
+				Kind:         core.TSOEventReflectAttributes,
+				ObjectHandle: int32(objHandle),
+				Attributes:   attrsClone,
+				Tag:          tagClone,
+				MerkleRoot:   globalRoot,
 			})
 			if err != nil {
 				logCRCDomain.Warn("failed to enqueue TSO message for federate %d: %v", subID, err)
@@ -371,16 +426,25 @@ func (f *FederationExecution) RouteInteraction(
 		}
 
 		if hasTime && f.TimeManager() != nil && f.TimeManager().IsConstrained(subID) {
-			payload, err := getSSZPayload()
-			if err != nil {
-				return err
+			paramsClone := make(map[common.ParameterHandle][]byte, len(params))
+			for k, v := range params {
+				cp := make([]byte, len(v))
+				copy(cp, v)
+				paramsClone[k] = cp
+			}
+			var tagClone []byte
+			if len(tag) > 0 {
+				tagClone = make([]byte, len(tag))
+				copy(tagClone, tag)
 			}
 			grants, err := f.TimeManager().EnqueueTSOMessage(core.TSOMessage{
-				Sender:    common.FederateHandle(senderID),
-				Receiver:  subID,
-				Timestamp: timestamp,
-				MsgType:   NativeMsgReceiveInteraction,
-				Payload:   payload,
+				Sender:      common.FederateHandle(senderID),
+				Receiver:    subID,
+				Timestamp:   timestamp,
+				Kind:        core.TSOEventReceiveInteraction,
+				ClassHandle: int32(classHandle),
+				Parameters:  paramsClone,
+				Tag:         tagClone,
 			})
 			if err != nil {
 				logCRCDomain.Warn("failed to enqueue TSO interaction for federate %d: %v", subID, err)

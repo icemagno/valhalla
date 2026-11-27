@@ -199,8 +199,8 @@ public class ExampleFederate {
             try {
                 rtiAmb.destroyFederationExecution(fedName);
                 System.out.println("  [+] Federation execution destroyed.");
-            } catch (Exception e) {
-                System.out.println("  [*] Federation destruction note: " + e.getMessage());
+            } catch (FederatesCurrentlyJoined e) {
+                System.out.println("  [*] Federation still has other joined federates: " + e.getMessage());
             }
 
             // -------------------------------------------------------------

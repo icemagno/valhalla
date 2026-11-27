@@ -141,6 +141,86 @@ func (ctx *porticoContext) handleTimeManagement(hdr wire.Header, payload []byte)
 		logCRCPortico.Info("Federate [%d] enabled time constrained", ctx.federateID)
 		return true, nil
 
+	case wire.MsgDisableTimeRegulation:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		grants, err := ctx.currentFed.TimeManager().DisableTimeRegulation(common.FederateHandle(ctx.federateID))
+		if err != nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		if len(grants) > 0 {
+			dispatchTimeGrants(ctx.currentFed, grants)
+		}
+		return true, nil
+
+	case wire.MsgDisableTimeConstrained:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		grants, err := ctx.currentFed.TimeManager().DisableTimeConstrained(common.FederateHandle(ctx.federateID))
+		if err != nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		if len(grants) > 0 {
+			dispatchTimeGrants(ctx.currentFed, grants)
+		}
+		return true, nil
+
+	case wire.MsgModifyLookahead:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		lookahead := 0.0
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if la, ok := obj.Get("lookahead").(float64); ok {
+				lookahead = la
+			}
+		}
+		if err := ctx.currentFed.TimeManager().ModifyLookahead(common.FederateHandle(ctx.federateID), lookahead); err != nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgEnableAsynchDelivery, wire.MsgDisableAsynchDelivery:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	case wire.MsgTimeAdvanceRequest, wire.MsgNextEventRequest, wire.MsgFlushQueueRequest:
 		if ctx.currentFed == nil || ctx.federateID <= 0 {
 			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {

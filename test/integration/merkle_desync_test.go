@@ -106,8 +106,17 @@ func TestMerkleDesync_ConsensusAndDivergence(t *testing.T) {
 		t.Fatalf("register obj2 failed: %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	_ = ambB.EvokeMultipleCallbacks(10*time.Millisecond, 200*time.Millisecond)
+	evokeUntil := func(cond func() bool) {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if cond() {
+				return
+			}
+			_, _ = ambB.EvokeCallback(20 * time.Millisecond)
+		}
+	}
+
+	evokeUntil(func() bool { return len(fedAmbB.discoveredObjects) >= 2 })
 
 	if len(fedAmbB.discoveredObjects) < 2 {
 		t.Fatalf("subscriber did not discover both objects: got %d, expected at least 2", len(fedAmbB.discoveredObjects))
@@ -119,8 +128,7 @@ func TestMerkleDesync_ConsensusAndDivergence(t *testing.T) {
 		t.Fatalf("update obj1 failed: %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	_ = ambB.EvokeMultipleCallbacks(10*time.Millisecond, 200*time.Millisecond)
+	evokeUntil(func() bool { return ambB.GetLocalStateRoot() == ambA.GetLocalStateRoot() })
 
 	// Validate consensus: neither Publisher nor Subscriber should report desync!
 	if err := ambA.LastDesyncDetected(); err != nil {
@@ -139,8 +147,7 @@ func TestMerkleDesync_ConsensusAndDivergence(t *testing.T) {
 		t.Fatalf("delete obj2 failed: %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	_ = ambB.EvokeMultipleCallbacks(10*time.Millisecond, 200*time.Millisecond)
+	evokeUntil(func() bool { return len(fedAmbB.removedObjects) >= 1 })
 
 	if len(fedAmbB.removedObjects) < 1 {
 		t.Fatalf("subscriber did not receive RemoveObjectInstance for obj2")
@@ -152,8 +159,7 @@ func TestMerkleDesync_ConsensusAndDivergence(t *testing.T) {
 		t.Fatalf("update obj1 post-deletion failed: %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	_ = ambB.EvokeMultipleCallbacks(10*time.Millisecond, 200*time.Millisecond)
+	evokeUntil(func() bool { return ambB.GetLocalStateRoot() == ambA.GetLocalStateRoot() })
 
 	if err := ambA.LastDesyncDetected(); err != nil {
 		t.Fatalf("false positive desync on Publisher post-deletion: %v", err)
@@ -171,8 +177,7 @@ func TestMerkleDesync_ConsensusAndDivergence(t *testing.T) {
 		t.Fatalf("spatial update failed: %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	_ = ambB.EvokeMultipleCallbacks(10*time.Millisecond, 200*time.Millisecond)
+	evokeUntil(func() bool { return ambB.GetLocalStateRoot() == ambA.GetLocalStateRoot() })
 
 	if err := ambA.LastDesyncDetected(); err != nil {
 		t.Fatalf("false positive desync on Publisher after spatial update: %v", err)
@@ -197,8 +202,7 @@ func TestMerkleDesync_ConsensusAndDivergence(t *testing.T) {
 		t.Fatalf("third update failed: %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-	_ = ambB.EvokeMultipleCallbacks(10*time.Millisecond, 200*time.Millisecond)
+	evokeUntil(func() bool { return ambB.LastDesyncDetected() != nil })
 
 	// Subscriber MUST detect cryptographic desync
 	desyncErr := ambB.LastDesyncDetected()

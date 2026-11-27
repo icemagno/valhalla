@@ -23,8 +23,7 @@ const (
 )
 
 var (
-	ErrCoordinateOutOfBounds = errors.New("ddm morton: metric coordinate out of ECEF bounds [-10M, +10M]")
-	ErrInvalidBoundingBox    = errors.New("ddm morton: min bound exceeds max bound")
+	ErrInvalidBoundingBox = errors.New("ddm morton: min bound exceeds max bound")
 )
 
 // Part1By2 spreads the lowest 21 bits of x across 63 bits, inserting 2 zeros between each bit.

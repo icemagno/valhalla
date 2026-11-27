@@ -492,15 +492,80 @@ func (r *OMTRegistry) GetObjectClassAttributeHandles(handle common.ObjectClassHa
 	return handles, true
 }
 
-// GetObjectClass retrieves object class metadata by handle
+func cloneObjectClass(c *ObjectClass) *ObjectClass {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	if len(c.Children) > 0 {
+		cp.Children = make([]common.ObjectClassHandle, len(c.Children))
+		copy(cp.Children, c.Children)
+	}
+	if len(c.Ancestors) > 0 {
+		cp.Ancestors = make([]common.ObjectClassHandle, len(c.Ancestors))
+		copy(cp.Ancestors, c.Ancestors)
+	}
+	if len(c.Attributes) > 0 {
+		cp.Attributes = make(map[common.AttributeHandle]*AttributeDef, len(c.Attributes))
+		for k, v := range c.Attributes {
+			if v != nil {
+				vc := *v
+				cp.Attributes[k] = &vc
+			}
+		}
+	}
+	if len(c.AttrNameToHandle) > 0 {
+		cp.AttrNameToHandle = make(map[string]common.AttributeHandle, len(c.AttrNameToHandle))
+		for k, v := range c.AttrNameToHandle {
+			cp.AttrNameToHandle[k] = v
+		}
+	}
+	return &cp
+}
+
+func cloneInteractionClass(ic *InteractionClass) *InteractionClass {
+	if ic == nil {
+		return nil
+	}
+	cp := *ic
+	if len(ic.Children) > 0 {
+		cp.Children = make([]common.InteractionClassHandle, len(ic.Children))
+		copy(cp.Children, ic.Children)
+	}
+	if len(ic.Ancestors) > 0 {
+		cp.Ancestors = make([]common.InteractionClassHandle, len(ic.Ancestors))
+		copy(cp.Ancestors, ic.Ancestors)
+	}
+	if len(ic.Parameters) > 0 {
+		cp.Parameters = make(map[common.ParameterHandle]*ParameterDef, len(ic.Parameters))
+		for k, v := range ic.Parameters {
+			if v != nil {
+				vc := *v
+				cp.Parameters[k] = &vc
+			}
+		}
+	}
+	if len(ic.ParamNameToHandle) > 0 {
+		cp.ParamNameToHandle = make(map[string]common.ParameterHandle, len(ic.ParamNameToHandle))
+		for k, v := range ic.ParamNameToHandle {
+			cp.ParamNameToHandle[k] = v
+		}
+	}
+	return &cp
+}
+
+// GetObjectClass retrieves a defensive copy of object class metadata by handle.
 func (r *OMTRegistry) GetObjectClass(handle common.ObjectClassHandle) (*ObjectClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	c, exists := r.objectClasses[handle]
-	return c, exists
+	if !exists {
+		return nil, false
+	}
+	return cloneObjectClass(c), true
 }
 
-// GetChildObjectClass retrieves a direct child object class of parent by simple name
+// GetChildObjectClass retrieves a defensive copy of a direct child object class of parent by simple name.
 func (r *OMTRegistry) GetChildObjectClass(parentHandle common.ObjectClassHandle, name string) (*ObjectClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -518,13 +583,13 @@ func (r *OMTRegistry) GetChildObjectClass(parentHandle common.ObjectClassHandle,
 	for _, childHandle := range parent.Children {
 		child := r.objectClasses[childHandle]
 		if child != nil && child.Name == simpleName {
-			return child, true
+			return cloneObjectClass(child), true
 		}
 	}
 	return nil, false
 }
 
-// GetChildInteractionClass retrieves a direct child interaction class of parent by simple name
+// GetChildInteractionClass retrieves a defensive copy of a direct child interaction class of parent by simple name.
 func (r *OMTRegistry) GetChildInteractionClass(parentHandle common.InteractionClassHandle, name string) (*InteractionClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -542,13 +607,13 @@ func (r *OMTRegistry) GetChildInteractionClass(parentHandle common.InteractionCl
 	for _, childHandle := range parent.Children {
 		child := r.interactionClasses[childHandle]
 		if child != nil && child.Name == simpleName {
-			return child, true
+			return cloneInteractionClass(child), true
 		}
 	}
 	return nil, false
 }
 
-// GetObjectClassByFQCN retrieves object class metadata by exact canonical FQCN.
+// GetObjectClassByFQCN retrieves a defensive copy of object class metadata by exact canonical FQCN.
 func (r *OMTRegistry) GetObjectClassByFQCN(fqcn string) (*ObjectClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -556,10 +621,10 @@ func (r *OMTRegistry) GetObjectClassByFQCN(fqcn string) (*ObjectClass, bool) {
 	if !ok {
 		return nil, false
 	}
-	return r.objectClasses[h], true
+	return cloneObjectClass(r.objectClasses[h]), true
 }
 
-// GetInteractionClassByFQCN retrieves interaction class metadata by exact canonical FQCN.
+// GetInteractionClassByFQCN retrieves a defensive copy of interaction class metadata by exact canonical FQCN.
 func (r *OMTRegistry) GetInteractionClassByFQCN(fqcn string) (*InteractionClass, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -567,7 +632,7 @@ func (r *OMTRegistry) GetInteractionClassByFQCN(fqcn string) (*InteractionClass,
 	if !ok {
 		return nil, false
 	}
-	return r.interactionClasses[h], true
+	return cloneInteractionClass(r.interactionClasses[h]), true
 }
 
 // ResolveObjectClass resolves an object class by FQCN, relative qualified name, or unambiguous simple name.
@@ -758,21 +823,21 @@ func (r *OMTRegistry) GetClassAncestors(classHandle common.ObjectClassHandle) []
 	return res
 }
 
-// ForEachObjectClass iterates over all registered object classes under read lock
+// ForEachObjectClass iterates over defensive copies of all registered object classes under read lock
 func (r *OMTRegistry) ForEachObjectClass(fn func(cls *ObjectClass)) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, cls := range r.objectClasses {
-		fn(cls)
+		fn(cloneObjectClass(cls))
 	}
 }
 
-// ForEachInteractionClass iterates over all registered interaction classes under read lock
+// ForEachInteractionClass iterates over defensive copies of all registered interaction classes under read lock
 func (r *OMTRegistry) ForEachInteractionClass(fn func(inter *InteractionClass)) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, inter := range r.interactionClasses {
-		fn(inter)
+		fn(cloneInteractionClass(inter))
 	}
 }
 

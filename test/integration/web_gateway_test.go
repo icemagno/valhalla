@@ -10,7 +10,6 @@ import (
 	"net"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/icemagno/valhalla/pkg/crc"
 )
@@ -24,8 +23,6 @@ func TestHLA4_WebProfile_11Stages(t *testing.T) {
 	defer func() { _ = server.Stop() }()
 
 	wsPort := server.WebAddr().(*net.TCPAddr).Port
-
-	time.Sleep(100 * time.Millisecond)
 
 	// 2. Connect raw TCP and perform WebSocket handshake
 	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", wsPort))

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc"
@@ -164,7 +163,7 @@ func TestCABI_InteractionLifecycleAndCallbacks(t *testing.T) {
 		t.Fatalf("subscribe interaction failed: %d", code)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Evoke with timeout directly (no arbitrary sleep)
 
 	// 4. Send Interaction with Parameters and Tag
 	params := map[int32][]byte{
@@ -177,7 +176,7 @@ func TestCABI_InteractionLifecycleAndCallbacks(t *testing.T) {
 		t.Fatalf("send interaction failed: %d", code)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Evoke with timeout directly (no arbitrary sleep)
 
 	// 5. Evoke Callback on Receiver
 	evoked, code := CABI_EvokeCallback(receiver, 0.2)
@@ -265,7 +264,7 @@ func TestCABI_SynchronizationPointLifecycleAndCallbacks(t *testing.T) {
 		t.Fatalf("register sync point failed: %d", code)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Evoke with timeout directly (no arbitrary sleep)
 
 	var evoked bool
 	// Sender evokes callback -> receives onSyncPointRegistrationSucceeded
@@ -326,7 +325,7 @@ func TestCABI_SynchronizationPointLifecycleAndCallbacks(t *testing.T) {
 		t.Fatalf("receiver achieve sync point failed: %d", code)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	// Evoke with timeout directly (no arbitrary sleep)
 
 	// Both evoke callbacks -> receives onFederationSynchronized
 	_, _ = CABI_EvokeCallback(sender, 0.1)

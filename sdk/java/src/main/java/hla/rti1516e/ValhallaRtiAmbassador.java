@@ -258,6 +258,9 @@ public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
     @Override
     public void connect(FederateAmbassador federateReference, CallbackModel callbackModel, String localSettingsDesignator) throws RTIexception {
         ensureNotDestroyed("connect");
+        if (callbackModel != null && callbackModel != CallbackModel.HLA_EVOKED) {
+            throw new RTIexception("UnsupportedCallbackModel: Valhalla Java SDK supports HLA_EVOKED");
+        }
         this.fedAmb = federateReference;
         setupCallbacks();
         String address = (localSettingsDesignator != null && !localSettingsDesignator.trim().isEmpty())
@@ -345,7 +348,7 @@ public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
     public FederateHandle joinFederationExecution(String federateType, String federationExecutionName) throws RTIexception {
         ensureNotDestroyed("joinFederationExecution");
         IntByReference outHandle = new IntByReference();
-        int rc = nativeLrc.valhalla_join_federation(amb, federateType, federationExecutionName, outHandle);
+        int rc = nativeLrc.valhalla_join_federation_with_type(amb, federateType, federateType, federationExecutionName, outHandle);
         checkStatus(rc, "joinFederationExecution");
         this.localFederateHandle = outHandle.getValue();
         return new FederateHandle(this.localFederateHandle);
@@ -354,7 +357,8 @@ public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
     @Override
     public void resignFederationExecution(ResignAction resignAction) throws RTIexception {
         ensureNotDestroyed("resignFederationExecution");
-        int rc = nativeLrc.valhalla_resign_federation(amb);
+        byte actionCode = (resignAction != null) ? (byte) resignAction.ordinal() : (byte) 1;
+        int rc = nativeLrc.valhalla_resign_federation_with_action(amb, actionCode);
         checkStatus(rc, "resignFederationExecution");
         this.localFederateHandle = 0;
     }

@@ -45,15 +45,30 @@ func (s TimeState) String() string {
 	}
 }
 
-// TSOMessage represents a message buffered in Time-Stamp Order (TSO)
+// TSOEventKind identifies the protocol-agnostic domain event carried by a TSOMessage.
+type TSOEventKind uint8
+
+const (
+	TSOEventRaw TSOEventKind = iota
+	TSOEventReflectAttributes
+	TSOEventReceiveInteraction
+)
+
+// TSOMessage represents a protocol-agnostic message buffered in Time-Stamp Order (TSO).
 type TSOMessage struct {
-	Sender      common.FederateHandle
-	Receiver    common.FederateHandle
-	Timestamp   float64
-	MsgType     uint8
-	Payload     []byte
-	MerkleRoot  [32]byte
-	SequenceNum uint64
+	Sender       common.FederateHandle
+	Receiver     common.FederateHandle
+	Timestamp    float64
+	Kind         TSOEventKind
+	ObjectHandle int32
+	ClassHandle  int32
+	Attributes   map[common.AttributeHandle][]byte
+	Parameters   map[common.ParameterHandle][]byte
+	Tag          []byte
+	MsgType      uint8  // Legacy fallback for TSOEventRaw
+	Payload      []byte // Legacy fallback for TSOEventRaw
+	MerkleRoot   [32]byte
+	SequenceNum  uint64
 }
 
 // tsoHeap implements a min-heap priority queue for TSOMessages ordered by Timestamp, then SequenceNum

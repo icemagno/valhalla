@@ -584,33 +584,6 @@ func (d *JOSDecoder) readFieldValue(field FieldDesc) (any, error) {
 	}
 }
 
-// ExtractErrorMessage extrai a mensagem legível de erro (detailMessage) de um payload de exceção Java/Portico
-func ExtractErrorMessage(payload []byte) string {
-	idx := bytes.Index(payload, []byte("detailMessage"))
-	if idx == -1 {
-		return "erro retornado pelo CRTI sem detailMessage"
-	}
-
-	sub := payload[idx:]
-	// O primeiro TC_STRING (0x74) é a assinatura "Ljava/lang/String;"
-	firstTC := bytes.IndexByte(sub, TC_STRING)
-	if firstTC == -1 {
-		return "erro retornado pelo CRTI"
-	}
-
-	// O segundo TC_STRING após os dados do objeto é o valor da mensagem
-	rest := sub[firstTC+1:]
-	secondTC := bytes.IndexByte(rest, TC_STRING)
-	if secondTC != -1 && secondTC+3 <= len(rest) {
-		strLen := int(binary.BigEndian.Uint16(rest[secondTC+1 : secondTC+3]))
-		if secondTC+3+strLen <= len(rest) {
-			return string(rest[secondTC+3 : secondTC+3+strLen])
-		}
-	}
-
-	return "erro retornado pelo CRTI"
-}
-
 // DeserializePorticoControlMessage deserializa um payload de controle do Portico
 // tratando tanto mensagens padrão Java Serialization (com manualMarshal = false)
 // quanto mensagens manuais rápidas do Portico (manualMarshal = true, ex: UpdateAttributes e SendInteraction)

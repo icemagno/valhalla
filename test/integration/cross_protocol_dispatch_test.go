@@ -77,7 +77,7 @@ func TestCrossProtocol_NativeToPortico_DeleteObject(t *testing.T) {
 	}
 
 	// Drain any discovery packets Thor received
-	time.Sleep(50 * time.Millisecond)
+	// Drain any pending discovery packets using ReadPacketTimeout directly
 	for {
 		_, _, err := clientThor.ReadPacketTimeout(50 * time.Millisecond)
 		if err != nil {
@@ -159,7 +159,7 @@ func TestCrossProtocol_NativeToPortico_ReflectAttributes(t *testing.T) {
 	_ = ambValhalla.PublishObjectClassAttributes(int32(common.HLAobjectRootHandle), []int32{int32(common.HLAprivilegeToDeleteObjectHandle)})
 	objHandle, _ := ambValhalla.RegisterObjectInstance(int32(common.HLAobjectRootHandle), "RadarAsset")
 
-	time.Sleep(50 * time.Millisecond)
+	// Drain any pending discovery packets using ReadPacketTimeout directly
 	for {
 		_, _, err := clientThor.ReadPacketTimeout(50 * time.Millisecond)
 		if err != nil {
@@ -299,7 +299,7 @@ func TestCrossProtocol_PorticoToWeb_ReflectAttributes(t *testing.T) {
 		"attributes":  []int32{int32(common.HLAprivilegeToDeleteObjectHandle)},
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	// Drain any pending discovery packets using ReadPacketTimeout directly
 
 	// 3. Thor updates attributes
 	uavPayload, _ := wire.NewUpdateAttributesMsg(objHandle, map[int32][]byte{

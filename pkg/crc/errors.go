@@ -11,7 +11,5 @@ var (
 	ErrSyncPointLabelNotUnique          = errors.New("hla crc: synchronization point label not unique")
 	ErrSyncPointNotFound                = errors.New("hla crc: synchronization point not found")
 	ErrObjectInstanceNameNotUnique      = errors.New("hla crc: object instance name not unique")
-	ErrObjectInstanceNotFound           = errors.New("hla crc: object instance not found")
-	ErrInvalidProtocolPreamble          = errors.New("hla crc: invalid or unknown protocol preamble")
 	ErrMerkleRootMismatch               = errors.New("hla crc: client-supplied merkle root does not match authoritative object state")
 )

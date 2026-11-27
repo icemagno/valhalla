@@ -10,7 +10,6 @@ import (
 var (
 	ErrNotAttributeOwner     = errors.New("ownership: federate is not the owner of this attribute")
 	ErrAttributeAlreadyOwned = errors.New("ownership: attribute is already owned by another federate")
-	ErrAttributeUnowned      = errors.New("ownership: attribute has no active owner")
 )
 
 // ObjectAttrKey uniquely identifies an attribute instance belonging to an object

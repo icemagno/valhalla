@@ -153,6 +153,74 @@ func (ctx *porticoContext) handleDeclarationManagement(hdr wire.Header, payload 
 			return true, err
 		}
 		return true, nil
+
+	case wire.MsgUnpublishObjectClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnpublishObjectClass(common.FederateHandle(ctx.federateID), common.ObjectClassHandle(classHandle))
+			}
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgUnsubscribeObjectClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnsubscribeObjectClass(common.FederateHandle(ctx.federateID), common.ObjectClassHandle(classHandle))
+			}
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgUnpublishInteractionClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnpublishInteractionClass(common.FederateHandle(ctx.federateID), common.InteractionClassHandle(classHandle))
+			}
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgUnsubscribeInteractionClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnsubscribeInteractionClass(common.FederateHandle(ctx.federateID), common.InteractionClassHandle(classHandle))
+			}
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
 	}
 	return false, nil
 }
@@ -338,6 +406,74 @@ func (ctx *porticoContext) handleObjectManagement(hdr wire.Header, payload []byt
 				return true, sendErr
 			}
 			return true, nil
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgUnpublishObjectClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnpublishObjectClass(common.FederateHandle(ctx.federateID), common.ObjectClassHandle(classHandle))
+			}
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgUnsubscribeObjectClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnsubscribeObjectClass(common.FederateHandle(ctx.federateID), common.ObjectClassHandle(classHandle))
+			}
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgUnpublishInteractionClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnpublishInteractionClass(common.FederateHandle(ctx.federateID), common.InteractionClassHandle(classHandle))
+			}
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			return true, err
+		}
+		return true, nil
+
+	case wire.MsgUnsubscribeInteractionClass:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if classHandle, ok := obj.Get("classHandle").(int32); ok && classHandle > 0 && ctx.currentFed.Router() != nil {
+				_ = ctx.currentFed.Router().UnsubscribeInteractionClass(common.FederateHandle(ctx.federateID), common.InteractionClassHandle(classHandle))
+			}
 		}
 		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
 			return true, err

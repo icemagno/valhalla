@@ -121,7 +121,9 @@ public interface IValhallaLrc extends Library {
     int valhalla_create_federation_with_fom(Pointer amb, String fedName, String[] fomModules, int fomCount);
     int valhalla_destroy_federation(Pointer amb, String fedName);
     int valhalla_join_federation(Pointer amb, String federateName, String fedName, IntByReference outFederateHandle);
+    int valhalla_join_federation_with_type(Pointer amb, String federateName, String federateType, String fedName, IntByReference outFederateHandle);
     int valhalla_resign_federation(Pointer amb);
+    int valhalla_resign_federation_with_action(Pointer amb, byte resignAction);
 
     int valhalla_register_federation_synchronization_point(Pointer amb, String label, byte[] tag, int tagLen);
     int valhalla_synchronization_point_achieved(Pointer amb, String label);

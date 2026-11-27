@@ -269,6 +269,9 @@ void ValhallaRTIambassador::connect(
           UnsupportedCallbackModel,
           AlreadyConnected,
           RTIinternalError) {
+    if (callbackModel != CallbackModel::HLA_EVOKED) {
+        throw UnsupportedCallbackModel(L"Valhalla C++ SDK supports HLA_EVOKED callback model");
+    }
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         if (m_connected) {
@@ -385,9 +388,15 @@ FederateHandle ValhallaRTIambassador::joinFederationExecution(
           NotConnected,
           RTIinternalError) {
     std::string fedName = toUtf8(federateName);
+    std::string fedType = toUtf8(federateType);
     std::string execName = toUtf8(federationExecutionName);
     int32_t h = 0;
-    int32_t st = valhalla_join_federation(m_amb, const_cast<char*>(fedName.c_str()), const_cast<char*>(execName.c_str()), &h);
+    int32_t st = valhalla_join_federation_with_type(
+        m_amb,
+        const_cast<char*>(fedName.c_str()),
+        const_cast<char*>(fedType.c_str()),
+        const_cast<char*>(execName.c_str()),
+        &h);
     checkStatus(st);
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -403,7 +412,7 @@ void ValhallaRTIambassador::resignFederationExecution(
           FederateNotExecutionMember,
           NotConnected,
           RTIinternalError) {
-    int32_t st = valhalla_resign_federation(m_amb);
+    int32_t st = valhalla_resign_federation_with_action(m_amb, static_cast<uint8_t>(resignAction));
     checkStatus(st);
     std::lock_guard<std::mutex> lock(m_stateMutex);
     m_federateHandle = 0;

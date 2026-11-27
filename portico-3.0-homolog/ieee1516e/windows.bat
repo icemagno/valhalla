@@ -6,6 +6,8 @@ rem ################################
 :checkargs
 if "%1" == "" goto usage
 
+set RTI_HOME="C:\Magno\Projetos\portico\portico-2.2.0"
+
 rem ######################
 rem # test for JAVA_HOME #
 rem ######################

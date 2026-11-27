@@ -584,6 +584,11 @@ func valhalla_destroy_federation(amb C.ValhallaAmbassador, fedName *C.char) C.in
 
 //export valhalla_join_federation
 func valhalla_join_federation(amb C.ValhallaAmbassador, federateName, fedName *C.char, outFederateHandle *C.int32_t) C.int32_t {
+	return valhalla_join_federation_with_type(amb, federateName, nil, fedName, outFederateHandle)
+}
+
+//export valhalla_join_federation_with_type
+func valhalla_join_federation_with_type(amb C.ValhallaAmbassador, federateName, federateType, fedName *C.char, outFederateHandle *C.int32_t) C.int32_t {
 	if amb == nil || federateName == nil || fedName == nil || outFederateHandle == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
@@ -592,19 +597,28 @@ func valhalla_join_federation(amb C.ValhallaAmbassador, federateName, fedName *C
 		return C.VALHALLA_ERR_NOT_CONNECTED
 	}
 	fed := C.GoString(federateName)
+	fType := "native-hla4"
+	if federateType != nil {
+		if s := C.GoString(federateType); s != "" {
+			fType = s
+		}
+	}
 	sim := C.GoString(fedName)
-	handle, err := ctx.amb.JoinFederationExecution(fed, sim)
+	handle, err := ctx.amb.JoinFederationExecutionWithType(fed, fType, sim)
 	if err != nil {
 		return mapErrorToStatusCode(err)
 	}
-	if outFederateHandle != nil {
-		*outFederateHandle = C.int32_t(handle)
-	}
+	*outFederateHandle = C.int32_t(handle)
 	return C.VALHALLA_OK
 }
 
 //export valhalla_resign_federation
 func valhalla_resign_federation(amb C.ValhallaAmbassador) C.int32_t {
+	return valhalla_resign_federation_with_action(amb, 1)
+}
+
+//export valhalla_resign_federation_with_action
+func valhalla_resign_federation_with_action(amb C.ValhallaAmbassador, resignAction C.uint8_t) C.int32_t {
 	if amb == nil {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
@@ -612,7 +626,7 @@ func valhalla_resign_federation(amb C.ValhallaAmbassador) C.int32_t {
 	if !exists {
 		return C.VALHALLA_ERR_NOT_CONNECTED
 	}
-	if err := ctx.amb.ResignFederationExecution(); err != nil {
+	if err := ctx.amb.ResignFederationExecutionWithAction(uint8(resignAction)); err != nil {
 		return mapErrorToStatusCode(err)
 	}
 	return C.VALHALLA_OK

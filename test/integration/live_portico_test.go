@@ -149,6 +149,5 @@ func TestIntegration_LivePortico_HandshakeAndProbe(t *testing.T) {
 	}
 	t.Logf(">>> RESPOSTA RECEBIDA DO PORTICO PARA ResignFederation: %s / %s", resignRespHdr.MessageType, resignRespHdr.CallType)
 
-	time.Sleep(200 * time.Millisecond)
 	t.Logf("Sessao finalizada com sucesso.")
 }

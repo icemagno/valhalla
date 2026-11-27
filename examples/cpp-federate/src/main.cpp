@@ -190,8 +190,8 @@ int main(int argc, char* argv[]) {
         try {
             rtiAmb->destroyFederationExecution(fedName);
             std::cout << "  [+] Federation execution destroyed." << std::endl;
-        } catch (const std::exception& e) {
-            std::cout << "  [*] Federation destruction note: " << e.what() << std::endl;
+        } catch (const rti1516e::FederatesCurrentlyJoined& e) {
+            std::cout << "  [*] Federation still has other joined federates: " << e.what() << std::endl;
         }
 
         // ---------------------------------------------------------------------

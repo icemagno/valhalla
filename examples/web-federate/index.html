@@ -447,7 +447,10 @@
         await rtiAmb.destroyFederationExecution(fedName);
         log("  [+] Federation execution destroyed!");
       } catch (e) {
-        log("  [*] Federation destruction note: " + e.message);
+        if (!e.message || !e.message.includes("FederatesCurrentlyJoined")) {
+          throw e;
+        }
+        log("  [*] Federation still has other joined federates: " + e.message);
       }
 
       // Stage 11: Disconnect
