@@ -271,10 +271,10 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			nativeAnnounce, _ := common.RegisterSyncPointPayload{Label: label}.MarshalBinary()
 			for _, f := range currentFed.GetAllFederates() {
 				if f.Session != nil {
-					if f.Protocol == ProtocolNative {
-						_ = f.Session.SendNotification(common.NativeMsgAnnounceSyncPoint, nativeAnnounce)
-					} else if annPayload != nil {
+					if f.Protocol == ProtocolPortico && annPayload != nil {
 						_ = f.Session.SendNotification(uint8(wire.MsgAnnounceSyncPoint), annPayload)
+					} else {
+						_ = f.Session.SendNotification(common.NativeMsgAnnounceSyncPoint, nativeAnnounce)
 					}
 				}
 			}
@@ -311,10 +311,10 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				nativeSync, _ := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
 				for _, f := range currentFed.GetAllFederates() {
 					if f.Session != nil {
-						if f.Protocol == ProtocolNative {
-							_ = f.Session.SendNotification(common.NativeMsgFederationSynchronized, nativeSync)
-						} else if syncPayload != nil {
+						if f.Protocol == ProtocolPortico && syncPayload != nil {
 							_ = f.Session.SendNotification(uint8(wire.MsgFederationSynchronized), syncPayload)
+						} else {
+							_ = f.Session.SendNotification(common.NativeMsgFederationSynchronized, nativeSync)
 						}
 					}
 				}
@@ -416,10 +416,10 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			for _, f := range currentFed.GetAllFederates() {
 				if f.ID != federateID && f.Session != nil {
-					if f.Protocol == ProtocolNative {
-						_ = f.Session.SendNotification(common.NativeMsgDiscoverObject, nativeDiscPayload)
-					} else {
+					if f.Protocol == ProtocolPortico && porticoDiscPayload != nil {
 						_ = f.Session.SendNotification(uint8(wire.MsgDiscoverObject), porticoDiscPayload)
+					} else {
+						_ = f.Session.SendNotification(common.NativeMsgDiscoverObject, nativeDiscPayload)
 					}
 				}
 			}
@@ -468,10 +468,10 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			for _, f := range currentFed.GetAllFederates() {
 				if f.ID != federateID && f.Session != nil {
-					if f.Protocol == ProtocolNative {
-						_ = f.Session.SendNotification(common.NativeMsgReflectAttributes, nativeUavPayload)
-					} else {
+					if f.Protocol == ProtocolPortico && porticoReflectPayload != nil {
 						_ = f.Session.SendNotification(uint8(wire.MsgReflectAttributes), porticoReflectPayload)
+					} else {
+						_ = f.Session.SendNotification(common.NativeMsgReflectAttributes, nativeUavPayload)
 					}
 				}
 			}
@@ -518,10 +518,10 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 			for _, f := range currentFed.GetAllFederates() {
 				if f.ID != federateID && f.Session != nil {
-					if f.Protocol == ProtocolNative {
-						_ = f.Session.SendNotification(common.NativeMsgReceiveInteraction, nativeInterPayload)
-					} else {
+					if f.Protocol == ProtocolPortico {
 						_ = f.Session.SendNotification(uint8(wire.MsgReceiveInteraction), payload)
+					} else {
+						_ = f.Session.SendNotification(common.NativeMsgReceiveInteraction, nativeInterPayload)
 					}
 				}
 			}
@@ -619,9 +619,12 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 						ObjectHandle: common.ObjectInstanceHandle(objHandle),
 					}.MarshalBinary()
 
+					porticoDeletePayload, _ := wire.BuildDeleteObjectPayload(objHandle, nil)
 					for _, f := range currentFed.GetAllFederates() {
 						if f.ID != federateID && f.Session != nil {
-							if f.Protocol == ProtocolNative {
+							if f.Protocol == ProtocolPortico && porticoDeletePayload != nil {
+								_ = f.Session.SendNotification(uint8(wire.MsgDeleteObject), porticoDeletePayload)
+							} else {
 								_ = f.Session.SendNotification(common.NativeMsgRemoveObjectInstance, removePayload)
 							}
 						}

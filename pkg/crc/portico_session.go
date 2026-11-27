@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 )
 
@@ -118,19 +119,110 @@ func (s *PorticoSession) SendControlResponseErr(reqID uint16, msgType wire.Messa
 	return s.SendPacket(hdr, payload)
 }
 
-// SendNotification sends an asynchronous notification (e.g., AnnounceSyncPoint, FederationSynchronized, TAG)
+// SendNotification sends an asynchronous notification (e.g., AnnounceSyncPoint, FederationSynchronized, TAG).
+// If msgType is a canonical common.NativeMsg*, it translates the payload and wire code to Portico's
+// official binary serialization (JOS) and wire MessageType.
 func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
+	wireMsgType := wire.MessageType(msgType)
+	wirePayload := payload
+
+	switch msgType {
+	case common.NativeMsgDiscoverObject:
+		var disc common.DiscoverObjectInstancePayload
+		if err := disc.UnmarshalBinary(payload); err == nil {
+			if p, err := wire.BuildDiscoverObjectPayload(int32(disc.ObjectHandle), int32(disc.ClassHandle), disc.ObjectName); err == nil {
+				wireMsgType = wire.MsgDiscoverObject
+				wirePayload = p
+			}
+		}
+
+	case common.NativeMsgRemoveObjectInstance:
+		var rem common.RemoveObjectInstancePayload
+		if err := rem.UnmarshalBinary(payload); err == nil {
+			if p, err := wire.BuildDeleteObjectPayload(int32(rem.ObjectHandle), rem.Tag); err == nil {
+				wireMsgType = wire.MsgDeleteObject
+				wirePayload = p
+			}
+		}
+
+	case common.NativeMsgReflectAttributes:
+		var uav common.UpdateAttributesPayload
+		if err := uav.UnmarshalBinary(payload); err == nil {
+			attrsMap := make(map[int32][]byte, len(uav.Attributes))
+			for k, v := range uav.Attributes {
+				attrsMap[int32(k)] = v
+			}
+			if p, err := wire.BuildReflectAttributesPayload(int32(uav.ObjectHandle), attrsMap, uav.Tag); err == nil {
+				wireMsgType = wire.MsgReflectAttributes
+				wirePayload = p
+			}
+		}
+
+	case common.NativeMsgReceiveInteraction:
+		var inter common.SendInteractionPayload
+		if err := inter.UnmarshalBinary(payload); err == nil {
+			paramsMap := make(map[int32][]byte, len(inter.Parameters))
+			for k, v := range inter.Parameters {
+				paramsMap[int32(k)] = v
+			}
+			if p, err := wire.BuildReceiveInteractionPayload(int32(inter.ClassHandle), paramsMap, inter.Tag); err == nil {
+				wireMsgType = wire.MsgReceiveInteraction
+				wirePayload = p
+			}
+		}
+
+	case common.NativeMsgAnnounceSyncPoint:
+		var label string
+		var reg common.RegisterSyncPointPayload
+		if err := reg.UnmarshalBinary(payload); err == nil && reg.Label != "" {
+			label = reg.Label
+		} else {
+			var sp common.SyncPointLabelPayload
+			if err := sp.UnmarshalBinary(payload); err == nil {
+				label = sp.Label
+			} else {
+				label = string(payload)
+			}
+		}
+		if p, err := wire.BuildAnnounceSyncPointPayload(label); err == nil {
+			wireMsgType = wire.MsgAnnounceSyncPoint
+			wirePayload = p
+		}
+
+	case common.NativeMsgFederationSynchronized:
+		var label string
+		var sp common.SyncPointLabelPayload
+		if err := sp.UnmarshalBinary(payload); err == nil && sp.Label != "" {
+			label = sp.Label
+		} else {
+			label = string(payload)
+		}
+		if p, err := wire.BuildFederationSynchronizedPayload(label); err == nil {
+			wireMsgType = wire.MsgFederationSynchronized
+			wirePayload = p
+		}
+
+	case common.NativeMsgTimeAdvanceGrant:
+		var t common.TimeFloat64Payload
+		if err := t.UnmarshalBinary(payload); err == nil {
+			if p, err := wire.BuildTimeAdvanceGrantPayload(s.id, t.Time); err == nil {
+				wireMsgType = wire.MsgTimeAdvanceGrant
+				wirePayload = p
+			}
+		}
+	}
+
 	hdr := wire.Header{
 		Flags:         0,
-		PayloadLength: uint32(len(payload)),
+		PayloadLength: uint32(len(wirePayload)),
 		FederationID:  uint8(s.fedHandle),
 		CallType:      wire.CallTypeNotification,
-		MessageType:   wire.MessageType(msgType),
+		MessageType:   wireMsgType,
 		RequestId:     0,
 		SourceHandle:  0,
 		TargetHandle:  uint16(s.id),
 	}
-	return s.SendPacket(hdr, payload)
+	return s.SendPacket(hdr, wirePayload)
 }
 
 // SendNotificationWithMerkle sends notification (Portico ignores Merkle roots)

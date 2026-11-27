@@ -110,6 +110,24 @@ func (s *WebSession) SendNotificationWithMerkle(msgType uint8, payload []byte, m
 			},
 		}
 
+	case common.NativeMsgReceiveInteraction:
+		var inter common.SendInteractionPayload
+		if err := inter.UnmarshalBinary(payload); err != nil {
+			return err
+		}
+		strParams := make(map[string]string)
+		for k, v := range inter.Parameters {
+			strParams[strconv.Itoa(int(k))] = string(v)
+		}
+		notif = map[string]interface{}{
+			"callback": "receiveInteraction",
+			"params": map[string]interface{}{
+				"interactionClass": int32(inter.ClassHandle),
+				"parameters":       strParams,
+				"tag":              string(inter.Tag),
+			},
+		}
+
 	case common.NativeMsgTimeAdvanceGrant:
 		var t common.TimeFloat64Payload
 		if err := t.UnmarshalBinary(payload); err != nil {
@@ -123,22 +141,37 @@ func (s *WebSession) SendNotificationWithMerkle(msgType uint8, payload []byte, m
 		}
 
 	case common.NativeMsgAnnounceSyncPoint:
-		var sp common.SyncPointLabelPayload
-		if err := sp.UnmarshalBinary(payload); err != nil {
-			return err
+		var label string
+		var reg common.RegisterSyncPointPayload
+		if err := reg.UnmarshalBinary(payload); err == nil && reg.Label != "" {
+			label = reg.Label
+		} else {
+			var sp common.SyncPointLabelPayload
+			if err := sp.UnmarshalBinary(payload); err == nil {
+				label = sp.Label
+			} else {
+				label = string(payload)
+			}
 		}
 		notif = map[string]interface{}{
 			"callback": "announceSynchronizationPoint",
 			"params": map[string]interface{}{
-				"label": sp.Label,
+				"label": label,
 			},
 		}
 
 	case common.NativeMsgFederationSynchronized:
+		var label string
+		var sp common.SyncPointLabelPayload
+		if err := sp.UnmarshalBinary(payload); err == nil && sp.Label != "" {
+			label = sp.Label
+		} else {
+			label = string(payload)
+		}
 		notif = map[string]interface{}{
 			"callback": "federationSynchronized",
 			"params": map[string]interface{}{
-				"label": string(payload),
+				"label": label,
 			},
 		}
 

@@ -74,7 +74,22 @@ func NewJavaHashSet(elements []any) *JavaObject {
 	if elements == nil {
 		elements = make([]any, 0)
 	}
+	boxed := make([]any, len(elements))
+	for i, el := range elements {
+		switch v := el.(type) {
+		case int32:
+			boxed[i] = NewJavaInteger(v)
+		case int:
+			boxed[i] = NewJavaInteger(int32(v))
+		case float64:
+			boxed[i] = NewJavaDouble(v)
+		case bool:
+			boxed[i] = NewJavaBoolean(v)
+		default:
+			boxed[i] = v
+		}
+	}
 	obj := NewJavaObject(ClassDescHashSet)
-	obj.Set("elements", elements)
+	obj.Set("elements", boxed)
 	return obj
 }

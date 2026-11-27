@@ -150,6 +150,12 @@ func BuildDiscoverObjectPayload(objectHandle, classHandle int32, objectName stri
 	return SerializePorticoControlMessage(obj)
 }
 
+// BuildDeleteObjectPayload constrói o payload de notificação DeleteObject para federados Portico
+func BuildDeleteObjectPayload(objectHandle int32, tag []byte) ([]byte, error) {
+	obj := metamodel.NewDeleteObject(objectHandle, tag)
+	return SerializePorticoControlMessage(obj)
+}
+
 // BuildReflectAttributesPayload constrói o payload de notificação ReflectAttributes para federados Portico
 func BuildReflectAttributesPayload(objectId int32, attrs map[int32][]byte, tag []byte) ([]byte, error) {
 	entries := make(map[any]any, len(attrs))
@@ -157,6 +163,16 @@ func BuildReflectAttributesPayload(objectId int32, attrs map[int32][]byte, tag [
 		entries[metamodel.NewJavaInteger(k)] = v
 	}
 	obj := metamodel.NewReflectAttributes(objectId, entries, tag)
+	return SerializePorticoControlMessage(obj)
+}
+
+// BuildReceiveInteractionPayload constrói o payload de notificação ReceiveInteraction para federados Portico
+func BuildReceiveInteractionPayload(interactionId int32, params map[int32][]byte, tag []byte) ([]byte, error) {
+	entries := make(map[any]any, len(params))
+	for k, v := range params {
+		entries[metamodel.NewJavaInteger(k)] = v
+	}
+	obj := metamodel.NewReceiveInteraction(interactionId, entries, tag)
 	return SerializePorticoControlMessage(obj)
 }
 

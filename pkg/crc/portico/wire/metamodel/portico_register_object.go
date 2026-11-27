@@ -160,12 +160,49 @@ var ClassDescDeleteObject = &ClassDesc{
 	CustomWriter: func(w JOSWriter, obj *JavaObject) error {
 		var buf bytes.Buffer
 		// super:
-		buf.WriteByte(0)
-		_ = binary.Write(&buf, binary.BigEndian, int32(-1))
-		_ = binary.Write(&buf, binary.BigEndian, int32(-1))
-		_ = binary.Write(&buf, binary.BigEndian, int32(-1))
-		_ = binary.Write(&buf, binary.BigEndian, float64(-1.0))
-		buf.WriteByte(0)
+		isFromRti := false
+		if v, ok := obj.Get("isFromRti").(bool); ok {
+			isFromRti = v
+		}
+		if isFromRti {
+			buf.WriteByte(1)
+		} else {
+			buf.WriteByte(0)
+		}
+
+		var sf int32 = -1
+		if v, ok := obj.Get("sourceFederate").(int32); ok {
+			sf = v
+		}
+		_ = binary.Write(&buf, binary.BigEndian, sf)
+
+		var tf int32 = -1
+		if v, ok := obj.Get("targetFederate").(int32); ok {
+			tf = v
+		}
+		_ = binary.Write(&buf, binary.BigEndian, tf)
+
+		var tfed int32 = -1
+		if v, ok := obj.Get("targetFederation").(int32); ok {
+			tfed = v
+		}
+		_ = binary.Write(&buf, binary.BigEndian, tfed)
+
+		var ts float64 = -1.0
+		if v, ok := obj.Get("timestamp").(float64); ok {
+			ts = v
+		}
+		_ = binary.Write(&buf, binary.BigEndian, ts)
+
+		immediate := false
+		if v, ok := obj.Get("immediate").(bool); ok {
+			immediate = v
+		}
+		if immediate {
+			buf.WriteByte(1)
+		} else {
+			buf.WriteByte(0)
+		}
 
 		var oh int32
 		if v, ok := obj.Get("objectHandle").(int32); ok {
@@ -253,5 +290,19 @@ func NewDiscoverObject(objectHandle, classHandle int32, objectName string) *Java
 	obj.Set("objectHandle", objectHandle)
 	obj.Set("classHandle", classHandle)
 	obj.Set("objectName", objectName)
+	return obj
+}
+
+// NewDeleteObject builds a DeleteObject notification ready for delivery to federates
+func NewDeleteObject(objectHandle int32, tag []byte) *JavaObject {
+	obj := NewJavaObject(ClassDescDeleteObject)
+	obj.Set("immediate", true)
+	obj.Set("isFromRti", true)
+	obj.Set("sourceFederate", int32(0))
+	obj.Set("targetFederate", int32(-1))
+	obj.Set("targetFederation", int32(-1))
+	obj.Set("timestamp", float64(-1.0))
+	obj.Set("objectHandle", objectHandle)
+	obj.Set("tag", tag)
 	return obj
 }
