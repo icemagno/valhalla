@@ -136,6 +136,9 @@ default:
 ```
 Se a taxa de geração de eventos ultrapassar o buffer de 1.024 mensagens antes que o federado invoque `EvokeCallback`, **mensagens da simulação são descartadas sem erro nem aviso**, rompendo a garantia de entrega confiável exigida pelo padrão IEEE 1516.
 
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E APROVADO** (commits `9bb73d2`, `db39373`)  
+> Implementada fila elástica dinâmica no cliente LRC (`pkg/lrc/client.go`) através de um pipeline com `inQueue` (4.096), `queueLoop` em background com expansão de slice e teto configurável (`DefaultMaxCallbackQueueCapacity = 262.144`) drenando em estrita ordem FIFO para `callbacks` (1.024). Eliminado o descarte silencioso e garantida a drenagem limpa no encerramento de rede. Ao atingir o teto de segurança, a saturação é sinalizada atomicamente e `EvokeCallback()` retorna explicitamente `ErrCallbackQueueSaturated`. Expostos métodos de inspeção e controle: `GetCallbackQueueStatus()`, `ResetCallbackQueueSaturation()` e `SetCallbackQueueCapacity()`. Validação empírica via `pkg/lrc/callback_queue_test.go`, teste de integração ponta-a-ponta (`test/integration/callback_queue_test.go`) com rajada de 2.500 interações sem perda de mensagens, e `go test -race ./...` com 100% PASS e 0 data races.
+
 ### ⚠️ 3.4. Descarte Silencioso de Mensagens no Logger ([pkg/logger/logger.go](pkg/logger/logger.go#L251-L254))
 Quando a fila assíncrona de 10.000 logs atinge saturação, eventos de severidade `ERROR` ou `CRITICAL` são descartados no bloco `default:`. Além disso, a função `Flush()` retorna imediatamente sem aguardar o esvaziamento caso a fila esteja cheia.
 
@@ -241,4 +244,7 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **1.4** | DDM 3D com Curvas de Morton (filtragem bitwise zero-decode + prefixo de octree) | `a7db266` | **✅ CORRIGIDO** |
 | **1.2** | Serialização e Merkleização SSZ (Ethereum 2.0) canônica, determinística e anti-DoS | `552a97c`, `ba6a8a8`, `bc1981a` | **✅ CORRIGIDO** |
 | **1.3** | Árvores Merkle e Validação de Desync no LRC + Protocolo de Provas de Inclusão | `ca8e127` | **✅ CORRIGIDO** |
+| **2.1** | C-ABI: Implementação completa de Callbacks, Funções Ausentes, Proteções CGo e Sincronização de ABI | `1b21db2`, `fc1969b` | **✅ CORRIGIDO** |
+| **2.2** | Motor Anti-Stall em Background no CRC e Protocolo de Heartbeat Implícito e Explícito | `8726ea5` | **✅ CORRIGIDO** |
+| **3.3** | Fila Elástica e Eliminação de Descarte Silencioso de Callbacks no LRC com Alerta de Saturação | `9bb73d2`, `db39373` | **✅ CORRIGIDO** |
 
