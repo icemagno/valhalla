@@ -105,7 +105,7 @@ func BenchmarkEndToEnd_UpdateAttributeValues_Latency(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		t0 := time.Now()
+		t0 := nowPrecise()
 		binary.BigEndian.PutUint64(tagBuf[0:8], uint64(i))
 
 		if err := ambPub.UpdateAttributeValues(objHandle, attrs, tagBuf[:]); err != nil {
@@ -114,7 +114,7 @@ func BenchmarkEndToEnd_UpdateAttributeValues_Latency(b *testing.B) {
 
 		select {
 		case <-chRecv:
-			elapsed := time.Since(t0)
+			elapsed := sincePrecise(t0)
 			latencies = append(latencies, elapsed)
 		case <-time.After(1 * time.Second):
 			b.Fatalf("timeout aguardando reflexão de atributo na iteração %d", i)
