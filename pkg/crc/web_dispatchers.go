@@ -1,6 +1,7 @@
 package crc
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -83,10 +84,12 @@ func (ctx *webContext) handleFederationManagement(action string, params map[stri
 		fedName := getString(params, "federationName")
 		err := ctx.gateway.fedManager.DestroyFederation(fedName)
 		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
+			if errors.Is(err, ErrFederationExecutionDoesNotExist) || errors.Is(err, common.ErrFederationExecutionDoesNotExist) {
 				ctx.sendError("FederationExecutionDoesNotExist", err.Error())
-			} else {
+			} else if errors.Is(err, ErrFederatesCurrentlyJoined) || errors.Is(err, common.ErrFederatesCurrentlyJoined) {
 				ctx.sendError("FederatesCurrentlyJoined", err.Error())
+			} else {
+				ctx.sendError("RTIinternalError", err.Error())
 			}
 			return true
 		}
@@ -202,9 +205,6 @@ func (ctx *webContext) handleDeclarationManagement(action string, params map[str
 		if len(attrs) == 0 {
 			attrs = getInt32Slice(params, "attributes")
 		}
-		if len(attrs) == 0 {
-			attrs = getInt32Slice(params, "attributes")
-		}
 		var attrList []common.AttributeHandle
 		for _, a := range attrs {
 			attrList = append(attrList, common.AttributeHandle(a))
@@ -227,9 +227,6 @@ func (ctx *webContext) handleDeclarationManagement(action string, params map[str
 		if len(attrs) == 0 {
 			attrs = getInt32Slice(params, "attributes")
 		}
-		if len(attrs) == 0 {
-			attrs = getInt32Slice(params, "attributes")
-		}
 		var attrList []common.AttributeHandle
 		for _, a := range attrs {
 			attrList = append(attrList, common.AttributeHandle(a))
@@ -240,6 +237,9 @@ func (ctx *webContext) handleDeclarationManagement(action string, params map[str
 			return true
 		}
 		ctx.sendSuccess(nil)
+		if err := (*ctx.currentFed).DispatchCatchUpDiscovery(ctx.session, common.ObjectClassHandle(classH)); err != nil {
+			logCRCWeb.Warn("failed catch-up discovery for web federate %d: %v", *ctx.federateID, err)
+		}
 		return true
 
 	case "subscribeObjectClassAttributesWithRegions":
@@ -249,9 +249,6 @@ func (ctx *webContext) handleDeclarationManagement(action string, params map[str
 		}
 		classH := getInt32(params, "classHandle")
 		attrs := getInt32Slice(params, "attributeHandles")
-		if len(attrs) == 0 {
-			attrs = getInt32Slice(params, "attributes")
-		}
 		if len(attrs) == 0 {
 			attrs = getInt32Slice(params, "attributes")
 		}
@@ -487,13 +484,8 @@ func (ctx *webContext) handleTimeManagement(action string, params map[string]int
 			ctx.sendError("InvalidLogicalTime", err.Error())
 			return true
 		}
-		for _, gFed := range grants {
-			if int32(gFed.Federate) == *ctx.federateID {
-				grantPayload, _ := common.TimeFloat64Payload{Time: gFed.Time}.MarshalBinary()
-				if err := ctx.session.SendNotification(common.NativeMsgTimeAdvanceGrant, grantPayload); err != nil {
-					logCRCWeb.Warn("failed to send TimeAdvanceGrant to web session: %v", err)
-				}
-			}
+		if len(grants) > 0 {
+			dispatchTimeGrants(*ctx.currentFed, grants)
 		}
 		ctx.sendSuccess(nil)
 		return true

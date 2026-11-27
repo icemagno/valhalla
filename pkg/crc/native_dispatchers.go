@@ -355,18 +355,8 @@ func (ctx *nativeContext) handleDeclarationManagement(hdr NativeHeader, payload 
 
 		// Catch-up Discovery: notify the subscriber about all existing instances matching the hierarchy
 		if subReq.Active {
-			for _, obj := range ctx.currentFed.GetAllObjects() {
-				if ctx.currentFed.OMT().IsSubclassOfObject(common.ObjectClassHandle(obj.ClassHandle), subReq.ClassHandle) {
-					discPayload, _ := common.DiscoverObjectInstancePayload{
-						ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
-						ClassHandle:  common.ObjectClassHandle(obj.ClassHandle),
-						ObjectName:   obj.Name,
-					}.MarshalBinary()
-					if err := ctx.session.SendNotification(NativeMsgDiscoverObject, discPayload); err != nil {
-						logCRCNative.Warn("failed to send DiscoverObject to federate %d: %v", ctx.federateID, err)
-						return true, err
-					}
-				}
+			if err := ctx.currentFed.DispatchCatchUpDiscovery(ctx.session, subReq.ClassHandle); err != nil {
+				return true, err
 			}
 		}
 		return true, nil
@@ -884,8 +874,7 @@ func (ctx *nativeContext) handleTimeManagement(hdr NativeHeader, payload []byte)
 			}
 			return true, nil
 		}
-		fed, exists := ctx.currentFed.GetFederate(ctx.federateID)
-		if !exists {
+		if _, exists := ctx.currentFed.GetFederate(ctx.federateID); !exists {
 			if err := sendNativeError(ctx.session, hdr.ReqID, 404, common.ErrFederateNotFound); err != nil {
 				return true, err
 			}
@@ -903,11 +892,14 @@ func (ctx *nativeContext) handleTimeManagement(hdr NativeHeader, payload []byte)
 			}
 			return true, nil
 		}
-		fed.IsRegulating = true
-		fed.Lookahead = timeReq.Time
-
 		status, _ := ctx.currentFed.TimeManager().GetStatus(common.FederateHandle(ctx.federateID))
-		respData, _ := common.TimeFloat64Payload{Time: status.CurrentTime}.MarshalBinary()
+		respData, err := common.TimeFloat64Payload{Time: status.CurrentTime}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
 			Version:    NativeProtocolVer,
@@ -921,7 +913,7 @@ func (ctx *nativeContext) handleTimeManagement(hdr NativeHeader, payload []byte)
 		if err := sendNativeResponse(ctx.session, respHdr, respData, ctx.federateID); err != nil {
 			return true, err
 		}
-		logCRCNative.Info("Time regulation enabled for federate [%d], lookahead=%f", ctx.federateID, fed.Lookahead)
+		logCRCNative.Info("Time regulation enabled for federate [%d], lookahead=%f", ctx.federateID, timeReq.Time)
 		return true, nil
 
 	case NativeMsgDisableTimeRegulation:
@@ -937,9 +929,6 @@ func (ctx *nativeContext) handleTimeManagement(hdr NativeHeader, payload []byte)
 				return true, err
 			}
 			return true, nil
-		}
-		if fed, exists := ctx.currentFed.GetFederate(ctx.federateID); exists {
-			fed.IsRegulating = false
 		}
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
@@ -963,8 +952,7 @@ func (ctx *nativeContext) handleTimeManagement(hdr NativeHeader, payload []byte)
 			}
 			return true, nil
 		}
-		fed, exists := ctx.currentFed.GetFederate(ctx.federateID)
-		if !exists {
+		if _, exists := ctx.currentFed.GetFederate(ctx.federateID); !exists {
 			if err := sendNativeError(ctx.session, hdr.ReqID, 404, common.ErrFederateNotFound); err != nil {
 				return true, err
 			}
@@ -982,10 +970,15 @@ func (ctx *nativeContext) handleTimeManagement(hdr NativeHeader, payload []byte)
 			}
 			return true, nil
 		}
-		fed.IsConstrained = true
 
 		status, _ := ctx.currentFed.TimeManager().GetStatus(common.FederateHandle(ctx.federateID))
-		respData, _ := common.TimeFloat64Payload{Time: status.CurrentTime}.MarshalBinary()
+		respData, err := common.TimeFloat64Payload{Time: status.CurrentTime}.MarshalBinary()
+		if err != nil {
+			if sendErr := sendNativeError(ctx.session, hdr.ReqID, 500, err); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,
 			Version:    NativeProtocolVer,
@@ -1015,9 +1008,6 @@ func (ctx *nativeContext) handleTimeManagement(hdr NativeHeader, payload []byte)
 				return true, err
 			}
 			return true, nil
-		}
-		if fed, exists := ctx.currentFed.GetFederate(ctx.federateID); exists {
-			fed.IsConstrained = false
 		}
 		respHdr := NativeHeader{
 			Magic:      NativeHeaderMagic,

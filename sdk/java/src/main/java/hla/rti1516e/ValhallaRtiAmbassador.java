@@ -8,12 +8,20 @@ import hla.rti1516e.exceptions.*;
 import valhalla.client.IValhallaLrc;
 import valhalla.client.ValhallaNativeLoader;
 
+import java.lang.ref.Cleaner;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class ValhallaRtiAmbassador implements RTIambassador {
+public class ValhallaRtiAmbassador implements RTIambassador, AutoCloseable {
+
+    private static final Cleaner CLEANER = Cleaner.create();
 
     private final IValhallaLrc nativeLrc;
     private final Pointer amb;
+    private final AtomicBoolean destroyed = new AtomicBoolean(false);
+    private final Cleaner.Cleanable cleanable;
     private FederateAmbassador fedAmb;
 
     // Strong references to JNA callbacks to prevent garbage collection
@@ -29,6 +37,19 @@ public class ValhallaRtiAmbassador implements RTIambassador {
         if (this.amb == null) {
             throw new RuntimeException("Failed to create Valhalla C-ABI Ambassador handle");
         }
+        final IValhallaLrc lrcRef = this.nativeLrc;
+        final Pointer ambRef = this.amb;
+        final AtomicBoolean destroyedRef = this.destroyed;
+        this.cleanable = CLEANER.register(this, () -> {
+            if (destroyedRef.compareAndSet(false, true)) {
+                lrcRef.valhalla_destroy_ambassador(ambRef);
+            }
+        });
+    }
+
+    @Override
+    public void close() {
+        this.cleanable.clean();
     }
 
     private void setupCallbacks() {
@@ -108,7 +129,10 @@ public class ValhallaRtiAmbassador implements RTIambassador {
         this.callbacksStruct.onReflectAttributes = this.reflectCb;
         this.callbacksStruct.onTimeAdvanceGrant = this.grantCb;
 
-        this.nativeLrc.valhalla_set_callbacks(this.amb, this.callbacksStruct);
+        int rc = this.nativeLrc.valhalla_set_callbacks(this.amb, this.callbacksStruct);
+        if (rc != IValhallaLrc.VALHALLA_OK) {
+            throw new RuntimeException("Failed to register Valhalla C-ABI callbacks (status=" + rc + ")");
+        }
     }
 
     private void checkStatus(int status, String operation) throws RTIexception {
@@ -270,25 +294,33 @@ public class ValhallaRtiAmbassador implements RTIambassador {
         int[] handles = new int[count];
         int[] lens = new int[count];
         Pointer[] ptrs = new Pointer[count];
+        List<Memory> allocated = new ArrayList<>(count);
 
-        int idx = 0;
-        for (Map.Entry<AttributeHandle, byte[]> entry : theAttributes.entrySet()) {
-            handles[idx] = entry.getKey().getValue();
-            byte[] val = entry.getValue() != null ? entry.getValue() : new byte[0];
-            lens[idx] = val.length;
-            if (val.length > 0) {
-                Memory mem = new Memory(val.length);
-                mem.write(0, val, 0, val.length);
-                ptrs[idx] = mem;
-            } else {
-                ptrs[idx] = Pointer.NULL;
+        try {
+            int idx = 0;
+            for (Map.Entry<AttributeHandle, byte[]> entry : theAttributes.entrySet()) {
+                handles[idx] = entry.getKey().getValue();
+                byte[] val = entry.getValue() != null ? entry.getValue() : new byte[0];
+                lens[idx] = val.length;
+                if (val.length > 0) {
+                    Memory mem = new Memory(val.length);
+                    mem.write(0, val, 0, val.length);
+                    allocated.add(mem);
+                    ptrs[idx] = mem;
+                } else {
+                    ptrs[idx] = Pointer.NULL;
+                }
+                idx++;
             }
-            idx++;
-        }
 
-        byte[] tag = userSuppliedTag != null ? userSuppliedTag : new byte[0];
-        int rc = nativeLrc.valhalla_update_attributes(amb, theObject.getValue(), handles, ptrs, lens, count, tag, tag.length);
-        checkStatus(rc, "updateAttributeValues");
+            byte[] tag = userSuppliedTag != null ? userSuppliedTag : new byte[0];
+            int rc = nativeLrc.valhalla_update_attributes(amb, theObject.getValue(), handles, ptrs, lens, count, tag, tag.length);
+            checkStatus(rc, "updateAttributeValues");
+        } finally {
+            for (Memory mem : allocated) {
+                mem.close();
+            }
+        }
     }
 
     @Override
@@ -375,25 +407,33 @@ public class ValhallaRtiAmbassador implements RTIambassador {
         int[] handles = new int[count];
         int[] lens = new int[count];
         Pointer[] ptrs = new Pointer[count];
+        List<Memory> allocated = new ArrayList<>(count);
 
-        int idx = 0;
-        for (Map.Entry<AttributeHandle, byte[]> entry : theAttributes.entrySet()) {
-            handles[idx] = entry.getKey().getValue();
-            byte[] val = entry.getValue() != null ? entry.getValue() : new byte[0];
-            lens[idx] = val.length;
-            if (val.length > 0) {
-                Memory mem = new Memory(val.length);
-                mem.write(0, val, 0, val.length);
-                ptrs[idx] = mem;
-            } else {
-                ptrs[idx] = Pointer.NULL;
+        try {
+            int idx = 0;
+            for (Map.Entry<AttributeHandle, byte[]> entry : theAttributes.entrySet()) {
+                handles[idx] = entry.getKey().getValue();
+                byte[] val = entry.getValue() != null ? entry.getValue() : new byte[0];
+                lens[idx] = val.length;
+                if (val.length > 0) {
+                    Memory mem = new Memory(val.length);
+                    mem.write(0, val, 0, val.length);
+                    allocated.add(mem);
+                    ptrs[idx] = mem;
+                } else {
+                    ptrs[idx] = Pointer.NULL;
+                }
+                idx++;
             }
-            idx++;
-        }
 
-        byte[] tag = userSuppliedTag != null ? userSuppliedTag : new byte[0];
-        int rc = nativeLrc.valhalla_update_attributes_spatial(amb, theObject.getValue(), handles, ptrs, lens, count, x, y, z, tag, tag.length);
-        checkStatus(rc, "updateAttributeValuesSpatial");
+            byte[] tag = userSuppliedTag != null ? userSuppliedTag : new byte[0];
+            int rc = nativeLrc.valhalla_update_attributes_spatial(amb, theObject.getValue(), handles, ptrs, lens, count, x, y, z, tag, tag.length);
+            checkStatus(rc, "updateAttributeValuesSpatial");
+        } finally {
+            for (Memory mem : allocated) {
+                mem.close();
+            }
+        }
     }
 
     @Override
@@ -419,7 +459,10 @@ public class ValhallaRtiAmbassador implements RTIambassador {
             if (!evoked) {
                 try {
                     Thread.sleep(5);
-                } catch (InterruptedException ignored) {}
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
         }
         return any;

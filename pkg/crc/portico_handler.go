@@ -149,9 +149,10 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			continue
 		}
 
-		// Fallback para requisições de controle não tratadas
+		// Fallback para requisições de controle não tratadas: nunca fingir OK (NOT IMPLEMENTED)
 		if hdr.CallType == wire.CallTypeControlRequest {
-			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+			logCRCPortico.Warn("Unsupported Portico control request messageType=%d reqID=%d", hdr.MessageType, hdr.RequestId)
+			if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, fmt.Sprintf("NOT IMPLEMENTED: unsupported Portico messageType %d", hdr.MessageType)); err != nil {
 				return err
 			}
 		}

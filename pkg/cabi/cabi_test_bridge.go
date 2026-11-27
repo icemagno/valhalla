@@ -1,3 +1,5 @@
+//go:build cabi_test
+
 // Project Valhalla - Sovereign HLA-4 Run-Time Infrastructure
 // Lead Developer: Carlos Magno Oliveira de Abreu (@icemagno / magno.mabreu@gmail.com)
 
@@ -192,69 +194,69 @@ func Bridge_GetSyncRegFailed() (string, string) {
 
 // CABI Test Wrappers
 
-func CABI_CreateAmbassador() uintptr {
+func CABI_CreateAmbassador() unsafe.Pointer {
 	amb := valhalla_create_ambassador()
-	return uintptr(amb)
+	return unsafe.Pointer(amb)
 }
 
-func CABI_DestroyAmbassador(amb uintptr) {
-	valhalla_destroy_ambassador(C.ValhallaAmbassador(unsafe.Pointer(amb)))
+func CABI_DestroyAmbassador(amb unsafe.Pointer) {
+	valhalla_destroy_ambassador(C.ValhallaAmbassador(amb))
 }
 
-func CABI_SetTestCallbacks(amb uintptr) int32 {
-	return int32(C.c_set_test_callbacks(C.ValhallaAmbassador(unsafe.Pointer(amb))))
+func CABI_SetTestCallbacks(amb unsafe.Pointer) int32 {
+	return int32(C.c_set_test_callbacks(C.ValhallaAmbassador(amb)))
 }
 
-func CABI_Connect(amb uintptr, address string) int32 {
+func CABI_Connect(amb unsafe.Pointer, address string) int32 {
 	cAddr := C.CString(address)
 	defer C.free(unsafe.Pointer(cAddr))
-	return int32(valhalla_connect(C.ValhallaAmbassador(unsafe.Pointer(amb)), cAddr))
+	return int32(valhalla_connect(C.ValhallaAmbassador(amb), cAddr))
 }
 
-func CABI_Disconnect(amb uintptr) int32 {
-	return int32(valhalla_disconnect(C.ValhallaAmbassador(unsafe.Pointer(amb))))
+func CABI_Disconnect(amb unsafe.Pointer) int32 {
+	return int32(valhalla_disconnect(C.ValhallaAmbassador(amb)))
 }
 
-func CABI_CreateFederation(amb uintptr, fedName string) int32 {
+func CABI_CreateFederation(amb unsafe.Pointer, fedName string) int32 {
 	cName := C.CString(fedName)
 	defer C.free(unsafe.Pointer(cName))
-	return int32(valhalla_create_federation(C.ValhallaAmbassador(unsafe.Pointer(amb)), cName))
+	return int32(valhalla_create_federation(C.ValhallaAmbassador(amb), cName))
 }
 
-func CABI_DestroyFederation(amb uintptr, fedName string) int32 {
+func CABI_DestroyFederation(amb unsafe.Pointer, fedName string) int32 {
 	cName := C.CString(fedName)
 	defer C.free(unsafe.Pointer(cName))
-	return int32(valhalla_destroy_federation(C.ValhallaAmbassador(unsafe.Pointer(amb)), cName))
+	return int32(valhalla_destroy_federation(C.ValhallaAmbassador(amb), cName))
 }
 
-func CABI_JoinFederation(amb uintptr, fedName, simName string) (int32, int32) {
+func CABI_JoinFederation(amb unsafe.Pointer, fedName, simName string) (int32, int32) {
 	cFed := C.CString(fedName)
 	defer C.free(unsafe.Pointer(cFed))
 	cSim := C.CString(simName)
 	defer C.free(unsafe.Pointer(cSim))
 
 	var handle C.int32_t
-	code := int32(valhalla_join_federation(C.ValhallaAmbassador(unsafe.Pointer(amb)), cFed, cSim, &handle))
+	code := int32(valhalla_join_federation(C.ValhallaAmbassador(amb), cFed, cSim, &handle))
 	return int32(handle), code
 }
 
-func CABI_PublishInteractionClass(amb uintptr, interactionClass int32) int32 {
-	return int32(valhalla_publish_interaction_class(C.ValhallaAmbassador(unsafe.Pointer(amb)), C.int32_t(interactionClass)))
+func CABI_PublishInteractionClass(amb unsafe.Pointer, interactionClass int32) int32 {
+	return int32(valhalla_publish_interaction_class(C.ValhallaAmbassador(amb), C.int32_t(interactionClass)))
 }
 
-func CABI_UnpublishInteractionClass(amb uintptr, interactionClass int32) int32 {
-	return int32(valhalla_unpublish_interaction_class(C.ValhallaAmbassador(unsafe.Pointer(amb)), C.int32_t(interactionClass)))
+func CABI_UnpublishInteractionClass(amb unsafe.Pointer, interactionClass int32) int32 {
+	return int32(valhalla_unpublish_interaction_class(C.ValhallaAmbassador(amb), C.int32_t(interactionClass)))
 }
 
-func CABI_SubscribeInteractionClass(amb uintptr, interactionClass int32) int32 {
-	return int32(valhalla_subscribe_interaction_class(C.ValhallaAmbassador(unsafe.Pointer(amb)), C.int32_t(interactionClass)))
+func CABI_SubscribeInteractionClass(amb unsafe.Pointer, interactionClass int32) int32 {
+	return int32(valhalla_subscribe_interaction_class(C.ValhallaAmbassador(amb), C.int32_t(interactionClass)))
 }
 
-func CABI_UnsubscribeInteractionClass(amb uintptr, interactionClass int32) int32 {
-	return int32(valhalla_unsubscribe_interaction_class(C.ValhallaAmbassador(unsafe.Pointer(amb)), C.int32_t(interactionClass)))
+func CABI_UnsubscribeInteractionClass(amb unsafe.Pointer, interactionClass int32) int32 {
+	return int32(valhalla_unsubscribe_interaction_class(C.ValhallaAmbassador(amb), C.int32_t(interactionClass)))
 }
 
-func CABI_SendInteraction(amb uintptr, interactionClass int32, params map[int32][]byte, tag []byte) int32 {
+func CABI_SendInteraction(amb unsafe.Pointer, interactionClass int32, params map[int32][]byte, tag []byte) int32 {
 	count := len(params)
 	var cHandles *C.int32_t
 	var cValues **C.uint8_t
@@ -291,7 +293,7 @@ func CABI_SendInteraction(amb uintptr, interactionClass int32, params map[int32]
 	}
 
 	return int32(valhalla_send_interaction(
-		C.ValhallaAmbassador(unsafe.Pointer(amb)),
+		C.ValhallaAmbassador(amb),
 		C.int32_t(interactionClass),
 		cHandles,
 		cValues,
@@ -302,7 +304,7 @@ func CABI_SendInteraction(amb uintptr, interactionClass int32, params map[int32]
 	))
 }
 
-func CABI_RegisterFederationSyncPoint(amb uintptr, label string, tag []byte) int32 {
+func CABI_RegisterFederationSyncPoint(amb unsafe.Pointer, label string, tag []byte) int32 {
 	cLabel := C.CString(label)
 	defer C.free(unsafe.Pointer(cLabel))
 
@@ -312,39 +314,39 @@ func CABI_RegisterFederationSyncPoint(amb uintptr, label string, tag []byte) int
 	}
 
 	return int32(valhalla_register_federation_synchronization_point(
-		C.ValhallaAmbassador(unsafe.Pointer(amb)),
+		C.ValhallaAmbassador(amb),
 		cLabel,
 		cTag,
 		C.int32_t(len(tag)),
 	))
 }
 
-func CABI_SyncPointAchieved(amb uintptr, label string) int32 {
+func CABI_SyncPointAchieved(amb unsafe.Pointer, label string) int32 {
 	cLabel := C.CString(label)
 	defer C.free(unsafe.Pointer(cLabel))
 
 	return int32(valhalla_synchronization_point_achieved(
-		C.ValhallaAmbassador(unsafe.Pointer(amb)),
+		C.ValhallaAmbassador(amb),
 		cLabel,
 	))
 }
 
-func CABI_Heartbeat(amb uintptr) int32 {
-	return int32(valhalla_heartbeat(C.ValhallaAmbassador(unsafe.Pointer(amb))))
+func CABI_Heartbeat(amb unsafe.Pointer) int32 {
+	return int32(valhalla_heartbeat(C.ValhallaAmbassador(amb)))
 }
 
-func CABI_EvokeCallback(amb uintptr, timeoutSeconds float64) (bool, int32) {
+func CABI_EvokeCallback(amb unsafe.Pointer, timeoutSeconds float64) (bool, int32) {
 	var evoked C.bool
 	code := valhalla_evoke_callback(
-		C.ValhallaAmbassador(unsafe.Pointer(amb)),
+		C.ValhallaAmbassador(amb),
 		C.double(timeoutSeconds),
 		&evoked,
 	)
 	return bool(evoked), int32(code)
 }
 
-func CABI_NullPointerChecks(amb uintptr) []int32 {
-	cAmb := C.ValhallaAmbassador(unsafe.Pointer(amb))
+func CABI_NullPointerChecks(amb unsafe.Pointer) []int32 {
+	cAmb := C.ValhallaAmbassador(amb)
 	results := []int32{
 		int32(valhalla_connect(cAmb, nil)),
 		int32(valhalla_create_federation(cAmb, nil)),

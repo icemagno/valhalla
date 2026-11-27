@@ -171,7 +171,12 @@ func (c *TCPClient) SendPacket(hdr wire.Header, payload []byte) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
 
-	if !c.IsConnected() {
+	c.stateMu.RLock()
+	connected := c.connected
+	writer := c.writer
+	c.stateMu.RUnlock()
+
+	if !connected || writer == nil {
 		return ErrNotConnected
 	}
 
@@ -179,12 +184,12 @@ func (c *TCPClient) SendPacket(hdr wire.Header, payload []byte) error {
 	bundleLength := int32(wire.HeaderLength + len(payload))
 
 	// 1. Escrever Magic de Bundle (0xCAFE)
-	if err := binary.Write(c.writer, binary.BigEndian, MagicTCPBundle); err != nil {
+	if err := binary.Write(writer, binary.BigEndian, MagicTCPBundle); err != nil {
 		return fmt.Errorf("falha ao escrever magic 0xCAFE: %w", err)
 	}
 
 	// 2. Escrever tamanho total do bundle (Header + Payload)
-	if err := binary.Write(c.writer, binary.BigEndian, bundleLength); err != nil {
+	if err := binary.Write(writer, binary.BigEndian, bundleLength); err != nil {
 		return fmt.Errorf("falha ao escrever tamanho do bundle: %w", err)
 	}
 
@@ -193,18 +198,18 @@ func (c *TCPClient) SendPacket(hdr wire.Header, payload []byte) error {
 	if err := hdr.MarshalTo(hdrBuf[:]); err != nil {
 		return fmt.Errorf("falha ao serializar cabecalho Portico: %w", err)
 	}
-	if _, err := c.writer.Write(hdrBuf[:]); err != nil {
+	if _, err := writer.Write(hdrBuf[:]); err != nil {
 		return fmt.Errorf("falha ao enviar cabecalho: %w", err)
 	}
 
 	// 4. Escrever o payload (se houver)
 	if len(payload) > 0 {
-		if _, err := c.writer.Write(payload); err != nil {
+		if _, err := writer.Write(payload); err != nil {
 			return fmt.Errorf("falha ao enviar payload: %w", err)
 		}
 	}
 
-	return c.writer.Flush()
+	return writer.Flush()
 }
 
 // ReadPacket aguarda e recebe o proximo pacote enquadrado com 0xCAFE:
@@ -214,14 +219,19 @@ func (c *TCPClient) ReadPacket() (wire.Header, []byte, error) {
 	defer c.recvMu.Unlock()
 
 	var hdr wire.Header
-	if !c.IsConnected() {
+	c.stateMu.RLock()
+	connected := c.connected
+	reader := c.reader
+	c.stateMu.RUnlock()
+
+	if !connected || reader == nil {
 		return hdr, nil, ErrNotConnected
 	}
 
 	for {
 		// 1. Ler o magic do bundle (int32 = 0xCAFE)
 		var magic int32
-		if err := binary.Read(c.reader, binary.BigEndian, &magic); err != nil {
+		if err := binary.Read(reader, binary.BigEndian, &magic); err != nil {
 			return hdr, nil, fmt.Errorf("falha lendo magic do bundle: %w", err)
 		}
 		if magic != MagicTCPBundle {
@@ -230,7 +240,7 @@ func (c *TCPClient) ReadPacket() (wire.Header, []byte, error) {
 
 		// 2. Ler o tamanho do bundle
 		var bundleLen int32
-		if err := binary.Read(c.reader, binary.BigEndian, &bundleLen); err != nil {
+		if err := binary.Read(reader, binary.BigEndian, &bundleLen); err != nil {
 			return hdr, nil, fmt.Errorf("falha lendo tamanho do bundle: %w", err)
 		}
 		if bundleLen == 0 {
@@ -246,7 +256,7 @@ func (c *TCPClient) ReadPacket() (wire.Header, []byte, error) {
 
 		// 3. Ler o cabecalho de 12 bytes
 		var hdrBuf [wire.HeaderLength]byte
-		if _, err := io.ReadFull(c.reader, hdrBuf[:]); err != nil {
+		if _, err := io.ReadFull(reader, hdrBuf[:]); err != nil {
 			return hdr, nil, fmt.Errorf("falha lendo cabecalho do bundle: %w", err)
 		}
 		if err := hdr.UnmarshalBinary(hdrBuf[:]); err != nil {
@@ -258,7 +268,7 @@ func (c *TCPClient) ReadPacket() (wire.Header, []byte, error) {
 		var payload []byte
 		if payloadLen > 0 {
 			payload = make([]byte, payloadLen)
-			if _, err := io.ReadFull(c.reader, payload); err != nil {
+			if _, err := io.ReadFull(reader, payload); err != nil {
 				return hdr, nil, fmt.Errorf("falha lendo payload do bundle: %w", err)
 			}
 		}
@@ -269,12 +279,14 @@ func (c *TCPClient) ReadPacket() (wire.Header, []byte, error) {
 
 // ReadPacketTimeout aguarda o proximo pacote de rede com timeout configuravel
 func (c *TCPClient) ReadPacketTimeout(timeout time.Duration) (wire.Header, []byte, error) {
-	if timeout > 0 && c.conn != nil {
-		_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
+	c.stateMu.RLock()
+	conn := c.conn
+	c.stateMu.RUnlock()
+
+	if timeout > 0 && conn != nil {
+		_ = conn.SetReadDeadline(time.Now().Add(timeout))
 		defer func() {
-			if c.conn != nil {
-				_ = c.conn.SetReadDeadline(time.Time{})
-			}
+			_ = conn.SetReadDeadline(time.Time{})
 		}()
 	}
 	return c.ReadPacket()

@@ -14,24 +14,67 @@ func (f *FederationExecution) RegisterAndBroadcastObject(classHandle int32, name
 		return nil, err
 	}
 
-	discPayload, err := common.DiscoverObjectInstancePayload{
-		ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
-		ClassHandle:  common.ObjectClassHandle(obj.ClassHandle),
-		ObjectName:   obj.Name,
-	}.MarshalBinary()
-	if err != nil {
-		logCRCNative.Error("failed to marshal DiscoverObjectInstancePayload for obj %d: %v", obj.Handle, err)
-		return obj, nil
-	}
-
+	var fallbackSSZ []byte
 	for _, fed := range f.GetAllFederates() {
-		if fed.ID != ownerID && fed.Session != nil {
-			if err := fed.Session.SendNotification(common.NativeMsgDiscoverObject, discPayload); err != nil {
-				logCRCNative.Warn("failed to dispatch DiscoverObject to federate %d: %v", fed.ID, err)
+		if fed.ID == ownerID || fed.Session == nil {
+			continue
+		}
+		if sink, ok := fed.Session.(DomainEventSink); ok {
+			if err := sink.SendDiscoverObject(obj.Handle, obj.ClassHandle, obj.Name); err != nil {
+				logCRCDomain.Warn("failed to dispatch DiscoverObject to federate %d: %v", fed.ID, err)
 			}
+			continue
+		}
+		if fallbackSSZ == nil {
+			fallbackSSZ, err = common.DiscoverObjectInstancePayload{
+				ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
+				ClassHandle:  common.ObjectClassHandle(obj.ClassHandle),
+				ObjectName:   obj.Name,
+			}.MarshalBinary()
+			if err != nil {
+				logCRCDomain.Error("failed to marshal DiscoverObjectInstancePayload for obj %d: %v", obj.Handle, err)
+				return obj, nil
+			}
+		}
+		if err := fed.Session.SendNotification(common.NativeMsgDiscoverObject, fallbackSSZ); err != nil {
+			logCRCDomain.Warn("failed to dispatch DiscoverObject to federate %d: %v", fed.ID, err)
 		}
 	}
 	return obj, nil
+}
+
+// DispatchCatchUpDiscovery sends DiscoverObject notifications for all existing instances
+// matching the subscribed class hierarchy (unified across Native, Portico, and Web).
+func (f *FederationExecution) DispatchCatchUpDiscovery(session Session, classHandle common.ObjectClassHandle) error {
+	if session == nil || f.OMT() == nil {
+		return nil
+	}
+	sink, hasSink := session.(DomainEventSink)
+	for _, obj := range f.GetAllObjects() {
+		if !f.OMT().IsSubclassOfObject(common.ObjectClassHandle(obj.ClassHandle), classHandle) {
+			continue
+		}
+		if hasSink {
+			if err := sink.SendDiscoverObject(obj.Handle, obj.ClassHandle, obj.Name); err != nil {
+				logCRCDomain.Warn("failed to send catch-up DiscoverObject to federate %d: %v", session.FederateID(), err)
+				return err
+			}
+		} else {
+			discPayload, err := common.DiscoverObjectInstancePayload{
+				ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
+				ClassHandle:  common.ObjectClassHandle(obj.ClassHandle),
+				ObjectName:   obj.Name,
+			}.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			if err := session.SendNotification(NativeMsgDiscoverObject, discPayload); err != nil {
+				logCRCDomain.Warn("failed to send catch-up DiscoverObject to federate %d: %v", session.FederateID(), err)
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // DeleteAndBroadcastObject validates delete privilege, deletes the instance, and broadcasts RemoveObjectInstance.
@@ -41,20 +84,29 @@ func (f *FederationExecution) DeleteAndBroadcastObject(objHandle int32, federate
 		return nil, err
 	}
 
-	removePayload, err := common.RemoveObjectInstancePayload{
-		ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
-		Tag:          tag,
-	}.MarshalBinary()
-	if err != nil {
-		logCRCNative.Error("failed to marshal RemoveObjectInstancePayload for obj %d: %v", obj.Handle, err)
-		return obj, nil
-	}
-
+	var fallbackSSZ []byte
 	for _, fed := range f.GetAllFederates() {
-		if fed.ID != federateID && fed.Session != nil {
-			if err := fed.Session.SendNotification(common.NativeMsgRemoveObjectInstance, removePayload); err != nil {
-				logCRCNative.Warn("failed to dispatch RemoveObjectInstance to federate %d: %v", fed.ID, err)
+		if fed.ID == federateID || fed.Session == nil {
+			continue
+		}
+		if sink, ok := fed.Session.(DomainEventSink); ok {
+			if err := sink.SendRemoveObject(obj.Handle, tag); err != nil {
+				logCRCDomain.Warn("failed to dispatch RemoveObjectInstance to federate %d: %v", fed.ID, err)
 			}
+			continue
+		}
+		if fallbackSSZ == nil {
+			fallbackSSZ, err = common.RemoveObjectInstancePayload{
+				ObjectHandle: common.ObjectInstanceHandle(obj.Handle),
+				Tag:          tag,
+			}.MarshalBinary()
+			if err != nil {
+				logCRCDomain.Error("failed to marshal RemoveObjectInstancePayload for obj %d: %v", obj.Handle, err)
+				return obj, nil
+			}
+		}
+		if err := fed.Session.SendNotification(common.NativeMsgRemoveObjectInstance, fallbackSSZ); err != nil {
+			logCRCDomain.Warn("failed to dispatch RemoveObjectInstance to federate %d: %v", fed.ID, err)
 		}
 	}
 	return obj, nil
@@ -122,26 +174,38 @@ func (f *FederationExecution) UpdateAndRouteAttributes(
 		}
 	}
 
-	// 5. Build reflect payload
-	ravPayload, err := common.UpdateAttributesPayload{
-		ObjectHandle: objHandle,
-		Attributes:   attrs,
-		Tag:          tag,
-		HasTime:      hasTime,
-		Time:         timestamp,
-	}.MarshalBinary()
-	if err != nil {
-		return globalRoot, fmt.Errorf("failed to marshal UpdateAttributesPayload: %w", err)
+	// 5. Lazy SSZ payload (only built if TSO queuing or legacy non-DomainEventSink session needs it)
+	var sszPayload []byte
+	getSSZPayload := func() ([]byte, error) {
+		if sszPayload != nil {
+			return sszPayload, nil
+		}
+		var err error
+		sszPayload, err = common.UpdateAttributesPayload{
+			ObjectHandle: objHandle,
+			Attributes:   attrs,
+			Tag:          tag,
+			HasTime:      hasTime,
+			Time:         timestamp,
+		}.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal UpdateAttributesPayload: %w", err)
+		}
+		return sszPayload, nil
 	}
 
-	// 6. Dispatch to subscribers (TSO or RO)
+	// 6. Dispatch to subscribers (TSO or RO, single-pass per protocol)
 	for subID := range targetSubs {
 		subFed, ok := f.GetFederate(int32(subID))
 		if !ok || subFed.Session == nil {
 			continue
 		}
 
-		if hasTime && subFed.IsConstrained {
+		if hasTime && f.TimeManager() != nil && f.TimeManager().IsConstrained(subID) {
+			ravPayload, err := getSSZPayload()
+			if err != nil {
+				return globalRoot, err
+			}
 			grants, err := f.TimeManager().EnqueueTSOMessage(core.TSOMessage{
 				Sender:     common.FederateHandle(senderID),
 				Receiver:   subID,
@@ -151,13 +215,21 @@ func (f *FederationExecution) UpdateAndRouteAttributes(
 				MerkleRoot: globalRoot,
 			})
 			if err != nil {
-				logCRCNative.Warn("failed to enqueue TSO message for federate %d: %v", subID, err)
+				logCRCDomain.Warn("failed to enqueue TSO message for federate %d: %v", subID, err)
 			} else if len(grants) > 0 {
 				dispatchTimeGrants(f, grants)
 			}
+		} else if sink, ok := subFed.Session.(DomainEventSink); ok {
+			if err := sink.SendReflectAttributes(int32(objHandle), attrs, tag, hasTime, timestamp, globalRoot); err != nil {
+				logCRCDomain.Warn("failed to dispatch ReflectAttributes to federate %d: %v", subID, err)
+			}
 		} else {
+			ravPayload, err := getSSZPayload()
+			if err != nil {
+				return globalRoot, err
+			}
 			if err := subFed.Session.SendNotificationWithMerkle(NativeMsgReflectAttributes, ravPayload, globalRoot); err != nil {
-				logCRCNative.Warn("failed to dispatch ReflectAttributes to federate %d: %v", subID, err)
+				logCRCDomain.Warn("failed to dispatch ReflectAttributes to federate %d: %v", subID, err)
 			}
 		}
 	}
@@ -176,15 +248,23 @@ func (f *FederationExecution) RouteInteraction(
 ) error {
 	subs := f.Router().GetInteractionSubscribers(classHandle)
 
-	payload, err := common.SendInteractionPayload{
-		ClassHandle: classHandle,
-		Parameters:  params,
-		Tag:         tag,
-		HasTime:     hasTime,
-		Time:        timestamp,
-	}.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("failed to marshal SendInteractionPayload: %w", err)
+	var sszPayload []byte
+	getSSZPayload := func() ([]byte, error) {
+		if sszPayload != nil {
+			return sszPayload, nil
+		}
+		var err error
+		sszPayload, err = common.SendInteractionPayload{
+			ClassHandle: classHandle,
+			Parameters:  params,
+			Tag:         tag,
+			HasTime:     hasTime,
+			Time:        timestamp,
+		}.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal SendInteractionPayload: %w", err)
+		}
+		return sszPayload, nil
 	}
 
 	for _, subID := range subs {
@@ -196,7 +276,11 @@ func (f *FederationExecution) RouteInteraction(
 			continue
 		}
 
-		if hasTime && subFed.IsConstrained {
+		if hasTime && f.TimeManager() != nil && f.TimeManager().IsConstrained(subID) {
+			payload, err := getSSZPayload()
+			if err != nil {
+				return err
+			}
 			grants, err := f.TimeManager().EnqueueTSOMessage(core.TSOMessage{
 				Sender:    common.FederateHandle(senderID),
 				Receiver:  subID,
@@ -205,13 +289,21 @@ func (f *FederationExecution) RouteInteraction(
 				Payload:   payload,
 			})
 			if err != nil {
-				logCRCNative.Warn("failed to enqueue TSO interaction for federate %d: %v", subID, err)
+				logCRCDomain.Warn("failed to enqueue TSO interaction for federate %d: %v", subID, err)
 			} else if len(grants) > 0 {
 				dispatchTimeGrants(f, grants)
 			}
+		} else if sink, ok := subFed.Session.(DomainEventSink); ok {
+			if err := sink.SendReceiveInteraction(int32(classHandle), params, tag, hasTime, timestamp); err != nil {
+				logCRCDomain.Warn("failed to dispatch ReceiveInteraction to federate %d: %v", subID, err)
+			}
 		} else {
+			payload, err := getSSZPayload()
+			if err != nil {
+				return err
+			}
 			if err := subFed.Session.SendNotification(NativeMsgReceiveInteraction, payload); err != nil {
-				logCRCNative.Warn("failed to dispatch ReceiveInteraction to federate %d: %v", subID, err)
+				logCRCDomain.Warn("failed to dispatch ReceiveInteraction to federate %d: %v", subID, err)
 			}
 		}
 	}
@@ -220,15 +312,26 @@ func (f *FederationExecution) RouteInteraction(
 
 // BroadcastSyncPointAnnounce announces a registered synchronization point to all federates.
 func (f *FederationExecution) BroadcastSyncPointAnnounce(label string, tag []byte) error {
-	announcePayload, err := common.RegisterSyncPointPayload{Label: label, Tag: tag}.MarshalBinary()
-	if err != nil {
-		return err
-	}
+	var fallbackSSZ []byte
 	for _, fed := range f.GetAllFederates() {
-		if fed.Session != nil {
-			if err := fed.Session.SendNotification(NativeMsgAnnounceSyncPoint, announcePayload); err != nil {
-				logCRCNative.Warn("failed to dispatch AnnounceSyncPoint to federate %d: %v", fed.ID, err)
+		if fed.Session == nil {
+			continue
+		}
+		if sink, ok := fed.Session.(DomainEventSink); ok {
+			if err := sink.SendAnnounceSyncPoint(label, tag); err != nil {
+				logCRCDomain.Warn("failed to dispatch AnnounceSyncPoint to federate %d: %v", fed.ID, err)
 			}
+			continue
+		}
+		if fallbackSSZ == nil {
+			var err error
+			fallbackSSZ, err = common.RegisterSyncPointPayload{Label: label, Tag: tag}.MarshalBinary()
+			if err != nil {
+				return err
+			}
+		}
+		if err := fed.Session.SendNotification(NativeMsgAnnounceSyncPoint, fallbackSSZ); err != nil {
+			logCRCDomain.Warn("failed to dispatch AnnounceSyncPoint to federate %d: %v", fed.ID, err)
 		}
 	}
 	return nil
@@ -236,15 +339,26 @@ func (f *FederationExecution) BroadcastSyncPointAnnounce(label string, tag []byt
 
 // BroadcastFederationSynchronized notifies all federates that a sync point has been achieved.
 func (f *FederationExecution) BroadcastFederationSynchronized(label string) error {
-	syncNotif, err := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
-	if err != nil {
-		return err
-	}
+	var fallbackSSZ []byte
 	for _, fed := range f.GetAllFederates() {
-		if fed.Session != nil {
-			if err := fed.Session.SendNotification(NativeMsgFederationSynchronized, syncNotif); err != nil {
-				logCRCNative.Warn("failed to dispatch FederationSynchronized to federate %d: %v", fed.ID, err)
+		if fed.Session == nil {
+			continue
+		}
+		if sink, ok := fed.Session.(DomainEventSink); ok {
+			if err := sink.SendFederationSynchronized(label); err != nil {
+				logCRCDomain.Warn("failed to dispatch FederationSynchronized to federate %d: %v", fed.ID, err)
 			}
+			continue
+		}
+		if fallbackSSZ == nil {
+			var err error
+			fallbackSSZ, err = common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+			if err != nil {
+				return err
+			}
+		}
+		if err := fed.Session.SendNotification(NativeMsgFederationSynchronized, fallbackSSZ); err != nil {
+			logCRCDomain.Warn("failed to dispatch FederationSynchronized to federate %d: %v", fed.ID, err)
 		}
 	}
 	return nil

@@ -85,6 +85,9 @@ func BuildFederationSynchronizedPayload(label string) ([]byte, error) {
 // BuildErrorResponsePayload constrói dinamicamente em Go a ResponseMessage de erro oficial
 func BuildErrorResponsePayload(errMsg string) []byte {
 	resp := metamodel.NewResponseMessage(true)
+	if errMsg != "" {
+		resp.Set("exception", errMsg)
+	}
 	data, err := SerializePorticoControlMessage(resp)
 	if err != nil {
 		return nil

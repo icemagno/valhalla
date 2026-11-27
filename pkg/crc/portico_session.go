@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
@@ -31,15 +32,15 @@ func NewPorticoSession(conn net.Conn) *PorticoSession {
 }
 
 func (s *PorticoSession) FederateID() int32 {
-	return s.id
+	return atomic.LoadInt32(&s.id)
 }
 
 func (s *PorticoSession) SetFederateID(id int32) {
-	s.id = id
+	atomic.StoreInt32(&s.id, id)
 }
 
 func (s *PorticoSession) SetFederationHandle(fedHandle int32) {
-	s.fedHandle = fedHandle
+	atomic.StoreInt32(&s.fedHandle, fedHandle)
 }
 
 func (s *PorticoSession) Protocol() ProtocolType {
@@ -223,7 +224,7 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 		if err := t.UnmarshalBinary(payload); err != nil {
 			return fmt.Errorf("portico session: unmarshal TimeAdvanceGrant failed: %w", err)
 		}
-		p, err := wire.BuildTimeAdvanceGrantPayload(s.id, t.Time)
+		p, err := wire.BuildTimeAdvanceGrantPayload(atomic.LoadInt32(&s.id), t.Time)
 		if err != nil {
 			return fmt.Errorf("portico session: build TimeAdvanceGrant payload failed: %w", err)
 		}
@@ -231,10 +232,14 @@ func (s *PorticoSession) SendNotification(msgType uint8, payload []byte) error {
 		wirePayload = p
 	}
 
+	return s.sendWireNotification(wireMsgType, wirePayload)
+}
+
+func (s *PorticoSession) sendWireNotification(wireMsgType wire.MessageType, wirePayload []byte) error {
 	hdr := wire.Header{
 		Flags:         0,
 		PayloadLength: uint32(len(wirePayload)),
-		FederationID:  uint8(s.fedHandle),
+		FederationID:  uint8(atomic.LoadInt32(&s.fedHandle)),
 		CallType:      wire.CallTypeNotification,
 		MessageType:   wireMsgType,
 		RequestId:     0,
@@ -313,4 +318,70 @@ func (s *PorticoSession) ReadPacket(reader io.Reader) (wire.Header, []byte, erro
 
 		return hdr, payload, nil
 	}
+}
+
+// DomainEventSink implementation (single-pass Portico JOS serialization, zero SSZ round-trip)
+
+func (s *PorticoSession) SendDiscoverObject(objHandle, classHandle int32, objName string) error {
+	p, err := wire.BuildDiscoverObjectPayload(objHandle, classHandle, objName)
+	if err != nil {
+		return fmt.Errorf("portico session: build DiscoverObject payload failed: %w", err)
+	}
+	return s.sendWireNotification(wire.MsgDiscoverObject, p)
+}
+
+func (s *PorticoSession) SendRemoveObject(objHandle int32, tag []byte) error {
+	p, err := wire.BuildDeleteObjectPayload(objHandle, tag)
+	if err != nil {
+		return fmt.Errorf("portico session: build DeleteObject payload failed: %w", err)
+	}
+	return s.sendWireNotification(wire.MsgDeleteObject, p)
+}
+
+func (s *PorticoSession) SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, _ bool, _ float64, _ [32]byte) error {
+	attrsMap := make(map[int32][]byte, len(attrs))
+	for k, v := range attrs {
+		attrsMap[int32(k)] = v
+	}
+	p, err := wire.BuildReflectAttributesPayload(objHandle, attrsMap, tag)
+	if err != nil {
+		return fmt.Errorf("portico session: build ReflectAttributes payload failed: %w", err)
+	}
+	return s.sendWireNotification(wire.MsgReflectAttributes, p)
+}
+
+func (s *PorticoSession) SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, _ bool, _ float64) error {
+	paramsMap := make(map[int32][]byte, len(params))
+	for k, v := range params {
+		paramsMap[int32(k)] = v
+	}
+	p, err := wire.BuildReceiveInteractionPayload(classHandle, paramsMap, tag)
+	if err != nil {
+		return fmt.Errorf("portico session: build ReceiveInteraction payload failed: %w", err)
+	}
+	return s.sendWireNotification(wire.MsgReceiveInteraction, p)
+}
+
+func (s *PorticoSession) SendTimeAdvanceGrant(grantedTime float64) error {
+	p, err := wire.BuildTimeAdvanceGrantPayload(atomic.LoadInt32(&s.id), grantedTime)
+	if err != nil {
+		return fmt.Errorf("portico session: build TimeAdvanceGrant payload failed: %w", err)
+	}
+	return s.sendWireNotification(wire.MsgTimeAdvanceGrant, p)
+}
+
+func (s *PorticoSession) SendAnnounceSyncPoint(label string, _ []byte) error {
+	p, err := wire.BuildAnnounceSyncPointPayload(label)
+	if err != nil {
+		return fmt.Errorf("portico session: build AnnounceSyncPoint payload failed: %w", err)
+	}
+	return s.sendWireNotification(wire.MsgAnnounceSyncPoint, p)
+}
+
+func (s *PorticoSession) SendFederationSynchronized(label string) error {
+	p, err := wire.BuildFederationSynchronizedPayload(label)
+	if err != nil {
+		return fmt.Errorf("portico session: build FederationSynchronized payload failed: %w", err)
+	}
+	return s.sendWireNotification(wire.MsgFederationSynchronized, p)
 }

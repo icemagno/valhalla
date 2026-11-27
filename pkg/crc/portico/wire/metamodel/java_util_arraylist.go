@@ -1,5 +1,7 @@
 package metamodel
 
+import "fmt"
+
 // ClassDescArrayList representa a lista canônica java.util.ArrayList
 // SUID oficial da JVM: 8683452581122892189L (0x7881D21D99C7619D)
 var ClassDescArrayList = &ClassDesc{
@@ -23,6 +25,9 @@ var ClassDescArrayList = &ClassDesc{
 	},
 	CustomReader: func(r JOSReader, obj *JavaObject) error {
 		sizeVal, _ := obj.Get("size").(int32)
+		if sizeVal < 0 || int(sizeVal) > maxMetamodelCollectionSize {
+			return fmt.Errorf("jos metamodel: ArrayList size %d out of bounds [0, %d]", sizeVal, maxMetamodelCollectionSize)
+		}
 		size := int(sizeVal)
 
 		// Consumir bloco de capacidade
@@ -40,7 +45,13 @@ var ClassDescArrayList = &ClassDesc{
 		}
 
 		// Consumir TC_ENDBLOCKDATA
-		_, _ = r.ReadByte()
+		b, err := r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("jos metamodel: ArrayList missing TC_ENDBLOCKDATA: %w", err)
+		}
+		if b != TC_ENDBLOCKDATA {
+			return fmt.Errorf("jos metamodel: ArrayList expected TC_ENDBLOCKDATA (0x78), got 0x%02X", b)
+		}
 
 		obj.Set("elements", elements)
 		return nil

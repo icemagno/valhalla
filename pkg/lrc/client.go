@@ -1,6 +1,7 @@
 package lrc
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -102,16 +103,25 @@ func (c *Client) SendRequest(msgType uint8, fedID, federateID uint32, payload []
 		return nativeResponse{}, ErrConnectionClosed
 	}
 
-	reqID := uint16(atomic.AddUint32(&c.nextReqID, 1))
-	if reqID == 0 {
-		reqID = uint16(atomic.AddUint32(&c.nextReqID, 1))
-	}
-
 	respChan := make(chan nativeResponse, 1)
 
 	c.pendingMu.Lock()
-	c.pending[reqID] = respChan
+	var reqID uint16
+	for attempts := 0; attempts < 65535; attempts++ {
+		cand := uint16(atomic.AddUint32(&c.nextReqID, 1))
+		if cand == 0 {
+			continue
+		}
+		if _, exists := c.pending[cand]; !exists {
+			reqID = cand
+			c.pending[reqID] = respChan
+			break
+		}
+	}
 	c.pendingMu.Unlock()
+	if reqID == 0 {
+		return nativeResponse{}, errors.New("lrc client: exhausted all in-flight request IDs")
+	}
 
 	defer func() {
 		c.pendingMu.Lock()
@@ -292,18 +302,22 @@ func (c *Client) readLoop() {
 			}
 		}
 
-		// If ReqID is set, deliver to the goroutine waiting on synchronous response
+		// If ReqID is set, deliver to the goroutine waiting on synchronous response.
+		// Never fall through to the asynchronous callback queue even if the waiter timed out.
 		if hdr.ReqID > 0 {
 			c.pendingMu.Lock()
 			ch, ok := c.pending[hdr.ReqID]
 			c.pendingMu.Unlock()
 			if ok {
-				ch <- nativeResponse{
+				select {
+				case ch <- nativeResponse{
 					Header:  hdr,
 					Payload: payload,
+				}:
+				default:
 				}
-				continue
 			}
+			continue
 		}
 
 		// Otherwise, it is an asynchronous RTI notification dispatched to the elastic callback queue

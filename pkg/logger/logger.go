@@ -248,14 +248,11 @@ func NewLogger(module string) Logger {
 
 // GetGlobal returns the global logger instance.
 func GetGlobal() Logger {
-	if globalLogger == nil {
-		level := LevelInfo
-		if l, ok := getConfigLogLevel(); ok {
-			level = l
-		}
-		InitGlobalLogger(level)
+	level := LevelInfo
+	if l, ok := getConfigLogLevel(); ok {
+		level = l
 	}
-	return globalLogger
+	return InitGlobalLogger(level)
 }
 
 func (l *valhallaLogger) SetLevel(level LogLevel) {

@@ -1,6 +1,10 @@
 package metamodel
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"fmt"
+	"math"
+)
 
 // ClassDescPorticoMessage representa a classe base de todas as mensagens de controle do Portico
 // SUID oficial: 98121116105109L
@@ -37,8 +41,7 @@ var ClassDescPorticoMessage = &ClassDesc{
 
 		timeBits := uint64(0)
 		if t, ok := obj.Get("timestamp").(float64); ok {
-			timeBits = binary.BigEndian.Uint64([]byte{0, 0, 0, 0, 0, 0, 0, 0})
-			_ = t
+			timeBits = math.Float64bits(t)
 		}
 		binary.BigEndian.PutUint64(block[13:21], timeBits)
 
@@ -60,9 +63,16 @@ var ClassDescPorticoMessage = &ClassDesc{
 			obj.Set("sourceFederate", int32(binary.BigEndian.Uint32(block[1:5])))
 			obj.Set("targetFederate", int32(binary.BigEndian.Uint32(block[5:9])))
 			obj.Set("targetFederation", int32(binary.BigEndian.Uint32(block[9:13])))
+			obj.Set("timestamp", math.Float64frombits(binary.BigEndian.Uint64(block[13:21])))
 			obj.Set("isAsync", block[21] == 0x01)
 		}
-		_, _ = r.ReadByte() // TC_ENDBLOCKDATA
+		b, err := r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("jos metamodel: PorticoMessage missing TC_ENDBLOCKDATA: %w", err)
+		}
+		if b != TC_ENDBLOCKDATA {
+			return fmt.Errorf("jos metamodel: PorticoMessage expected TC_ENDBLOCKDATA (0x78), got 0x%02X", b)
+		}
 		return nil
 	},
 }

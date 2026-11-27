@@ -2,6 +2,7 @@ package metamodel
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 )
 
@@ -42,7 +43,11 @@ var ClassDescHashSet = &ClassDesc{
 
 		size := 0
 		if len(blk) >= 12 {
-			size = int(binary.BigEndian.Uint32(blk[8:12]))
+			rawSize := binary.BigEndian.Uint32(blk[8:12])
+			if rawSize > maxMetamodelCollectionSize {
+				return fmt.Errorf("jos metamodel: HashSet size %d exceeds maximum %d", rawSize, maxMetamodelCollectionSize)
+			}
+			size = int(rawSize)
 		}
 
 		elements := make([]any, size)
@@ -56,8 +61,11 @@ var ClassDescHashSet = &ClassDesc{
 
 		// Consumir TC_ENDBLOCKDATA (0x78)
 		b, err := r.ReadByte()
-		if err == nil && b != TC_ENDBLOCKDATA {
-			// Se não era TC_ENDBLOCKDATA, reposicionar se possível
+		if err != nil {
+			return fmt.Errorf("jos metamodel: HashSet missing TC_ENDBLOCKDATA: %w", err)
+		}
+		if b != TC_ENDBLOCKDATA {
+			return fmt.Errorf("jos metamodel: HashSet expected TC_ENDBLOCKDATA (0x78), got 0x%02X", b)
 		}
 
 		obj.Set("elements", elements)

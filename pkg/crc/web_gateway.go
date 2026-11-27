@@ -221,9 +221,9 @@ func (g *WebGateway) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		if opcode == 8 { // Close frame
 			break
-		} else if opcode == 9 { // Ping
-			if err := writeWebSocketTextFrame(conn, []byte{}); err != nil {
-				logCRCWeb.Warn("failed to write WebSocket close frame: %v", err)
+		} else if opcode == 9 { // Ping -> respond with RFC 6455 Pong (0x8A) under session.mu
+			if err := session.SendPong(payload); err != nil {
+				logCRCWeb.Warn("failed to write WebSocket pong frame: %v", err)
 			}
 			continue
 		} else if opcode != 1 { // Not text frame
@@ -558,11 +558,20 @@ const valhallaDashboardHTML = `<!DOCTYPE html>
     const el = document.getElementById('entityList');
     const keys = Object.keys(entities);
     document.getElementById('objCount').textContent = keys.length;
+    el.textContent = '';
     if (keys.length === 0) {
-      el.innerHTML = '<span style="color:#859289">No entities active</span>';
+      const span = document.createElement('span');
+      span.style.color = '#859289';
+      span.textContent = 'No entities active';
+      el.appendChild(span);
       return;
     }
-    el.innerHTML = keys.map(k => '<div style="color:#7fbbb3;">* [' + k + '] ' + entities[k].name + '</div>').join('');
+    keys.forEach(k => {
+      const div = document.createElement('div');
+      div.style.color = '#7fbbb3';
+      div.textContent = '* [' + k + '] ' + entities[k].name;
+      el.appendChild(div);
+    });
   }
 </script>
 </body>

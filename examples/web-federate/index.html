@@ -211,11 +211,24 @@
     const keys = Object.keys(entities);
     document.getElementById('objCountText').textContent = keys.length;
     const el = document.getElementById('entityList');
+    el.textContent = '';
     if (keys.length === 0) {
-      el.innerHTML = '<span style="color:#859289">No active entities</span>';
+      const span = document.createElement('span');
+      span.style.color = '#859289';
+      span.textContent = 'No active entities';
+      el.appendChild(span);
       return;
     }
-    el.innerHTML = keys.map(k => '<div style="color:#7fbbb3;">* [' + k + '] <b>' + entities[k].name + '</b> (' + Math.round(entities[k].x) + ',' + Math.round(entities[k].y) + ')</div>').join('');
+    keys.forEach(k => {
+      const div = document.createElement('div');
+      div.style.color = '#7fbbb3';
+      div.appendChild(document.createTextNode('* [' + k + '] '));
+      const b = document.createElement('b');
+      b.textContent = String(entities[k].name);
+      div.appendChild(b);
+      div.appendChild(document.createTextNode(' (' + Math.round(entities[k].x) + ',' + Math.round(entities[k].y) + ')'));
+      el.appendChild(div);
+    });
   }
 
   // Connect automatically on page load
@@ -396,10 +409,12 @@
       log("[Stage 7/11] Testing Attribute Ownership Management on 'Position'...");
       const initialOwner = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
       log("  [+] Initial Ownership: " + initialOwner + " (expected: true)");
+      if (!initialOwner) throw new Error("Stage 7 failed: expected initial ownership to be true");
 
       await rtiAmb.unconditionalAttributeOwnershipDivestiture(objHandle, [posAttr]);
       const afterDivest = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);
       log("  [+] Ownership after divestiture: " + afterDivest + " (expected: false)");
+      if (afterDivest) throw new Error("Stage 7 failed: expected ownership after divestiture to be false");
 
       await rtiAmb.attributeOwnershipAcquisition(objHandle, [posAttr], "WebAcquireTag");
       const afterAcquire = await rtiAmb.isAttributeOwnedByFederate(objHandle, posAttr);

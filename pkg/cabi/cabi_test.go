@@ -1,3 +1,5 @@
+//go:build cabi_test
+
 // Project Valhalla - Sovereign HLA-4 Run-Time Infrastructure
 // Lead Developer: Carlos Magno Oliveira de Abreu (@icemagno / magno.mabreu@gmail.com)
 
@@ -35,7 +37,7 @@ const (
 
 func TestCABI_NullPointerSafety(t *testing.T) {
 	amb := CABI_CreateAmbassador()
-	if amb == 0 {
+	if amb == nil {
 		t.Fatalf("failed to create ambassador")
 	}
 	defer CABI_DestroyAmbassador(amb)
@@ -340,7 +342,7 @@ func TestCABI_Heartbeat(t *testing.T) {
 
 	crcAddr := server.Addr().String()
 	amb := CABI_CreateAmbassador()
-	if amb == 0 {
+	if amb == nil {
 		t.Fatalf("failed to create ambassador")
 	}
 	defer CABI_DestroyAmbassador(amb)

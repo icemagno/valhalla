@@ -34,44 +34,57 @@ static inline std::wstring toWide(const std::string& str) {
 static thread_local ValhallaRTIambassador* t_activeAmbassador = nullptr;
 
 static void c_onDiscoverObject(int32_t theObject, int32_t theObjectClass, const char* objectName) {
-    if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
-        std::string s(objectName ? objectName : "");
-        t_activeAmbassador->getFederateAmbassador()->discoverObjectInstance(
-            ObjectInstanceHandle(theObject),
-            ObjectClassHandle(theObjectClass),
-            toWide(s));
+    try {
+        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
+            std::string s(objectName ? objectName : "");
+            t_activeAmbassador->getFederateAmbassador()->discoverObjectInstance(
+                ObjectInstanceHandle(theObject),
+                ObjectClassHandle(theObjectClass),
+                toWide(s));
+        }
+    } catch (...) {
+        // Never allow C++ exceptions to unwind across CGO/C-ABI boundary
     }
 }
 
 static void c_onRemoveObject(int32_t theObject, const uint8_t* tag, int32_t tagLen) {
-    if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
-        VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
-        t_activeAmbassador->getFederateAmbassador()->removeObjectInstance(
-            ObjectInstanceHandle(theObject),
-            userTag,
-            OrderType::RECEIVE);
+    try {
+        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
+            VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
+            t_activeAmbassador->getFederateAmbassador()->removeObjectInstance(
+                ObjectInstanceHandle(theObject),
+                userTag,
+                OrderType::RECEIVE);
+        }
+    } catch (...) {
     }
 }
 
 static void c_onReflectAttributes(int32_t theObject, int32_t attrCount, const int32_t* attrHandles, const uint8_t** attrValues, const int32_t* attrLens, const uint8_t* tag, int32_t tagLen) {
-    if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
-        AttributeHandleValueMap valMap;
-        for (int32_t i = 0; i < attrCount; ++i) {
-            valMap[AttributeHandle(attrHandles[i])] = VariableLengthData(attrValues[i], attrLens[i]);
+    try {
+        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
+            AttributeHandleValueMap valMap;
+            for (int32_t i = 0; i < attrCount; ++i) {
+                valMap[AttributeHandle(attrHandles[i])] = VariableLengthData(attrValues[i], attrLens[i]);
+            }
+            VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
+            t_activeAmbassador->getFederateAmbassador()->reflectAttributeValues(
+                ObjectInstanceHandle(theObject),
+                valMap,
+                userTag,
+                OrderType::RECEIVE,
+                TransportationTypeHandle::HLA_RELIABLE);
         }
-        VariableLengthData userTag(tag, tagLen > 0 ? tagLen : 0);
-        t_activeAmbassador->getFederateAmbassador()->reflectAttributeValues(
-            ObjectInstanceHandle(theObject),
-            valMap,
-            userTag,
-            OrderType::RECEIVE,
-            TransportationTypeHandle::HLA_RELIABLE);
+    } catch (...) {
     }
 }
 
 static void c_onTimeAdvanceGrant(double time) {
-    if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
-        t_activeAmbassador->getFederateAmbassador()->timeAdvanceGrant(time);
+    try {
+        if (t_activeAmbassador && t_activeAmbassador->getFederateAmbassador()) {
+            t_activeAmbassador->getFederateAmbassador()->timeAdvanceGrant(time);
+        }
+    } catch (...) {
     }
 }
 
@@ -88,7 +101,12 @@ ValhallaRTIambassador::ValhallaRTIambassador()
     cbs.onRemoveObject = c_onRemoveObject;
     cbs.onReflectAttributes = c_onReflectAttributes;
     cbs.onTimeAdvanceGrant = c_onTimeAdvanceGrant;
-    valhalla_set_callbacks(m_amb, cbs);
+    int32_t st = valhalla_set_callbacks(m_amb, cbs);
+    if (st != VALHALLA_OK) {
+        valhalla_destroy_ambassador(m_amb);
+        m_amb = nullptr;
+        throw RTIinternalError(L"Failed to register Valhalla C-ABI callbacks");
+    }
 }
 
 ValhallaRTIambassador::~ValhallaRTIambassador() throw() {
@@ -208,6 +226,8 @@ void ValhallaRTIambassador::createFederationExecution(
 
     std::vector<std::string> utfFoms;
     std::vector<char*> fomPtrs;
+    utfFoms.reserve(fomModules.size());
+    fomPtrs.reserve(fomModules.size());
     for (const auto& f : fomModules) {
         utfFoms.push_back(toUtf8(f));
         fomPtrs.push_back(const_cast<char*>(utfFoms.back().c_str()));
@@ -272,6 +292,9 @@ ObjectClassHandle ValhallaRTIambassador::getObjectClassHandle(
     std::string name = toUtf8(theName);
     int32_t h = 0;
     int32_t st = valhalla_get_object_class_handle(m_amb, const_cast<char*>(name.c_str()), &h);
+    if (st == VALHALLA_ERR_CLASS_NOT_FOUND) {
+        throw NameNotFound(L"Object class not found: " + theName);
+    }
     checkStatus(st);
     return ObjectClassHandle(h);
 }
@@ -287,6 +310,12 @@ AttributeHandle ValhallaRTIambassador::getAttributeHandle(
     std::string name = toUtf8(theName);
     int32_t h = 0;
     int32_t st = valhalla_get_attribute_handle(m_amb, whichClass.getValue(), const_cast<char*>(name.c_str()), &h);
+    if (st == VALHALLA_ERR_ATTR_NOT_FOUND) {
+        throw NameNotFound(L"Attribute not found: " + theName);
+    }
+    if (st == VALHALLA_ERR_CLASS_NOT_FOUND) {
+        throw InvalidObjectClassHandle(L"Invalid object class handle");
+    }
     checkStatus(st);
     return AttributeHandle(h);
 }
@@ -300,6 +329,9 @@ DimensionHandle ValhallaRTIambassador::getDimensionHandle(
     std::string name = toUtf8(theName);
     int32_t h = 0;
     int32_t st = valhalla_get_dimension_handle(m_amb, const_cast<char*>(name.c_str()), &h);
+    if (st == VALHALLA_ERR_CLASS_NOT_FOUND || st == VALHALLA_ERR_ATTR_NOT_FOUND) {
+        throw NameNotFound(L"Dimension not found: " + theName);
+    }
     checkStatus(st);
     return DimensionHandle(h);
 }
@@ -666,7 +698,9 @@ bool ValhallaRTIambassador::evokeCallback(
     _Bool evoked = false;
     int32_t st = valhalla_evoke_callback(m_amb, approximateMinimumTimeInSeconds, &evoked);
     t_activeAmbassador = nullptr;
-    checkStatus(st);
+    if (st != VALHALLA_OK) {
+        throw RTIinternalError(L"evokeCallback failed with status " + std::to_wstring(st));
+    }
     return evoked;
 }
 
@@ -675,7 +709,26 @@ bool ValhallaRTIambassador::evokeMultipleCallbacks(
     double maximumTime)
     throw(CallNotAllowedFromWithinCallback,
           RTIinternalError) {
-    return evokeCallback(minimumTime);
+    if (maximumTime < minimumTime) {
+        maximumTime = minimumTime;
+    }
+    bool anyEvoked = false;
+    double elapsed = 0.0;
+    const double step = (minimumTime > 0.0 && minimumTime < 0.01) ? minimumTime : 0.01;
+    do {
+        double slice = step;
+        if (elapsed + slice > maximumTime) {
+            slice = maximumTime - elapsed;
+        }
+        if (slice < 0.0) {
+            slice = 0.0;
+        }
+        if (evokeCallback(slice)) {
+            anyEvoked = true;
+        }
+        elapsed += slice;
+    } while (elapsed < maximumTime && slice > 0.0);
+    return anyEvoked;
 }
 
 } // namespace rti1516e

@@ -3,6 +3,7 @@ package crc
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/icemagno/valhalla/pkg/common"
 )
@@ -35,15 +36,15 @@ func NewNativeSession(conn net.Conn) *NativeSession {
 }
 
 func (s *NativeSession) FederateID() int32 {
-	return s.id
+	return atomic.LoadInt32(&s.id)
 }
 
 func (s *NativeSession) SetFederateID(id int32) {
-	s.id = id
+	atomic.StoreInt32(&s.id, id)
 }
 
 func (s *NativeSession) SetFederationID(fedID int32) {
-	s.fedID = fedID
+	atomic.StoreInt32(&s.fedID, fedID)
 }
 
 func (s *NativeSession) Protocol() ProtocolType {
@@ -90,8 +91,8 @@ func (s *NativeSession) SendNotificationWithMerkle(msgType uint8, payload []byte
 		Flags:      flags,
 		PayloadLen: uint32(len(payload)),
 		MsgType:    msgType,
-		FedID:      uint32(s.fedID),
-		FederateID: uint32(s.id),
+		FedID:      uint32(atomic.LoadInt32(&s.fedID)),
+		FederateID: uint32(atomic.LoadInt32(&s.id)),
 		MerkleRoot: merkleRoot,
 	}
 	return s.SendMessage(hdr, payload)
@@ -106,4 +107,81 @@ func (s *NativeSession) Close() error {
 		return s.conn.Close()
 	}
 	return nil
+}
+
+// DomainEventSink implementation (single-pass SSZ serialization)
+
+func (s *NativeSession) SendDiscoverObject(objHandle, classHandle int32, objName string) error {
+	payload, err := common.DiscoverObjectInstancePayload{
+		ObjectHandle: common.ObjectInstanceHandle(objHandle),
+		ClassHandle:  common.ObjectClassHandle(classHandle),
+		ObjectName:   objName,
+	}.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return s.SendNotification(common.NativeMsgDiscoverObject, payload)
+}
+
+func (s *NativeSession) SendRemoveObject(objHandle int32, tag []byte) error {
+	payload, err := common.RemoveObjectInstancePayload{
+		ObjectHandle: common.ObjectInstanceHandle(objHandle),
+		Tag:          tag,
+	}.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return s.SendNotification(common.NativeMsgRemoveObjectInstance, payload)
+}
+
+func (s *NativeSession) SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, hasTime bool, timestamp float64, merkleRoot [32]byte) error {
+	payload, err := common.UpdateAttributesPayload{
+		ObjectHandle: common.ObjectInstanceHandle(objHandle),
+		Attributes:   attrs,
+		Tag:          tag,
+		HasTime:      hasTime,
+		Time:         timestamp,
+	}.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return s.SendNotificationWithMerkle(common.NativeMsgReflectAttributes, payload, merkleRoot)
+}
+
+func (s *NativeSession) SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, hasTime bool, timestamp float64) error {
+	payload, err := common.SendInteractionPayload{
+		ClassHandle: common.InteractionClassHandle(classHandle),
+		Parameters:  params,
+		Tag:         tag,
+		HasTime:     hasTime,
+		Time:        timestamp,
+	}.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return s.SendNotification(common.NativeMsgReceiveInteraction, payload)
+}
+
+func (s *NativeSession) SendTimeAdvanceGrant(grantedTime float64) error {
+	payload, err := common.TimeFloat64Payload{Time: grantedTime}.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return s.SendNotification(common.NativeMsgTimeAdvanceGrant, payload)
+}
+
+func (s *NativeSession) SendAnnounceSyncPoint(label string, tag []byte) error {
+	payload, err := common.RegisterSyncPointPayload{Label: label, Tag: tag}.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return s.SendNotification(common.NativeMsgAnnounceSyncPoint, payload)
+}
+
+func (s *NativeSession) SendFederationSynchronized(label string) error {
+	payload, err := common.SyncPointLabelPayload{Label: label}.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	return s.SendNotification(common.NativeMsgFederationSynchronized, payload)
 }

@@ -2,6 +2,7 @@ package crc
 
 import (
 	"github.com/icemagno/valhalla/pkg/common"
+	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire"
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 	fomparser "github.com/icemagno/valhalla/pkg/metamodel"
@@ -586,7 +587,7 @@ func (ctx *porticoContext) handleObjectManagement(hdr wire.Header, payload []byt
 	return false, nil
 }
 
-// handleTimeManagement handles Portico time advancement services
+// handleTimeManagement handles Portico time advancement services via core.TimeManager
 func (ctx *porticoContext) handleTimeManagement(hdr wire.Header, payload []byte) (bool, error) {
 	switch hdr.MessageType {
 	case wire.MsgEnableTimeRegulation:
@@ -596,26 +597,24 @@ func (ctx *porticoContext) handleTimeManagement(hdr wire.Header, payload []byte)
 			}
 			return true, nil
 		}
-		fed, exists := ctx.currentFed.GetFederate(ctx.federateID)
-		if !exists {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound"); err != nil {
-				return true, err
+		lookahead := 0.0
+		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
+			if la, ok := obj.Get("lookahead").(float64); ok {
+				lookahead = la
+			}
+		}
+		if err := ctx.currentFed.TimeManager().EnableTimeRegulation(common.FederateHandle(ctx.federateID), lookahead); err != nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+				return true, sendErr
 			}
 			return true, nil
 		}
-		if fed.IsRegulating {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "TimeRegulationAlreadyEnabled"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		fed.IsRegulating = true
-
-		respPayload := wire.BuildDoubleResponsePayload(fed.CurrentTime)
+		fedStatus, _ := ctx.currentFed.TimeManager().GetStatus(common.FederateHandle(ctx.federateID))
+		respPayload := wire.BuildDoubleResponsePayload(fedStatus.CurrentTime)
 		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload); err != nil {
 			return true, err
 		}
-		logCRCPortico.Info("Federate [%d] enabled time regulation at time %f", ctx.federateID, fed.CurrentTime)
+		logCRCPortico.Info("Federate [%d] enabled time regulation at time %f (lookahead=%f)", ctx.federateID, fedStatus.CurrentTime, lookahead)
 		return true, nil
 
 	case wire.MsgEnableTimeConstrained:
@@ -625,21 +624,12 @@ func (ctx *porticoContext) handleTimeManagement(hdr wire.Header, payload []byte)
 			}
 			return true, nil
 		}
-		fed, exists := ctx.currentFed.GetFederate(ctx.federateID)
-		if !exists {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound"); err != nil {
-				return true, err
+		if err := ctx.currentFed.TimeManager().EnableTimeConstrained(common.FederateHandle(ctx.federateID)); err != nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+				return true, sendErr
 			}
 			return true, nil
 		}
-		if fed.IsConstrained {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "TimeConstrainedAlreadyEnabled"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
-		fed.IsConstrained = true
-
 		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
 			return true, err
 		}
@@ -653,13 +643,6 @@ func (ctx *porticoContext) handleTimeManagement(hdr wire.Header, payload []byte)
 			}
 			return true, nil
 		}
-		fed, exists := ctx.currentFed.GetFederate(ctx.federateID)
-		if !exists {
-			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound"); err != nil {
-				return true, err
-			}
-			return true, nil
-		}
 		var requestedTime float64
 		hasTime := false
 		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
@@ -668,134 +651,178 @@ func (ctx *porticoContext) handleTimeManagement(hdr wire.Header, payload []byte)
 				hasTime = true
 			}
 		}
-		if !hasTime || requestedTime < fed.CurrentTime {
+		if !hasTime {
 			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidLogicalTime"); err != nil {
 				return true, err
 			}
 			return true, nil
 		}
-		fed.CurrentTime = requestedTime
+
+		var (
+			grants []core.TimeGrantEvent
+			err    error
+		)
+		tm := ctx.currentFed.TimeManager()
+		fedHandle := common.FederateHandle(ctx.federateID)
+		switch hdr.MessageType {
+		case wire.MsgTimeAdvanceRequest:
+			grants, err = tm.TimeAdvanceRequest(fedHandle, requestedTime)
+		case wire.MsgNextEventRequest:
+			grants, err = tm.NextMessageRequest(fedHandle, requestedTime)
+		case wire.MsgFlushQueueRequest:
+			grants, err = tm.FlushQueueRequest(fedHandle, requestedTime)
+		}
+		if err != nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 
 		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
 			return true, err
 		}
-		if tagPayload, err := wire.BuildTimeAdvanceGrantPayload(ctx.federateID, requestedTime); err == nil {
-			if err := ctx.session.SendNotification(uint8(wire.MsgTimeAdvanceGrant), tagPayload); err != nil {
-				logCRCPortico.Warn("failed to send TimeAdvanceGrant to federate %d: %v", ctx.federateID, err)
-			}
+		if len(grants) > 0 {
+			dispatchTimeGrants(ctx.currentFed, grants)
 		}
-		logCRCPortico.Info("Federate [%d] granted time advance to %f", ctx.federateID, requestedTime)
 		return true, nil
 	}
 	return false, nil
 }
 
-// handleSaveRestoreManagement handles Portico federation save and restore
+// handleSaveRestoreManagement explicitly rejects Portico save/restore until persistence is implemented.
+// NOT IMPLEMENTED: Planned for future release.
 func (ctx *porticoContext) handleSaveRestoreManagement(hdr wire.Header, payload []byte) (bool, error) {
 	switch hdr.MessageType {
-	case wire.MsgSaveRequest:
-		label := "Checkpoint"
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if l, ok := obj.Get("label").(string); ok && l != "" {
-				label = l
+	case wire.MsgSaveRequest, wire.MsgSaveBegun, wire.MsgSaveComplete, wire.MsgRestoreRequest, wire.MsgRestoreComplete:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
 			}
+			return true, nil
 		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+		if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "NOT IMPLEMENTED: Federation Save/Restore is not implemented in this release"); err != nil {
 			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] requested federation save with label '%s'", ctx.federateID, label)
-
-		saveInitObj := metamodel.NewJavaObject(metamodel.ClassDescObject)
-		saveInitObj.Set("label", label)
-		if savePayload, err := wire.SerializePorticoControlMessage(saveInitObj); err == nil {
-			for _, f := range ctx.currentFed.GetAllFederates() {
-				if f.Session != nil && f.Protocol == ProtocolPortico {
-					if err := f.Session.SendNotification(uint8(wire.MsgSaveInitiate), savePayload); err != nil {
-						logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
-					}
-				}
-			}
-		}
-		return true, nil
-
-	case wire.MsgSaveBegun:
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		return true, nil
-
-	case wire.MsgSaveComplete:
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] completed save. Broadcasting FederationSaved.", ctx.federateID)
-		for _, f := range ctx.currentFed.GetAllFederates() {
-			if f.Session != nil && f.Protocol == ProtocolPortico {
-				if err := f.Session.SendNotification(uint8(wire.MsgFederationSaved), wire.BuildSuccessResponsePayload()); err != nil {
-					logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
-				}
-			}
-		}
-		return true, nil
-
-	case wire.MsgRestoreRequest:
-		label := "Checkpoint"
-		if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
-			if l, ok := obj.Get("label").(string); ok && l != "" {
-				label = l
-			}
-		}
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] requested federation restore with label '%s'", ctx.federateID, label)
-
-		restoreInitObj := metamodel.NewJavaObject(metamodel.ClassDescObject)
-		restoreInitObj.Set("label", label)
-		if restPayload, err := wire.SerializePorticoControlMessage(restoreInitObj); err == nil {
-			for _, f := range ctx.currentFed.GetAllFederates() {
-				if f.Session != nil && f.Protocol == ProtocolPortico {
-					if err := f.Session.SendNotification(uint8(wire.MsgRestoreInitiate), restPayload); err != nil {
-						logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
-					}
-				}
-			}
-		}
-		return true, nil
-
-	case wire.MsgRestoreComplete:
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
-			return true, err
-		}
-		logCRCPortico.Info("Federate [%d] completed restore. Broadcasting FederationRestored.", ctx.federateID)
-		for _, f := range ctx.currentFed.GetAllFederates() {
-			if f.Session != nil && f.Protocol == ProtocolPortico {
-				if err := f.Session.SendNotification(uint8(wire.MsgFederationRestored), wire.BuildSuccessResponsePayload()); err != nil {
-					logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
-				}
-			}
 		}
 		return true, nil
 	}
 	return false, nil
 }
 
-// handleOwnershipManagement handles Portico ownership queries and divestitures
+// handleOwnershipManagement handles Portico ownership queries and divestitures via core.OwnershipManager
 func (ctx *porticoContext) handleOwnershipManagement(hdr wire.Header, payload []byte) (bool, error) {
 	switch hdr.MessageType {
 	case wire.MsgAttributeDivest:
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		obj, err := wire.DeserializePorticoControlMessage(payload)
+		if err != nil || obj == nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidDivestPayload"); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		objHandle := extractInt32Field(obj, "objectHandle")
+		attrs := extractInt32SliceField(obj, "attributes")
+		if objHandle <= 0 || len(attrs) == 0 {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown"); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		attrHandles := make([]common.AttributeHandle, len(attrs))
+		for i, a := range attrs {
+			attrHandles[i] = common.AttributeHandle(a)
+		}
+		if err := ctx.currentFed.OwnershipManager().UnconditionalDivestiture(common.ObjectInstanceHandle(objHandle), attrHandles, common.FederateHandle(ctx.federateID)); err != nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
 		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
 			return true, err
 		}
-		logCRCPortico.Info("Federate [%d] divested attribute ownership", ctx.federateID)
+		logCRCPortico.Info("Federate [%d] divested %d attributes on object %d", ctx.federateID, len(attrHandles), objHandle)
 		return true, nil
 
 	case wire.MsgQueryOwnership:
-		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+		if ctx.currentFed == nil || ctx.federateID <= 0 {
+			if err := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+		obj, err := wire.DeserializePorticoControlMessage(payload)
+		if err != nil || obj == nil {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidQueryOwnershipPayload"); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		objHandle := extractInt32Field(obj, "objectHandle")
+		attrHandle := extractInt32Field(obj, "attributeHandle")
+		if objHandle <= 0 || attrHandle <= 0 {
+			if sendErr := ctx.session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "AttributeNotDefined"); sendErr != nil {
+				return true, sendErr
+			}
+			return true, nil
+		}
+		owner, owned := ctx.currentFed.OwnershipManager().QueryAttributeOwnership(common.ObjectInstanceHandle(objHandle), common.AttributeHandle(attrHandle))
+		ownerID := int32(-1)
+		if owned {
+			ownerID = int32(owner)
+		}
+		if err := ctx.session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildIntegerResponsePayload(ownerID)); err != nil {
 			return true, err
 		}
-		logCRCPortico.Info("Federate [%d] queried attribute ownership", ctx.federateID)
 		return true, nil
 	}
 	return false, nil
+}
+
+func extractInt32Field(obj *metamodel.JavaObject, name string) int32 {
+	if obj == nil {
+		return 0
+	}
+	switch v := obj.Get(name).(type) {
+	case int32:
+		return v
+	case int:
+		return int32(v)
+	case *metamodel.JavaObject:
+		if iv, ok := v.Get("value").(int32); ok {
+			return iv
+		}
+	}
+	return 0
+}
+
+func extractInt32SliceField(obj *metamodel.JavaObject, name string) []int32 {
+	if obj == nil {
+		return nil
+	}
+	var out []int32
+	switch v := obj.Get(name).(type) {
+	case []int32:
+		return v
+	case *metamodel.JavaObject:
+		if elems, ok := v.Get("elements").([]any); ok {
+			for _, el := range elems {
+				switch ev := el.(type) {
+				case int32:
+					out = append(out, ev)
+				case *metamodel.JavaObject:
+					if iv, ok := ev.Get("value").(int32); ok {
+						out = append(out, iv)
+					}
+				}
+			}
+		}
+	}
+	return out
 }

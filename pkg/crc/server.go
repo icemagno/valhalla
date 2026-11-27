@@ -17,6 +17,7 @@ import (
 var (
 	logCRC        = logger.NewLogger("CRC")
 	logCRCNative  = logger.NewLogger("CRC-Native")
+	logCRCDomain  = logger.NewLogger("CRC-Domain")
 	logCRCPortico = logger.NewLogger("CRC-Portico")
 )
 

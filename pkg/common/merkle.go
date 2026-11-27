@@ -4,8 +4,6 @@
 package common
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"sort"
 	"sync"
@@ -72,12 +70,7 @@ func NewFederationStateTree() *FederationStateTree {
 }
 
 func computeFederationLeaf(handle ObjectInstanceHandle, root [32]byte) [32]byte {
-	var handleBuf [4]byte
-	binary.LittleEndian.PutUint32(handleBuf[:], uint32(handle))
-	var combined [64]byte
-	copy(combined[:4], handleBuf[:])
-	copy(combined[4:36], root[:])
-	return sha256.Sum256(combined[:])
+	return HashPair(HashTreeRootUint32(uint32(handle)), root)
 }
 
 func (t *FederationStateTree) rebuildTreeLocked() {

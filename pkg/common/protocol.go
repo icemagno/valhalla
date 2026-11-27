@@ -131,12 +131,12 @@ func ReadNativeHeader(r io.Reader) (NativeHeader, error) {
 
 	magic := binary.LittleEndian.Uint16(buf[0:2])
 	if magic != NativeHeaderMagic {
-		return NativeHeader{}, fmt.Errorf("invalid native magic: 0x%04X", magic)
+		return NativeHeader{}, fmt.Errorf("%w: 0x%04X", ErrNativeInvalidMagic, magic)
 	}
 
 	version := buf[2]
 	if version != NativeProtocolVer {
-		return NativeHeader{}, fmt.Errorf("unsupported native protocol version: %d", version)
+		return NativeHeader{}, fmt.Errorf("%w: %d", ErrNativeInvalidVersion, version)
 	}
 
 	payloadLen := binary.LittleEndian.Uint32(buf[4:8])

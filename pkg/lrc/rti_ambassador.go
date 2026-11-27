@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -759,12 +760,17 @@ func (a *RTIambassadorImpl) DeleteObjectInstance(objectHandle int32, tag []byte)
 // UpdateAttributeValues dispatches updated attribute values to the federation
 func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes map[int32][]byte, tag []byte) error {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	client := a.client
+	fedID := a.federationID
+	federateID := a.federateID
+	fedAmb := a.fedAmb
+	stateTree := a.stateTree
+	a.mu.RUnlock()
 
-	if a.client == nil || a.client.IsClosed() {
+	if client == nil || client.IsClosed() {
 		return ErrNotConnected
 	}
-	if a.federateID == 0 {
+	if federateID == 0 {
 		return ErrFederateNotExecutionMember
 	}
 
@@ -784,7 +790,7 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgUpdateAttributes, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgUpdateAttributes, uint32(fedID), uint32(federateID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -794,16 +800,16 @@ func (a *RTIambassadorImpl) UpdateAttributeValues(objectHandle int32, attributes
 	}
 
 	for k, v := range attrMap {
-		a.stateTree.UpdateEntityAttribute(common.ObjectInstanceHandle(objectHandle), k, v)
+		stateTree.UpdateEntityAttribute(common.ObjectInstanceHandle(objectHandle), k, v)
 	}
 	if (resp.Header.Flags & common.FlagNativeMerkle) != 0 {
-		localRoot := a.stateTree.GetGlobalRoot()
+		localRoot := stateTree.GetGlobalRoot()
 		if localRoot != resp.Header.MerkleRoot {
 			desyncErr := fmt.Errorf("%w: CRC root %x != local root %x", ErrStateDesyncDetected, resp.Header.MerkleRoot, localRoot)
 			a.desyncMu.Lock()
 			a.lastDesyncErr = desyncErr
 			a.desyncMu.Unlock()
-			if desyncAmb, ok := a.fedAmb.(DesyncAwareFederateAmbassador); ok {
+			if desyncAmb, ok := fedAmb.(DesyncAwareFederateAmbassador); ok {
 				desyncAmb.OnStateDesyncDetected(resp.Header.MerkleRoot, localRoot)
 			}
 		}
@@ -859,7 +865,7 @@ func (a *RTIambassadorImpl) EnableTimeRegulation(lookahead float64) error {
 	if a.federateID == 0 {
 		return ErrFederateNotExecutionMember
 	}
-	if lookahead < 0 {
+	if math.IsNaN(lookahead) || math.IsInf(lookahead, 0) || lookahead < 0 {
 		return common.ErrInvalidLookahead
 	}
 
@@ -972,6 +978,10 @@ func (a *RTIambassadorImpl) TimeAdvanceRequest(targetTime float64) error {
 		return ErrFederateNotExecutionMember
 	}
 
+	if math.IsNaN(targetTime) || math.IsInf(targetTime, 0) {
+		return common.ErrInvalidLogicalTime
+	}
+
 	tarReq := common.TimeFloat64Payload{Time: targetTime}
 	payload, err := tarReq.MarshalBinary()
 	if err != nil {
@@ -997,6 +1007,10 @@ func (a *RTIambassadorImpl) NextMessageRequest(targetTime float64) error {
 		return ErrFederateNotExecutionMember
 	}
 
+	if math.IsNaN(targetTime) || math.IsInf(targetTime, 0) {
+		return common.ErrInvalidLogicalTime
+	}
+
 	nmrReq := common.TimeFloat64Payload{Time: targetTime}
 	payload, err := nmrReq.MarshalBinary()
 	if err != nil {
@@ -1020,6 +1034,10 @@ func (a *RTIambassadorImpl) FlushQueueRequest(targetTime float64) error {
 	}
 	if a.federateID == 0 {
 		return ErrFederateNotExecutionMember
+	}
+
+	if math.IsNaN(targetTime) || math.IsInf(targetTime, 0) {
+		return common.ErrInvalidLogicalTime
 	}
 
 	flushReq := common.TimeFloat64Payload{Time: targetTime}
@@ -1229,8 +1247,6 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 		var succPayload common.SyncPointLabelPayload
 		if err := succPayload.UnmarshalBinary(cb.Payload); err == nil {
 			fedAmb.SynchronizationPointRegistrationSucceeded(succPayload.Label)
-		} else {
-			fedAmb.SynchronizationPointRegistrationSucceeded(string(cb.Payload))
 		}
 
 	case common.NativeMsgSyncPointRegFailed:
@@ -1241,8 +1257,6 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 			var labelPayload common.SyncPointLabelPayload
 			if err2 := labelPayload.UnmarshalBinary(cb.Payload); err2 == nil {
 				fedAmb.SynchronizationPointRegistrationFailed(labelPayload.Label, "synchronization point registration failed")
-			} else {
-				fedAmb.SynchronizationPointRegistrationFailed(string(cb.Payload), "synchronization point registration failed")
 			}
 		}
 
@@ -1256,8 +1270,6 @@ func (a *RTIambassadorImpl) dispatchCallback(cb callbackItem, fedAmb FederateAmb
 		var syncPayload common.SyncPointLabelPayload
 		if err := syncPayload.UnmarshalBinary(cb.Payload); err == nil {
 			fedAmb.FederationSynchronized(syncPayload.Label)
-		} else {
-			fedAmb.FederationSynchronized(string(cb.Payload))
 		}
 
 	case common.NativeMsgDiscoverObject:
@@ -1572,12 +1584,17 @@ func (a *RTIambassadorImpl) SubscribeObjectClassAttributesWithRegion(objectClass
 // UpdateAttributeValuesWithSpatial dispatches updated attribute values with metric (ECEF) spatial coordinates
 func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32, attributes map[int32][]byte, x, y, z float64, tag []byte) error {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	client := a.client
+	fedID := a.federationID
+	federateID := a.federateID
+	fedAmb := a.fedAmb
+	stateTree := a.stateTree
+	a.mu.RUnlock()
 
-	if a.client == nil || a.client.IsClosed() {
+	if client == nil || client.IsClosed() {
 		return ErrNotConnected
 	}
-	if a.federateID == 0 {
+	if federateID == 0 {
 		return ErrFederateNotExecutionMember
 	}
 
@@ -1599,7 +1616,7 @@ func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32,
 		return err
 	}
 
-	resp, err := a.client.SendRequest(common.NativeMsgUpdateAttributesSpatial, uint32(a.federationID), uint32(a.federateID), payload, 5*time.Second)
+	resp, err := client.SendRequest(common.NativeMsgUpdateAttributesSpatial, uint32(fedID), uint32(federateID), payload, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -1608,16 +1625,16 @@ func (a *RTIambassadorImpl) UpdateAttributeValuesWithSpatial(objectHandle int32,
 	}
 
 	for k, v := range attrMap {
-		a.stateTree.UpdateEntityAttribute(common.ObjectInstanceHandle(objectHandle), k, v)
+		stateTree.UpdateEntityAttribute(common.ObjectInstanceHandle(objectHandle), k, v)
 	}
 	if (resp.Header.Flags & common.FlagNativeMerkle) != 0 {
-		localRoot := a.stateTree.GetGlobalRoot()
+		localRoot := stateTree.GetGlobalRoot()
 		if localRoot != resp.Header.MerkleRoot {
 			desyncErr := fmt.Errorf("%w: CRC root %x != local root %x", ErrStateDesyncDetected, resp.Header.MerkleRoot, localRoot)
 			a.desyncMu.Lock()
 			a.lastDesyncErr = desyncErr
 			a.desyncMu.Unlock()
-			if desyncAmb, ok := a.fedAmb.(DesyncAwareFederateAmbassador); ok {
+			if desyncAmb, ok := fedAmb.(DesyncAwareFederateAmbassador); ok {
 				desyncAmb.OnStateDesyncDetected(resp.Header.MerkleRoot, localRoot)
 			}
 		}

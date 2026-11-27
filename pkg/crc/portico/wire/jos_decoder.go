@@ -11,12 +11,19 @@ import (
 	"github.com/icemagno/valhalla/pkg/crc/portico/wire/metamodel"
 )
 
+const (
+	maxJOSAllocation      = 16 * 1024 * 1024 // 16 MB safety limit against OOM DoS
+	maxJOSCollectionItems = 100000
+	maxJOSDepth           = 64
+)
+
 // JOSDecoder é o motor genérico agnóstico de deserialização Java em Go (equivalente ao ObjectInputStream)
 type JOSDecoder struct {
 	r           *bytes.Reader
 	readHdr     bool
 	handleTable map[uint32]any
 	nextHandle  uint32
+	depth       int
 }
 
 // NewJOSDecoder instancia um novo deserializador a partir de um slice de bytes
@@ -139,6 +146,9 @@ func (d *JOSDecoder) ReadBlockData() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if iLen < 0 || int(iLen) > maxJOSAllocation {
+			return nil, fmt.Errorf("jos decoder: TC_BLOCKDATALONG length %d out of bounds [0, %d]", iLen, maxJOSAllocation)
+		}
 		length = int(iLen)
 	} else {
 		return nil, fmt.Errorf("jos decoder: esperado TC_BLOCKDATA (0x77/0x7A), recebido 0x%02X", tc)
@@ -156,6 +166,11 @@ func (d *JOSDecoder) ReadObject() (any, error) {
 	if err := d.ReadStreamHeader(); err != nil {
 		return nil, err
 	}
+	if d.depth >= maxJOSDepth {
+		return nil, fmt.Errorf("jos decoder: max recursion depth (%d) exceeded", maxJOSDepth)
+	}
+	d.depth++
+	defer func() { d.depth-- }()
 
 	tc, err := d.ReadByte()
 	if err != nil {
@@ -381,8 +396,14 @@ func (d *JOSDecoder) readArray() (any, error) {
 	if err := binary.Read(d.r, binary.BigEndian, &size); err != nil {
 		return nil, fmt.Errorf("jos decoder: falha ao ler tamanho do array: %w", err)
 	}
+	if size < 0 {
+		return nil, fmt.Errorf("jos decoder: tamanho de array negativo: %d", size)
+	}
 
 	if cls != nil && cls.Name == "[B" {
+		if int(size) > maxJOSAllocation {
+			return nil, fmt.Errorf("jos decoder: byte array size %d exceeds maximum %d", size, maxJOSAllocation)
+		}
 		buf := make([]byte, size)
 		if _, err := io.ReadFull(d.r, buf); err != nil {
 			return nil, fmt.Errorf("jos decoder: falha ao ler bytes do byte array: %w", err)
@@ -391,6 +412,9 @@ func (d *JOSDecoder) readArray() (any, error) {
 		return buf, nil
 	}
 
+	if int(size) > maxJOSCollectionItems {
+		return nil, fmt.Errorf("jos decoder: object array size %d exceeds maximum %d", size, maxJOSCollectionItems)
+	}
 	// Array genérico de objetos
 	arr := make([]any, size)
 	d.assignHandle(arr)
@@ -486,6 +510,9 @@ func (d *JOSDecoder) skipCustomData() error {
 			var iLen int32
 			if err := binary.Read(d.r, binary.BigEndian, &iLen); err != nil {
 				return err
+			}
+			if iLen < 0 || int(iLen) > maxJOSAllocation {
+				return fmt.Errorf("jos decoder: invalid TC_BLOCKDATALONG length %d in skipCustomData", iLen)
 			}
 			if _, err := d.r.Seek(int64(iLen), io.SeekCurrent); err != nil {
 				return err
@@ -619,23 +646,27 @@ func DeserializePorticoControlMessage(data []byte) (*JavaObject, error) {
 						idx += tagLen
 					}
 					if idx+4 <= len(buf) {
-						attrCount := int(binary.BigEndian.Uint32(buf[idx : idx+4]))
+						attrCount := binary.BigEndian.Uint32(buf[idx : idx+4])
 						idx += 4
+						remaining := uint64(len(buf) - idx)
+						if uint64(attrCount) > remaining/8 || attrCount > maxJOSCollectionItems {
+							return nil, fmt.Errorf("jos decoder: invalid UpdateAttributes attrCount %d for remaining %d bytes", attrCount, remaining)
+						}
 						attrs := make(map[any]any, attrCount)
-						for i := 0; i < attrCount; i++ {
+						for i := uint32(0); i < attrCount; i++ {
 							if idx+8 > len(buf) {
-								break
+								return nil, fmt.Errorf("jos decoder: truncated UpdateAttributes entry %d", i)
 							}
 							handle := int32(binary.BigEndian.Uint32(buf[idx : idx+4]))
-							vLen := int(binary.BigEndian.Uint32(buf[idx+4 : idx+8]))
+							vLen := binary.BigEndian.Uint32(buf[idx+4 : idx+8])
 							idx += 8
-							if idx+vLen > len(buf) {
-								break
+							if uint64(vLen) > uint64(len(buf)-idx) {
+								return nil, fmt.Errorf("jos decoder: truncated UpdateAttributes value length %d", vLen)
 							}
 							val := make([]byte, vLen)
-							copy(val, buf[idx:idx+vLen])
+							copy(val, buf[idx:idx+int(vLen)])
 							attrs[metamodel.NewJavaInteger(handle)] = val
-							idx += vLen
+							idx += int(vLen)
 						}
 						obj.Set("attributes", metamodel.NewJavaHashMap(attrs))
 					}
@@ -660,23 +691,27 @@ func DeserializePorticoControlMessage(data []byte) (*JavaObject, error) {
 						idx += 4
 					}
 					if idx+4 <= len(buf) {
-						paramCount := int(binary.BigEndian.Uint32(buf[idx : idx+4]))
+						paramCount := binary.BigEndian.Uint32(buf[idx : idx+4])
 						idx += 4
+						remaining := uint64(len(buf) - idx)
+						if uint64(paramCount) > remaining/8 || paramCount > maxJOSCollectionItems {
+							return nil, fmt.Errorf("jos decoder: invalid SendInteraction paramCount %d for remaining %d bytes", paramCount, remaining)
+						}
 						params := make(map[any]any, paramCount)
-						for i := 0; i < paramCount; i++ {
+						for i := uint32(0); i < paramCount; i++ {
 							if idx+8 > len(buf) {
-								break
+								return nil, fmt.Errorf("jos decoder: truncated SendInteraction entry %d", i)
 							}
 							handle := int32(binary.BigEndian.Uint32(buf[idx : idx+4]))
-							vLen := int(binary.BigEndian.Uint32(buf[idx+4 : idx+8]))
+							vLen := binary.BigEndian.Uint32(buf[idx+4 : idx+8])
 							idx += 8
-							if idx+vLen > len(buf) {
-								break
+							if uint64(vLen) > uint64(len(buf)-idx) {
+								return nil, fmt.Errorf("jos decoder: truncated SendInteraction value length %d", vLen)
 							}
 							val := make([]byte, vLen)
-							copy(val, buf[idx:idx+vLen])
+							copy(val, buf[idx:idx+int(vLen)])
 							params[metamodel.NewJavaInteger(handle)] = val
-							idx += vLen
+							idx += int(vLen)
 						}
 						obj.Set("parameters", metamodel.NewJavaHashMap(params))
 					}

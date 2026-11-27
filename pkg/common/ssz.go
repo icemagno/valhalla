@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"sort"
 )
 
@@ -654,15 +655,16 @@ func Pack(data []byte) [][32]byte {
 }
 
 // NextPowerOfTwo returns the smallest power of 2 >= n (at least 1).
+// Clamps at the largest representable power of two for int to prevent signed overflow/infinite loops.
 func NextPowerOfTwo(n int) int {
 	if n <= 1 {
 		return 1
 	}
-	p := 1
-	for p < n {
-		p <<= 1
+	const maxPow2 = 1 << (bits.UintSize - 2)
+	if n >= maxPow2 {
+		return maxPow2
 	}
-	return p
+	return 1 << bits.Len(uint(n-1))
 }
 
 // zeroHashes stores precomputed Merkle roots of empty subtrees up to depth 64:
@@ -682,18 +684,20 @@ func init() {
 // allocation and redundant hashing of empty subtrees.
 func Merkleize(chunks [][32]byte, limit uint64) [32]byte {
 	n := len(chunks)
-	count := n
-	if limit > uint64(count) {
-		count = int(limit)
+	count := uint64(n)
+	if limit > count {
+		count = limit
 	}
 	if count == 0 {
 		return [32]byte{}
 	}
 
-	power := NextPowerOfTwo(count)
 	depth := 0
-	for (1 << depth) < power {
-		depth++
+	if count > 1 {
+		depth = bits.Len64(count - 1)
+	}
+	if depth > 64 {
+		depth = 64
 	}
 
 	if n == 0 {

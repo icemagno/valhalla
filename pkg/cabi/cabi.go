@@ -44,6 +44,7 @@ import "C"
 
 import (
 	"errors"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -219,10 +220,19 @@ func (f *cFedAmbassador) ReflectAttributeValues(theObject int32, theAttributes m
 		}
 
 		cHandles := C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(C.int32_t(0))))
+		if cHandles == nil {
+			return
+		}
 		defer C.free(cHandles)
 		cValues := C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(uintptr(0))))
+		if cValues == nil {
+			return
+		}
 		defer C.free(cValues)
 		cLens := C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(C.int32_t(0))))
+		if cLens == nil {
+			return
+		}
 		defer C.free(cLens)
 
 		handlesPtr := unsafe.Slice((*C.int32_t)(cHandles), count)
@@ -292,10 +302,19 @@ func (f *cFedAmbassador) ReceiveInteraction(interactionClass int32, theParameter
 
 		if count > 0 {
 			cHandles = C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(C.int32_t(0))))
+			if cHandles == nil {
+				return
+			}
 			defer C.free(cHandles)
 			cValues = C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(uintptr(0))))
+			if cValues == nil {
+				return
+			}
 			defer C.free(cValues)
 			cLens = C.malloc(C.size_t(count) * C.size_t(unsafe.Sizeof(C.int32_t(0))))
+			if cLens == nil {
+				return
+			}
 			defer C.free(cLens)
 
 			handlesPtr := unsafe.Slice((*C.int32_t)(cHandles), count)
@@ -351,8 +370,7 @@ func (f *cFedAmbassador) TimeAdvanceGrant(grantTime float64) {
 
 var (
 	registryMu  sync.RWMutex
-	ambCounter  uintptr = 1000
-	ambRegistry         = make(map[uintptr]*ambContext)
+	ambRegistry = make(map[uintptr]*ambContext)
 )
 
 func getContext(amb C.ValhallaAmbassador) (*ambContext, bool) {
@@ -389,13 +407,17 @@ func valhalla_destroy_ambassador(amb C.ValhallaAmbassador) {
 	if amb == nil {
 		return
 	}
-	registryMu.Lock()
-	defer registryMu.Unlock()
-
 	id := uintptr(amb)
-	if ctx, exists := ambRegistry[id]; exists {
-		_ = ctx.amb.Disconnect()
+
+	registryMu.Lock()
+	ctx, exists := ambRegistry[id]
+	if exists {
 		delete(ambRegistry, id)
+	}
+	registryMu.Unlock()
+
+	if exists {
+		_ = ctx.amb.Disconnect()
 		C.free(unsafe.Pointer(amb))
 	}
 }
@@ -1154,7 +1176,8 @@ func valhalla_update_attributes_spatial(amb C.ValhallaAmbassador, objectHandle C
 
 //export valhalla_evoke_callback
 func valhalla_evoke_callback(amb C.ValhallaAmbassador, timeoutSeconds C.double, outEvoked *C.bool) C.int32_t {
-	if amb == nil || outEvoked == nil || timeoutSeconds < 0 {
+	tSec := float64(timeoutSeconds)
+	if amb == nil || outEvoked == nil || math.IsNaN(tSec) || math.IsInf(tSec, 0) || tSec < 0 {
 		return C.VALHALLA_ERR_INVALID_ARG
 	}
 	ctx, exists := getContext(amb)

@@ -29,7 +29,20 @@ type Session interface {
 	Close() error
 }
 
+// DomainEventSink allows protocol sessions (Native SSZ, Portico JOS, Web JSON) to serialize
+// typed HLA domain events directly to their native wire format in a single pass.
+type DomainEventSink interface {
+	SendDiscoverObject(objHandle, classHandle int32, objName string) error
+	SendRemoveObject(objHandle int32, tag []byte) error
+	SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, hasTime bool, timestamp float64, merkleRoot [32]byte) error
+	SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, hasTime bool, timestamp float64) error
+	SendTimeAdvanceGrant(grantedTime float64) error
+	SendAnnounceSyncPoint(label string, tag []byte) error
+	SendFederationSynchronized(label string) error
+}
+
 // Federate represents a participant node in a federation execution on the CRC
+// Note: Logical time state is owned exclusively by core.TimeManager (single source of truth).
 type Federate struct {
 	ID           int32
 	Name         string
@@ -37,14 +50,6 @@ type Federate struct {
 	Protocol     ProtocolType
 	Session      Session
 	JoinedAt     time.Time
-
-	// Time Management State
-	CurrentTime   float64
-	Lookahead     float64
-	IsRegulating  bool
-	IsConstrained bool
-	IsAdvancing   bool
-	TargetTime    float64
 }
 
 // SyncPoint represents an active synchronization point in the federation
@@ -225,10 +230,10 @@ func (f *FederationExecution) Join(name, fedType string, proto ProtocolType, ses
 // Resign removes the federate from the federation, freeing its name and session
 func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 
 	fed, exists := f.federates[id]
 	if !exists {
+		f.mu.Unlock()
 		return nil, ErrFederateNotFound
 	}
 
@@ -245,14 +250,22 @@ func (f *FederationExecution) Resign(id int32) (*Federate, error) {
 		f.router.RemoveFederate(common.FederateHandle(id))
 	}
 
-	// Remove federate from time manager
+	// Remove federate from time manager and capture any unblocked grants
+	var grants []core.TimeGrantEvent
 	if f.timeMgr != nil {
-		f.timeMgr.UnregisterFederate(common.FederateHandle(id))
+		grants = f.timeMgr.UnregisterFederate(common.FederateHandle(id))
 	}
 
 	// Clear attribute ownership held by federate
 	if f.ownershipMgr != nil {
 		f.ownershipMgr.RemoveFederate(common.FederateHandle(id))
+	}
+
+	f.mu.Unlock()
+
+	// Dispatch time advance grants outside f.mu to avoid lock inversion/deadlock
+	if len(grants) > 0 {
+		dispatchTimeGrants(f, grants)
 	}
 
 	return fed, nil
@@ -344,12 +357,19 @@ func (f *FederationExecution) RegisterObjectInstance(classHandle int32, name str
 		f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(handle), obj.MerkleRoot)
 	}
 
-	// Assign initial attribute ownership to the registering federate
+	// Assign initial attribute ownership (direct + inherited from all ancestors) to the registering federate
 	if f.ownershipMgr != nil && f.omt != nil {
 		if cls, ok := f.omt.GetObjectClass(common.ObjectClassHandle(classHandle)); ok {
 			var attrHandles []common.AttributeHandle
 			for _, a := range cls.Attributes {
 				attrHandles = append(attrHandles, a.Handle)
+			}
+			for _, ancH := range cls.Ancestors {
+				if anc, ok := f.omt.GetObjectClass(ancH); ok {
+					for _, a := range anc.Attributes {
+						attrHandles = append(attrHandles, a.Handle)
+					}
+				}
 			}
 			f.ownershipMgr.RegisterInitialOwnership(common.ObjectInstanceHandle(handle), attrHandles, common.FederateHandle(ownerID))
 		}

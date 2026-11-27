@@ -15,6 +15,10 @@ public:
     ValhallaRTIambassador();
     virtual ~ValhallaRTIambassador() throw();
 
+    // Non-copyable (owns opaque native C-ABI handle)
+    ValhallaRTIambassador(const ValhallaRTIambassador&) = delete;
+    ValhallaRTIambassador& operator=(const ValhallaRTIambassador&) = delete;
+
     // Federation Management
     virtual void connect(
         FederateAmbassador& federateAmbassador,

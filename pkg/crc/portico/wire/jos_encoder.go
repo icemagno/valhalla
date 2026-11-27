@@ -69,10 +69,15 @@ func (e *JOSEncoder) WriteString(s string) {
 	e.writeString(s)
 }
 
-// WriteBlockData escreve um bloco opaco de dados binários (TC_BLOCKDATA)
+// WriteBlockData escreve um bloco opaco de dados binários (TC_BLOCKDATA ou TC_BLOCKDATALONG se > 255B)
 func (e *JOSEncoder) WriteBlockData(data []byte) {
-	e.w.WriteByte(TC_BLOCKDATA)
-	e.w.WriteByte(byte(len(data)))
+	if len(data) <= 255 {
+		e.w.WriteByte(TC_BLOCKDATA)
+		e.w.WriteByte(byte(len(data)))
+	} else {
+		e.w.WriteByte(0x7A) // TC_BLOCKDATALONG
+		_ = binary.Write(e.w, binary.BigEndian, int32(len(data)))
+	}
 	e.w.Write(data)
 }
 

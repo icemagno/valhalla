@@ -136,6 +136,7 @@ export class RTIambassador {
 
             this.ws.onclose = () => {
                 this.connected = false;
+                this.rejectAllPending('WebSocket connection closed');
                 this.emit('disconnected');
             };
 
@@ -150,6 +151,7 @@ export class RTIambassador {
         this.ws.close();
         this.connected = false;
         this.federateHandle = 0;
+        this.rejectAllPending('Client disconnected');
     }
 
     public async createFederationExecution(federationName: string, fomModules?: string | string[]): Promise<void> {
@@ -290,7 +292,17 @@ export class RTIambassador {
         return this.federateHandle;
     }
 
-    private sendRequest(action: string, params: any): Promise<any> {
+    private rejectAllPending(reason: string): void {
+        for (const [id, entry] of this.pendingRequests.entries()) {
+            if ((entry as any).timer) {
+                clearTimeout((entry as any).timer);
+            }
+            this.pendingRequests.delete(id);
+            entry.reject(new RTIexception(reason, 'NotConnected'));
+        }
+    }
+
+    private sendRequest(action: string, params: any, timeoutMs = 10000): Promise<any> {
         if (!this.connected || !this.ws) {
             return Promise.reject(new RTIexception('Not connected to Valhalla CRC', 'NotConnected'));
         }
@@ -299,7 +311,12 @@ export class RTIambassador {
         const payload = JSON.stringify({ id, action, params });
 
         return new Promise((resolve, reject) => {
-            this.pendingRequests.set(id, { resolve, reject });
+            const timer = setTimeout(() => {
+                if (this.pendingRequests.delete(id)) {
+                    reject(new RTIexception(`Request '${action}' timed out after ${timeoutMs}ms`, 'RequestTimeout'));
+                }
+            }, timeoutMs);
+            (this.pendingRequests as any).set(id, { resolve, reject, timer });
             this.ws.send(payload);
         });
     }
@@ -310,7 +327,11 @@ export class RTIambassador {
 
             // Handle Response to pending request
             if (data.id && this.pendingRequests.has(data.id)) {
-                const { resolve, reject } = this.pendingRequests.get(data.id)!;
+                const entry: any = this.pendingRequests.get(data.id)!;
+                if (entry.timer) {
+                    clearTimeout(entry.timer);
+                }
+                const { resolve, reject } = entry;
                 this.pendingRequests.delete(data.id);
 
                 if (data.status === 'OK') {

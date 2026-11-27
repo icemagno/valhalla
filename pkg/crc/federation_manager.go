@@ -41,7 +41,10 @@ func (m *FederationManager) CreateFederationWithFOMs(name string, foms []string)
 
 	// Ingest specified FOM modules
 	for _, f := range foms {
-		_ = IngestFOMIntoFederation(fed, f)
+		if err := IngestFOMIntoFederation(fed, f); err != nil {
+			delete(m.federations, name)
+			return nil, err
+		}
 	}
 
 	// Ingest canonical defaults for standard federations

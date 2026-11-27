@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
@@ -222,6 +223,87 @@ func (s *WebSession) Close() error {
 // RFC 6455 WebSocket Framing & Handshake Helpers (Pure Go Standard Library)
 // -----------------------------------------------------------------------------
 
+// DomainEventSink implementation (single-pass JSON serialization, zero SSZ round-trip)
+
+func (s *WebSession) SendDiscoverObject(objHandle, classHandle int32, objName string) error {
+	return s.SendJSON(map[string]interface{}{
+		"callback": "discoverObjectInstance",
+		"params": map[string]interface{}{
+			"object": objHandle,
+			"class":  classHandle,
+			"name":   objName,
+		},
+	})
+}
+
+func (s *WebSession) SendRemoveObject(objHandle int32, tag []byte) error {
+	return s.SendJSON(map[string]interface{}{
+		"callback": "removeObjectInstance",
+		"params": map[string]interface{}{
+			"object": objHandle,
+			"tag":    string(tag),
+		},
+	})
+}
+
+func (s *WebSession) SendReflectAttributes(objHandle int32, attrs map[common.AttributeHandle][]byte, tag []byte, _ bool, _ float64, _ [32]byte) error {
+	strAttrs := make(map[string]string, len(attrs))
+	for k, v := range attrs {
+		strAttrs[strconv.Itoa(int(k))] = string(v)
+	}
+	return s.SendJSON(map[string]interface{}{
+		"callback": "reflectAttributeValues",
+		"params": map[string]interface{}{
+			"object":     objHandle,
+			"attributes": strAttrs,
+			"tag":        string(tag),
+		},
+	})
+}
+
+func (s *WebSession) SendReceiveInteraction(classHandle int32, params map[common.ParameterHandle][]byte, tag []byte, _ bool, _ float64) error {
+	strParams := make(map[string]string, len(params))
+	for k, v := range params {
+		strParams[strconv.Itoa(int(k))] = string(v)
+	}
+	return s.SendJSON(map[string]interface{}{
+		"callback": "receiveInteraction",
+		"params": map[string]interface{}{
+			"interactionClass": classHandle,
+			"parameters":       strParams,
+			"tag":              string(tag),
+		},
+	})
+}
+
+func (s *WebSession) SendTimeAdvanceGrant(grantedTime float64) error {
+	return s.SendJSON(map[string]interface{}{
+		"callback": "timeAdvanceGrant",
+		"params": map[string]interface{}{
+			"time": grantedTime,
+		},
+	})
+}
+
+func (s *WebSession) SendAnnounceSyncPoint(label string, tag []byte) error {
+	return s.SendJSON(map[string]interface{}{
+		"callback": "announceSynchronizationPoint",
+		"params": map[string]interface{}{
+			"label": label,
+			"tag":   string(tag),
+		},
+	})
+}
+
+func (s *WebSession) SendFederationSynchronized(label string) error {
+	return s.SendJSON(map[string]interface{}{
+		"callback": "federationSynchronized",
+		"params": map[string]interface{}{
+			"label": label,
+		},
+	})
+}
+
 func computeWebSocketAccept(key string) string {
 	h := sha1.New()
 	h.Write([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
@@ -253,6 +335,27 @@ func writeWebSocketCloseFrame(w io.Writer) error {
 	return err
 }
 
+// SendPong sends an RFC 6455 Pong control frame (opcode 0x0A) synchronized with session.mu
+func (s *WebSession) SendPong(payload []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return net.ErrClosed
+	}
+	if len(payload) > 125 {
+		payload = payload[:125]
+	}
+	header := []byte{0x8A, byte(len(payload))}
+	if _, err := s.conn.Write(header); err != nil {
+		return err
+	}
+	if len(payload) > 0 {
+		_, err := s.conn.Write(payload)
+		return err
+	}
+	return nil
+}
+
 func readWebSocketFrame(r io.Reader) (opcode byte, payload []byte, err error) {
 	var hdr [2]byte
 	if _, err = io.ReadFull(r, hdr[:]); err != nil {
@@ -278,6 +381,11 @@ func readWebSocketFrame(r io.Reader) (opcode byte, payload []byte, err error) {
 			return 0, nil, err
 		}
 		payloadLen = binary.BigEndian.Uint64(lBuf[:])
+	}
+
+	const MaxWebSocketPayloadLen uint64 = 16 * 1024 * 1024 // 16 MB DoS limit
+	if payloadLen > MaxWebSocketPayloadLen {
+		return 0, nil, fmt.Errorf("websocket payload length %d exceeds maximum %d", payloadLen, MaxWebSocketPayloadLen)
 	}
 
 	var mask [4]byte

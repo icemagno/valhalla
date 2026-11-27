@@ -2,8 +2,11 @@ package metamodel
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 )
+
+const maxMetamodelCollectionSize = 100000
 
 // ClassDescHashMap representa a coleção canônica java.util.HashMap
 // SUID oficial da JVM: 362498820763181265L (0x0507DAC1C31660D1)
@@ -66,7 +69,11 @@ var ClassDescHashMap = &ClassDesc{
 
 		size := 0
 		if len(blk) >= 8 {
-			size = int(binary.BigEndian.Uint32(blk[4:8]))
+			rawSize := binary.BigEndian.Uint32(blk[4:8])
+			if rawSize > maxMetamodelCollectionSize {
+				return fmt.Errorf("jos metamodel: HashMap size %d exceeds maximum %d", rawSize, maxMetamodelCollectionSize)
+			}
+			size = int(rawSize)
 		}
 
 		entries := make(map[any]any, size)
@@ -82,10 +89,13 @@ var ClassDescHashMap = &ClassDesc{
 			entries[k] = v
 		}
 
-		// Consumir TC_ENDBLOCKDATA se presente
+		// Consumir TC_ENDBLOCKDATA obrigatório
 		b, err := r.ReadByte()
-		if err == nil && b != TC_ENDBLOCKDATA {
-			// Se o byte não for TC_ENDBLOCKDATA, não consome
+		if err != nil {
+			return fmt.Errorf("jos metamodel: HashMap missing TC_ENDBLOCKDATA: %w", err)
+		}
+		if b != TC_ENDBLOCKDATA {
+			return fmt.Errorf("jos metamodel: HashMap expected TC_ENDBLOCKDATA (0x78), got 0x%02X", b)
 		}
 
 		obj.Set("entries", entries)

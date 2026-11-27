@@ -154,6 +154,9 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 		}
 
 		var payload []byte
+		if hdr.PayloadLen > common.MaxNativePayloadLen {
+			return fmt.Errorf("native payload length %d exceeds maximum %d", hdr.PayloadLen, common.MaxNativePayloadLen)
+		}
 		if hdr.PayloadLen > 0 {
 			payload = make([]byte, hdr.PayloadLen)
 			if _, err := io.ReadFull(reader, payload); err != nil {

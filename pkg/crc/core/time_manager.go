@@ -173,7 +173,7 @@ func (tm *TimeManager) EnableTimeRegulation(handle common.FederateHandle, lookah
 	if fed.IsRegulating {
 		return common.ErrTimeRegulationAlreadyEnabled
 	}
-	if lookahead < 0.0 {
+	if math.IsNaN(lookahead) || math.IsInf(lookahead, 0) || lookahead < 0.0 {
 		return common.ErrInvalidLookahead
 	}
 
@@ -199,6 +199,14 @@ func (tm *TimeManager) DisableTimeRegulation(handle common.FederateHandle) ([]Ti
 	fed.IsRegulating = false
 	grants := tm.evaluateAdvancementsLocked()
 	return grants, nil
+}
+
+// IsConstrained reports in a thread-safe manner whether the federate is time-constrained.
+func (tm *TimeManager) IsConstrained(handle common.FederateHandle) bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	fed, ok := tm.federates[handle]
+	return ok && fed.IsConstrained
 }
 
 // EnableTimeConstrained enables time constrained status for the federate
@@ -249,7 +257,7 @@ func (tm *TimeManager) ModifyLookahead(handle common.FederateHandle, newLookahea
 	if !fed.IsRegulating {
 		return common.ErrTimeRegulationNotEnabled
 	}
-	if newLookahead < 0.0 {
+	if math.IsNaN(newLookahead) || math.IsInf(newLookahead, 0) || newLookahead < 0.0 {
 		return common.ErrInvalidLookahead
 	}
 
@@ -294,6 +302,9 @@ func (tm *TimeManager) requestAdvance(handle common.FederateHandle, targetTime f
 	if fed.State != TimeStateGranted {
 		return nil, common.ErrTimeAdvanceAlreadyInProgress
 	}
+	if math.IsNaN(targetTime) || math.IsInf(targetTime, 0) {
+		return nil, common.ErrInvalidLogicalTime
+	}
 	if targetTime < fed.CurrentTime-TimeEpsilon {
 		return nil, common.ErrLogicalTimeAlreadyPassed
 	}
@@ -327,6 +338,9 @@ func (tm *TimeManager) requestAdvance(handle common.FederateHandle, targetTime f
 
 // EnqueueTSOMessage places a message into the destination federate's TSO priority queue
 func (tm *TimeManager) EnqueueTSOMessage(msg TSOMessage) ([]TimeGrantEvent, error) {
+	if math.IsNaN(msg.Timestamp) || math.IsInf(msg.Timestamp, 0) {
+		return nil, common.ErrInvalidLogicalTime
+	}
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
