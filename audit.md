@@ -142,6 +142,9 @@ Se a taxa de geração de eventos ultrapassar o buffer de 1.024 mensagens antes 
 ### ⚠️ 3.4. Descarte Silencioso de Mensagens no Logger ([pkg/logger/logger.go](pkg/logger/logger.go#L251-L254))
 Quando a fila assíncrona de 10.000 logs atinge saturação, eventos de severidade `ERROR` ou `CRITICAL` são descartados no bloco `default:`. Além disso, a função `Flush()` retorna imediatamente sem aguardar o esvaziamento caso a fila esteja cheia.
 
+> ✅ **STATUS DE REMEDIAÇÃO (26/11/2026): CORRIGIDO E APROVADO** (commit `5a68331`)  
+> Implementado fallback síncrono imediato para eventos de severidade `LevelError` e `LevelCritical` sob saturação de fila, protegido por mutex granular de escritor (`l.outMu`), garantindo entrega ponta-a-ponta e eliminação de descartes silenciosos de falhas. Descartes de mensagens não-críticas (`TRACE`, `DEBUG`, `INFO`, `WARN`) sob saturação são monitorados e contabilizados atomicamente (`atomic.AddUint64(&droppedLogCount, 1)`), com consulta via `DroppedCount()` e reset via `ResetDroppedCount()`. Corrigida a função `Flush()`, removendo o descarte precoce em `default:` e assegurando bloqueio real até a drenagem completa das mensagens pela sentinela assíncrona; adicionada a função `FlushTimeout(timeout)`. Validação via suíte adversarial dedicada (`pkg/logger/logger_adversarial_test.go`) e `go test -race ./...` com 100% PASS e 0 data races.
+
 ---
 
 ## 4. Violações Arquiteturais, Anti-Padrões e Falhas de Delegação
@@ -247,4 +250,5 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **2.1** | C-ABI: Implementação completa de Callbacks, Funções Ausentes, Proteções CGo e Sincronização de ABI | `1b21db2`, `fc1969b` | **✅ CORRIGIDO** |
 | **2.2** | Motor Anti-Stall em Background no CRC e Protocolo de Heartbeat Implícito e Explícito | `8726ea5` | **✅ CORRIGIDO** |
 | **3.3** | Fila Elástica e Eliminação de Descarte Silencioso de Callbacks no LRC com Alerta de Saturação | `9bb73d2`, `db39373` | **✅ CORRIGIDO** |
+| **3.4** | Fallback Síncrono de Logs ERROR/CRITICAL sob Saturação e Bloqueio Efetivo de Flush | `5a68331` | **✅ CORRIGIDO** |
 
