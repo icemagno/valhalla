@@ -124,15 +124,20 @@ func TestFederationExecution_MerkleAuditToggleAndDecoupling(t *testing.T) {
 		t.Fatalf("expected state tree root to remain unchanged when audit is disabled: got %x, expected %x", rootAfterDisabledUpdate, rootWithAudit)
 	}
 
-	// 3. Re-enable audit -> state tree updates normally again
+	// 3. Re-enable audit -> state tree immediately resynchronizes all active objects!
 	fed.SetMerkleAuditEnabled(true)
+	rootImmediatelyAfterReEnable := fed.StateTree().GetGlobalRoot()
+	if rootImmediatelyAfterReEnable == rootAfterDisabledUpdate {
+		t.Fatalf("expected state tree to immediately resync on re-enable, but root remained old: %x", rootImmediatelyAfterReEnable)
+	}
+
 	attrs3 := map[int32][]byte{1: []byte("ReEnabledAuditValue")}
 	if err := fed.UpdateObjectAttributes(obj.Handle, attrs3, [32]byte{}); err != nil {
 		t.Fatalf("update with re-enabled audit failed: %v", err)
 	}
 
 	rootReEnabled := fed.StateTree().GetGlobalRoot()
-	if rootReEnabled == rootWithAudit || rootReEnabled == [32]byte{} {
-		t.Fatalf("expected state tree root to change when audit is re-enabled")
+	if rootReEnabled == rootImmediatelyAfterReEnable || rootReEnabled == [32]byte{} {
+		t.Fatalf("expected state tree root to change when audit is re-enabled and new update arrives")
 	}
 }

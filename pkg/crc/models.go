@@ -135,11 +135,27 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 	}
 }
 
-// SetMerkleAuditEnabled configures whether cryptographic Merkle state tracking is active
+// SetMerkleAuditEnabled configures whether cryptographic Merkle state tracking is active.
+// When transitioning from disabled to enabled in an active federation, it resynchronizes
+// all active objects into the state tree so that the global root immediately reflects 100% of state.
 func (f *FederationExecution) SetMerkleAuditEnabled(enabled bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	wasEnabled := f.merkleAuditEnabled
 	f.merkleAuditEnabled = enabled
+
+	if !wasEnabled && enabled && f.stateTree != nil {
+		for h, obj := range f.objects {
+			if len(obj.Attributes) > 0 {
+				attrMap := make(map[common.AttributeHandle][]byte, len(obj.Attributes))
+				for k, v := range obj.Attributes {
+					attrMap[common.AttributeHandle(k)] = v
+				}
+				obj.MerkleRoot = core.ComputeObjectMerkleRoot(attrMap)
+			}
+			f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(h), obj.MerkleRoot)
+		}
+	}
 }
 
 // IsMerkleAuditEnabled returns whether cryptographic Merkle state tracking is active

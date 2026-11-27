@@ -132,6 +132,11 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 		}
 
+		if (hdr.Flags & common.FlagNativePQC) != 0 {
+			_ = sendNativeError(session, hdr.ReqID, 400, errors.New("post-quantum cryptography (PQC) framing is not supported in this version; see Roadmap"))
+			continue
+		}
+
 		if currentFed != nil && federateID > 0 {
 			currentFed.TimeManager().Heartbeat(common.FederateHandle(federateID))
 		}

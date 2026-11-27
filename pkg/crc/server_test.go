@@ -2,6 +2,7 @@ package crc
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -398,5 +399,60 @@ func TestServer_ConfigurablePeekTimeout(t *testing.T) {
 	// Com timeout de 10ms, deve demorar entre 10ms e 40ms, bem abaixo dos 50ms forçados anteriores
 	if elapsed > 45*time.Millisecond {
 		t.Errorf("Elapsed time too high for 10ms peek timeout: %v", elapsed)
+	}
+}
+
+func TestServer_NativeRejectPQCFlag(t *testing.T) {
+	srv := NewServer("127.0.0.1:0")
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer srv.Stop()
+
+	conn, err := net.Dial("tcp", srv.Addr().String())
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("VAL4")); err != nil {
+		t.Fatalf("Failed to write VAL4: %v", err)
+	}
+
+	session := NewNativeSession(conn)
+	hdr := NativeHeader{
+		Magic:      NativeHeaderMagic,
+		Version:    NativeProtocolVer,
+		Flags:      common.FlagNativePQC,
+		MsgType:    NativeMsgCreateFederation,
+		ReqID:      42,
+		PayloadLen: 0,
+	}
+
+	if err := session.SendMessage(hdr, nil); err != nil {
+		t.Fatalf("Failed to send message: %v", err)
+	}
+
+	respHdr, err := ReadNativeHeader(conn)
+	if err != nil {
+		t.Fatalf("Failed to read header: %v", err)
+	}
+
+	if respHdr.MsgType != NativeMsgError {
+		t.Fatalf("Expected NativeMsgError (%d), got %d", NativeMsgError, respHdr.MsgType)
+	}
+
+	errPayload := make([]byte, respHdr.PayloadLen)
+	if _, err := io.ReadFull(conn, errPayload); err != nil {
+		t.Fatalf("Failed to read error payload: %v", err)
+	}
+
+	var errResp common.ErrorResponsePayload
+	if err := errResp.UnmarshalBinary(errPayload); err != nil {
+		t.Fatalf("Failed to unmarshal error response: %v", err)
+	}
+
+	if errResp.ErrorCode != 400 || !strings.Contains(errResp.Message, "post-quantum cryptography") {
+		t.Fatalf("Expected 400 with PQC rejection, got code %d, message %q", errResp.ErrorCode, errResp.Message)
 	}
 }

@@ -193,7 +193,7 @@ const (
 	FlagFiltering           uint8 = 0x10 // Bit 4: Filtro ativo (RequestId vira FilteringId)
 	FlagFilteringObjClass   uint8 = 0x20 // Bit 5: 1=Objeto, 0=Interacao
 	FlagReserved            uint8 = 0x40 // Bit 6: Reservado Portico
-	FlagValhallaExtended    uint8 = 0x80 // Bit 7: Extensao Valhalla (SSZ / Merkle / KEM)
+	FlagValhallaExtended    uint8 = 0x80 // Bit 7: Extensao Valhalla (SSZ / Merkle)
 )
 
 var (
