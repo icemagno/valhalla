@@ -806,3 +806,37 @@ Following the comprehensive technical audit documented in `audit.md`, all 23 ide
 5. **Performance & Concurrency Hardening (Items 5.1–5.4):**
    * **Incremental $O(\log N)$ Merkle Tree (5.1):** Replaced full-tree recomputation with an incremental cached-level `FederationStateTree` (`0 B/op`, ~1.43 µs/update for 1,000 entities; `GetGlobalRoot` under `RLock` in ~13.7 ns) plus `SetMerkleAuditEnabled` toggle with automatic resync on re-enable.
    * **Zero-Alloc `EvokeCallback`, Dedicated Dialect Listeners & Ephemeral Web Port (5.2, 5.3, 5.4):** Replaced `time.After` with `sync.Pool` timers (`0 B/op`, ~40 ns/op), enforced strict multiplexer classification with optional 0 ms dedicated Portico/Native listeners (`SetPorticoAddr`/`SetNativeAddr`), and fixed ephemeral `:0` port derivation in `pkg/crc/server.go` so the Web Gateway never attempts to bind privileged port `:1`.
+
+
+---
+
+### 56. Second Adversarial Audit Remediation (`audit2.md` — Waves 1–3 Approved)
+
+1. **C-ABI Build Hygiene, `go vet` & Single Header:**
+   * Isolated `pkg/cabi/cabi_test_bridge.go` and `pkg/cabi/cabi_test.go` under `//go:build cabi_test` (removing test bridge exports from production DLL/SO) and fixed all 17 `unsafe.Pointer` `go vet` violations.
+   * Added default `pkg/cabi/cabi_unit_test.go` (executed on standard `go test ./...`) and converted `pkg/cabi/valhalla_lrc.h` and `sdk/c/include/valhalla_lrc.h` into forwarding headers pointing to the single canonical `include/valhalla_lrc.h`.
+   * Added `void* userData` to all 9 C-ABI callbacks and `ValhallaCallbacks`, updating `pkg/cabi`, `sdk/cpp` (removing `thread_local`), and `sdk/java`.
+2. **Anti-DoS, Anti-OOM, Infinite Loops & `NaN`/`Inf`:**
+   * Enforced pre-allocation payload/collection/recursion limits in `web_session.go`, `native_handler.go`, `jos_decoder.go`, and JOS metamodels (`HashMap`, `HashSet`, `ArrayList`, `PorticoMessage`), plus mandatory `TC_ENDBLOCKDATA` validation and `TC_BLOCKDATALONG` encoding for >255 B blocks in `jos_encoder.go`.
+   * Fixed `NextPowerOfTwo`/`Merkleize` overflow/infinite loops (`ssz.go`), sentinel error wrapping (`protocol.go`), canonical `computeFederationLeaf` and `uint32` ordering (`merkle.go`), and `NaN`/`Inf` rejection (`time_manager.go`, `rti_ambassador.go`, `cabi.go`).
+3. **Concurrency, Races, Deadlocks & Protocol Correctness:**
+   * Synchronized `logger.GetGlobal()`, `NativeSession`/`PorticoSession` IDs, `TCPClient`, and WebSocket Ping→Pong (`0x8A`) under `session.mu`.
+   * Released `a.mu.RLock()` before RPC/`OnStateDesyncDetected` in LRC, prevented `reqID` wraparound collisions and expired synchronous response leakage into `inQueue` (`lrc/client.go`), and dispatched `UnregisterFederate` grants outside `f.mu` on `Resign`.
+4. **FFI / SDK Memory Safety & XSS:**
+   * Added `C.malloc == nil` checks and moved `Disconnect()` outside `registryMu` in `cabi.go`.
+   * Fixed C++ SDK UAF (`utfFoms.reserve`), `try/catch (...)` in C trampolines, C++14 `throw(...)` safety, Rule of Five (non-copyable), and real `evokeMultipleCallbacks`.
+   * Added `AutoCloseable` + `Cleaner` (`valhalla_destroy_ambassador`), `Memory.close()` in `finally`, and `InterruptedException` restoration in Java SDK.
+   * Added `rejectAllPending`, request timeouts, and real queued `evokeCallback` in Web/TS SDK (`valhalla-hla.ts`); eliminated `innerHTML` XSS in `web_dashboard.html` (`//go:embed`) and `examples/web-federate/index.html`.
+5. **Stub & Backdoor Removal:**
+   * Connected Portico Time Management and Ownership to `core.TimeManager` and `core.OwnershipManager`; made Portico Save/Restore and unknown control fallback return explicit `NOT IMPLEMENTED` errors; preserved real IEEE-754 timestamp in `PorticoMessage` and `errMsg` in `BuildErrorResponsePayload`.
+   * Fixed Web `destroyFederationExecution` (`errors.Is`), `timeAdvanceRequest` (`dispatchTimeGrants`), and duplicate blocks; removed LRC local Sync Point callback fabrication (now emitted by CRC), removed `CorruptLocalStateForTesting` backdoor from production `pkg/lrc`, and fixed `cmd/valhalla-federate/main.go`.
+6. **Architecture, Domain Boundaries & God File Decomposition:**
+   * Eliminated SSZ double serialization via `DomainEventSink` across `NativeSession`, `PorticoSession`, `WebSession`, and `domain_service.go`.
+   * Unified time state exclusively in `core.TimeManager` (removing duplicated fields in `Federate`), added inherited ancestor attributes to initial ownership in `RegisterObjectInstance`, and unified catch-up `DiscoverObject`.
+   * Decoupled `pkg/metamodel` from `pkg/crc/core` via `OMTBuilder`, exported `CallbackItem` in `pkg/lrc`, and decomposed God files (`native_dispatchers.go`, `rti_ambassador.go`, `payloads.go`, `cabi.go`) by HLA service domain.
+   * Standardized FOM resolution (`pkg/crc/fom_service.go`) strictly to recursive deterministic traversal inside canonical `./foms` with anti-path-traversal enforcement.
+7. **Determinism, Performance, Test Suite & Repo Hygiene:**
+   * Enforced deterministic key sorting in `time_manager.go`, `java_util_hashmap.go`, and `fom_synthesizer.go`.
+   * Added 5s write deadlines across sessions/LRC, fixed `SpatialRegion` pointer receiver + `boundsComputed` flag for flat Morton regions (`MaxX == 0`), deduplicated `InterestMatcher` slices, and replaced `time.After` leaks with `time.NewTimer`.
+   * Strengthened tests with Eth2 SSZ and 3D Morton golden vectors, strict overflow/TAG/SyncPoint/FOM assertions, and new suites (`protocol_test.go`, `fom_service_test.go`, `portico_message_test.go`, `dos_adversarial_test.go`, `race_and_protocol_test.go`).
+   * Untracked committed `.a`/`.jar` binaries, updated `.gitignore` and `README.md`, and added `scripts/test-all.bat` / `scripts/test-all.sh` (all 5 verification gates passing with 0 `go vet` warnings and 0 data races).
