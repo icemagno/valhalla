@@ -578,11 +578,16 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 				continue
 			}
 
-			globalRoot := currentFed.StateTree().GetGlobalRoot()
+			var globalRoot [32]byte
+			respFlags := common.FlagNativeSSZ
+			if currentFed.IsMerkleAuditEnabled() {
+				globalRoot = currentFed.StateTree().GetGlobalRoot()
+				respFlags |= common.FlagNativeMerkle
+			}
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
-				Flags:      common.FlagNativeSSZ | common.FlagNativeMerkle,
+				Flags:      respFlags,
 				MsgType:    NativeMsgSuccessOK,
 				ReqID:      hdr.ReqID,
 				FedID:      uint32(currentFed.Handle),
@@ -625,11 +630,16 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = currentFed.UpdateObjectAttributes(int32(uavReq.ObjectHandle), attrsToStore, hdr.MerkleRoot)
 
-			globalRoot := currentFed.StateTree().GetGlobalRoot()
+			var globalRoot [32]byte
+			respFlags := common.FlagNativeSSZ
+			if currentFed.IsMerkleAuditEnabled() {
+				globalRoot = currentFed.StateTree().GetGlobalRoot()
+				respFlags |= common.FlagNativeMerkle
+			}
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
-				Flags:      common.FlagNativeSSZ | common.FlagNativeMerkle,
+				Flags:      respFlags,
 				MsgType:    NativeMsgSuccessOK,
 				ReqID:      hdr.ReqID,
 				FedID:      uint32(currentFed.Handle),
@@ -1171,11 +1181,16 @@ func HandleNativeConnection(conn net.Conn, reader io.Reader, fedManager *Federat
 			}
 			_ = currentFed.UpdateObjectAttributes(int32(req.ObjectHandle), attrsToStore, hdr.MerkleRoot)
 
-			globalRoot := currentFed.StateTree().GetGlobalRoot()
+			var globalRoot [32]byte
+			respFlags := common.FlagNativeSSZ
+			if currentFed.IsMerkleAuditEnabled() {
+				globalRoot = currentFed.StateTree().GetGlobalRoot()
+				respFlags |= common.FlagNativeMerkle
+			}
 			respHdr := NativeHeader{
 				Magic:      NativeHeaderMagic,
 				Version:    NativeProtocolVer,
-				Flags:      common.FlagNativeSSZ | common.FlagNativeMerkle,
+				Flags:      respFlags,
 				MsgType:    NativeMsgSuccessOK,
 				ReqID:      hdr.ReqID,
 				FedID:      uint32(currentFed.Handle),

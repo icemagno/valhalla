@@ -83,3 +83,56 @@ func TestFederationExecution_Lifecycle(t *testing.T) {
 		t.Error("Thor ainda existe apos resign")
 	}
 }
+
+func TestFederationExecution_MerkleAuditToggleAndDecoupling(t *testing.T) {
+	fed := NewFederationExecution(1, "AuditTestFed")
+	if !fed.IsMerkleAuditEnabled() {
+		t.Fatalf("expected Merkle audit to be enabled by default")
+	}
+
+	// Register an object
+	obj, err := fed.RegisterObjectInstance(10, "TestEntity", 1)
+	if err != nil {
+		t.Fatalf("failed to register object: %v", err)
+	}
+
+	// 1. Update with audit enabled -> stateTree is updated
+	attrs1 := map[int32][]byte{1: []byte("AuditActiveValue")}
+	if err := fed.UpdateObjectAttributes(obj.Handle, attrs1, [32]byte{}); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	rootWithAudit := fed.StateTree().GetGlobalRoot()
+	if rootWithAudit == [32]byte{} {
+		t.Fatalf("expected non-empty root with audit enabled")
+	}
+
+	// 2. Toggle audit off
+	fed.SetMerkleAuditEnabled(false)
+	if fed.IsMerkleAuditEnabled() {
+		t.Fatalf("expected Merkle audit to be disabled")
+	}
+
+	// Update with audit disabled -> does not recalculate state tree
+	attrs2 := map[int32][]byte{1: []byte("BypassedAuditValue")}
+	if err := fed.UpdateObjectAttributes(obj.Handle, attrs2, [32]byte{}); err != nil {
+		t.Fatalf("update with audit disabled failed: %v", err)
+	}
+
+	rootAfterDisabledUpdate := fed.StateTree().GetGlobalRoot()
+	if rootAfterDisabledUpdate != rootWithAudit {
+		t.Fatalf("expected state tree root to remain unchanged when audit is disabled: got %x, expected %x", rootAfterDisabledUpdate, rootWithAudit)
+	}
+
+	// 3. Re-enable audit -> state tree updates normally again
+	fed.SetMerkleAuditEnabled(true)
+	attrs3 := map[int32][]byte{1: []byte("ReEnabledAuditValue")}
+	if err := fed.UpdateObjectAttributes(obj.Handle, attrs3, [32]byte{}); err != nil {
+		t.Fatalf("update with re-enabled audit failed: %v", err)
+	}
+
+	rootReEnabled := fed.StateTree().GetGlobalRoot()
+	if rootReEnabled == rootWithAudit || rootReEnabled == [32]byte{} {
+		t.Fatalf("expected state tree root to change when audit is re-enabled")
+	}
+}

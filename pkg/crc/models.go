@@ -102,6 +102,8 @@ type FederationExecution struct {
 	stateTree    *core.FederationStateTree
 	timeMgr      *core.TimeManager
 	ownershipMgr *core.OwnershipManager
+
+	merkleAuditEnabled bool
 }
 
 // NewFederationExecution creates a new federation execution with initialized counters and maps
@@ -129,7 +131,22 @@ func NewFederationExecution(handle int32, name string) *FederationExecution {
 		stateTree:          stateTree,
 		timeMgr:            timeMgr,
 		ownershipMgr:       ownershipMgr,
+		merkleAuditEnabled: true,
 	}
+}
+
+// SetMerkleAuditEnabled configures whether cryptographic Merkle state tracking is active
+func (f *FederationExecution) SetMerkleAuditEnabled(enabled bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.merkleAuditEnabled = enabled
+}
+
+// IsMerkleAuditEnabled returns whether cryptographic Merkle state tracking is active
+func (f *FederationExecution) IsMerkleAuditEnabled() bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.merkleAuditEnabled
 }
 
 // OMT returns the Object Model Template (OMT) registry of the federation
@@ -339,22 +356,23 @@ func (f *FederationExecution) UpdateObjectAttributes(objHandle int32, attrs map[
 		obj.Attributes[k] = v
 	}
 
-	// If Merkle root was not provided, compute deterministically via SSZ
-	if merkleRoot == [32]byte{} {
-		attrMap := make(map[common.AttributeHandle][]byte, len(obj.Attributes))
-		for k, v := range obj.Attributes {
-			attrMap[common.AttributeHandle(k)] = v
+	// If Merkle audit is enabled, compute deterministically via SSZ and update state tree
+	if f.merkleAuditEnabled {
+		if merkleRoot == [32]byte{} {
+			attrMap := make(map[common.AttributeHandle][]byte, len(obj.Attributes))
+			for k, v := range obj.Attributes {
+				attrMap[common.AttributeHandle(k)] = v
+			}
+			merkleRoot = core.ComputeObjectMerkleRoot(attrMap)
 		}
-		merkleRoot = core.ComputeObjectMerkleRoot(attrMap)
+		obj.MerkleRoot = merkleRoot
+
+		if f.stateTree != nil {
+			f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(objHandle), merkleRoot)
+		}
 	}
 
-	obj.MerkleRoot = merkleRoot
 	obj.UpdatedAt = time.Now()
-
-	if f.stateTree != nil {
-		f.stateTree.UpdateObjectState(common.ObjectInstanceHandle(objHandle), merkleRoot)
-	}
-
 	return nil
 }
 

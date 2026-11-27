@@ -131,6 +131,15 @@ The Core Engine is transport-agnostic and thread-safe:
 │  - Opt-in spatial extents with zero overhead on standard subscriptions.│
 │  - Multi-resolution area-of-interest filtering aligned with Dead       │
 │    Reckoning for high-velocity ballistic (ICBM) and orbital nodes.     │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────▼─────────────────────────────────────┐
+│ PHASE 6: Multi-NIC Dialect Segregation & Security Extensions [PLANNED] │
+│  - Optional per-interface dialect segregation via CLI flags            │
+│    (-portico-addr, -native-addr, -web-addr) for dual/multi-homed CRCs. │
+│  - Optional per-interface / subnet ACLs for segmented LVC networks.    │
+│  - Post-Quantum Cryptography (ML-KEM-768 / HPKE + AES-256-GCM).        │
+│  - High-speed UDP framing for best-effort coordinate streaming.        │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 

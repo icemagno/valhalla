@@ -1,6 +1,8 @@
 package core
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/icemagno/valhalla/pkg/common"
@@ -138,5 +140,68 @@ func BenchmarkMerkleTree_UpdateAndGetRoot_1000Entities(b *testing.B) {
 		h := common.ObjectInstanceHandle((i % 1000) + 1)
 		stateTree.UpdateObjectState(h, dummyRoot)
 		_ = stateTree.GetGlobalRoot()
+	}
+}
+
+func TestMerkleTree_ConcurrentReadersAndIncrementalUpdates(t *testing.T) {
+	stateTree := NewFederationStateTree()
+	const numEntities = 500
+
+	dummyRoot := ComputeObjectMerkleRoot(map[common.AttributeHandle][]byte{1: []byte("Init")})
+	for i := 1; i <= numEntities; i++ {
+		stateTree.UpdateObjectState(common.ObjectInstanceHandle(i), dummyRoot)
+	}
+
+	initialRoot := stateTree.GetGlobalRoot()
+	if initialRoot == [32]byte{} {
+		t.Fatalf("initial root cannot be empty")
+	}
+
+	var wg sync.WaitGroup
+	stopChan := make(chan struct{})
+
+	// 10 concurrent readers running GetGlobalRoot() under RLock
+	for r := 0; r < 10; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stopChan:
+					return
+				default:
+					root := stateTree.GetGlobalRoot()
+					if root == [32]byte{} {
+						t.Errorf("read empty root during concurrent execution")
+						return
+					}
+				}
+			}
+		}()
+	}
+
+	// 4 concurrent updaters
+	var updatersWg sync.WaitGroup
+	for u := 0; u < 4; u++ {
+		updatersWg.Add(1)
+		go func(workerID int) {
+			defer updatersWg.Done()
+			for i := 0; i < 200; i++ {
+				h := common.ObjectInstanceHandle((workerID*100 + i%100) + 1)
+				updRoot := ComputeObjectMerkleRoot(map[common.AttributeHandle][]byte{
+					1: []byte(fmt.Sprintf("Worker_%d_Iter_%d", workerID, i)),
+				})
+				stateTree.UpdateObjectState(h, updRoot)
+			}
+		}(u)
+	}
+
+	updatersWg.Wait()
+	close(stopChan)
+	wg.Wait()
+
+	finalRoot := stateTree.GetGlobalRoot()
+	if finalRoot == [32]byte{} || finalRoot == initialRoot {
+		t.Fatalf("final root must be non-empty and diverged from initial root")
 	}
 }
