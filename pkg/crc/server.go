@@ -1,6 +1,8 @@
 package crc
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -18,12 +20,19 @@ var (
 	logCRCPortico = logger.NewLogger("CRC-Portico")
 )
 
+// DefaultPeekTimeout is the default duration to wait for client preamble on the multiplexed port
+const DefaultPeekTimeout = 15 * time.Millisecond
+
 // Server represents the Valhalla Central RTI Component (CRC) executive supporting tri-protocol multiplexing
 type Server struct {
 	addr            string
+	porticoAddr     string
+	nativeAddr      string
 	webAddr         string
 	webAddrExplicit bool
 	listener        net.Listener
+	porticoListener net.Listener
+	nativeListener  net.Listener
 	fedManager      *FederationManager
 	peekTimeout     time.Duration
 	webGateway      *WebGateway
@@ -83,7 +92,7 @@ func NewServer(addr string) *Server {
 		webAddr:           webAddr,
 		webAddrExplicit:   false,
 		fedManager:        NewFederationManager(),
-		peekTimeout:       50 * time.Millisecond,
+		peekTimeout:       DefaultPeekTimeout,
 		conns:             make(map[net.Conn]struct{}),
 		antiStallTimeout:  2 * time.Second,
 		antiStallInterval: 200 * time.Millisecond,
@@ -101,6 +110,62 @@ func (s *Server) SetWebAddr(webAddr string) {
 	}
 	s.webAddr = webAddr
 	s.webAddrExplicit = true
+}
+
+// SetPorticoAddr configures a dedicated TCP port for legacy Portico (JOS) connections, eliminating multiplexing latency
+func (s *Server) SetPorticoAddr(porticoAddr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if porticoAddr != "" && !strings.Contains(porticoAddr, ":") {
+		porticoAddr = ":" + porticoAddr
+	}
+	s.porticoAddr = porticoAddr
+}
+
+// SetNativeAddr configures a dedicated TCP port for native Valhalla (VAL4) connections, eliminating multiplexing peeking
+func (s *Server) SetNativeAddr(nativeAddr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if nativeAddr != "" && !strings.Contains(nativeAddr, ":") {
+		nativeAddr = ":" + nativeAddr
+	}
+	s.nativeAddr = nativeAddr
+}
+
+// SetPeekTimeout configures the maximum duration to wait for initial client preamble on the multiplexed port
+func (s *Server) SetPeekTimeout(timeout time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if timeout > 0 {
+		s.peekTimeout = timeout
+	}
+}
+
+// PeekTimeout returns the configured peek timeout duration
+func (s *Server) PeekTimeout() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.peekTimeout
+}
+
+// PorticoAddr returns the listening address of the dedicated Portico listener, or nil if not active
+func (s *Server) PorticoAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.porticoListener != nil {
+		return s.porticoListener.Addr()
+	}
+	return nil
+}
+
+// NativeAddr returns the listening address of the dedicated Native listener, or nil if not active
+func (s *Server) NativeAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.nativeListener != nil {
+		return s.nativeListener.Addr()
+	}
+	return nil
 }
 
 // SetAntiStall configures the stall timeout and monitor interval for the Anti-Stall resilience engine
@@ -146,6 +211,29 @@ func (s *Server) Start() error {
 
 	logCRC.Info("Valhalla RTI Executive active on %s", l.Addr())
 
+	if s.porticoAddr != "" {
+		pl, err := net.Listen("tcp", s.porticoAddr)
+		if err != nil {
+			_ = s.listener.Close()
+			return fmt.Errorf("crc server: failed to listen on dedicated portico addr %s: %w", s.porticoAddr, err)
+		}
+		s.porticoListener = pl
+		logCRC.Info("Valhalla Dedicated Portico listener active on %s", pl.Addr())
+	}
+
+	if s.nativeAddr != "" {
+		nl, err := net.Listen("tcp", s.nativeAddr)
+		if err != nil {
+			_ = s.listener.Close()
+			if s.porticoListener != nil {
+				_ = s.porticoListener.Close()
+			}
+			return fmt.Errorf("crc server: failed to listen on dedicated native addr %s: %w", s.nativeAddr, err)
+		}
+		s.nativeListener = nl
+		logCRC.Info("Valhalla Dedicated Native listener active on %s", nl.Addr())
+	}
+
 	s.webGateway = NewWebGateway(s.webAddr, s.fedManager)
 	if err := s.webGateway.Start(); err != nil {
 		logCRC.Error("Failed to start Web Gateway on %s: %v", s.webAddr, err)
@@ -163,6 +251,16 @@ func (s *Server) Start() error {
 
 	s.wg.Add(1)
 	go s.acceptLoop()
+
+	if s.porticoListener != nil {
+		s.wg.Add(1)
+		go s.acceptDedicatedPorticoLoop()
+	}
+
+	if s.nativeListener != nil {
+		s.wg.Add(1)
+		go s.acceptDedicatedNativeLoop()
+	}
 
 	s.wg.Add(1)
 	go s.antiStallMonitorLoop()
@@ -276,6 +374,13 @@ func (s *Server) Stop() error {
 	close(s.stopChan)
 	err := s.listener.Close()
 
+	if s.porticoListener != nil {
+		_ = s.porticoListener.Close()
+	}
+	if s.nativeListener != nil {
+		_ = s.nativeListener.Close()
+	}
+
 	if s.webGateway != nil {
 		_ = s.webGateway.Stop()
 	}
@@ -292,6 +397,88 @@ func (s *Server) Stop() error {
 	s.wg.Wait()
 	logCRC.Info("Valhalla RTI Executive shut down successfully.")
 	return err
+}
+
+func (s *Server) acceptDedicatedPorticoLoop() {
+	defer s.wg.Done()
+
+	for {
+		conn, err := s.porticoListener.Accept()
+		if err != nil {
+			select {
+			case <-s.stopChan:
+				return
+			default:
+				logCRC.Warn("Warning on dedicated Portico accept: %v", err)
+				continue
+			}
+		}
+
+		s.connsMu.Lock()
+		s.conns[conn] = struct{}{}
+		s.connsMu.Unlock()
+
+		s.wg.Add(1)
+		go func(c net.Conn) {
+			defer func() {
+				s.connsMu.Lock()
+				delete(s.conns, c)
+				s.connsMu.Unlock()
+				_ = c.Close()
+				s.wg.Done()
+			}()
+			remoteAddr := c.RemoteAddr().String()
+			logCRC.Info("Dedicated Portico connection from %s", remoteAddr)
+			if err := HandlePorticoConnection(c, c, s.fedManager); err != nil {
+				logCRCPortico.Info("Dedicated Portico connection %s terminated: %v", remoteAddr, err)
+			}
+		}(conn)
+	}
+}
+
+func (s *Server) acceptDedicatedNativeLoop() {
+	defer s.wg.Done()
+
+	for {
+		conn, err := s.nativeListener.Accept()
+		if err != nil {
+			select {
+			case <-s.stopChan:
+				return
+			default:
+				logCRC.Warn("Warning on dedicated Native accept: %v", err)
+				continue
+			}
+		}
+
+		s.connsMu.Lock()
+		s.conns[conn] = struct{}{}
+		s.connsMu.Unlock()
+
+		s.wg.Add(1)
+		go func(c net.Conn) {
+			defer func() {
+				s.connsMu.Lock()
+				delete(s.conns, c)
+				s.connsMu.Unlock()
+				_ = c.Close()
+				s.wg.Done()
+			}()
+			remoteAddr := c.RemoteAddr().String()
+			logCRC.Info("Dedicated Native connection from %s", remoteAddr)
+
+			// Client-First: check if client sends VAL4 preamble
+			br := bufio.NewReader(c)
+			wrapped := &MultiplexedConn{Conn: c, Reader: br}
+			peekBuf, err := br.Peek(4)
+			if err == nil && bytes.Equal(peekBuf, MagicNativeVAL4) {
+				_, _ = br.Discard(4)
+			}
+			if err := HandleNativeConnection(wrapped, wrapped, s.fedManager); err != nil {
+				logCRCNative.Info("Dedicated Native connection %s terminated: %v", remoteAddr, err)
+			}
+		}(conn)
+	}
 }
 
 // Addr returns the real listener address

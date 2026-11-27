@@ -14,6 +14,7 @@ import (
 type ProtocolType = common.ProtocolType
 
 const (
+	ProtocolUnknown = common.ProtocolUnknown
 	ProtocolNative  = common.ProtocolNative
 	ProtocolPortico = common.ProtocolPortico
 	ProtocolWeb     = common.ProtocolWeb

@@ -235,3 +235,168 @@ func TestServer_WebGateway_StartWithEphemeralPort_EndToEnd(t *testing.T) {
 		t.Errorf("Expected HTTP 200 OK from WebGateway, got %d", resp.StatusCode)
 	}
 }
+
+func TestServer_DedicatedPorticoPort_ZeroLatency(t *testing.T) {
+	srv := NewServer("127.0.0.1:0")
+	// Set 100ms peek timeout on multiplexed port to make the contrast obvious
+	srv.SetPeekTimeout(100 * time.Millisecond)
+	srv.SetPorticoAddr("127.0.0.1:0")
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer srv.Stop()
+
+	porticoAddr := srv.PorticoAddr()
+	if porticoAddr == nil {
+		t.Fatal("Server.PorticoAddr() is nil")
+	}
+
+	// 1. Conectar na porta dedicada do Portico: Latencia de handshake deve ser quase zero (< 20ms)
+	start := time.Now()
+	connDedicated, err := net.Dial("tcp", porticoAddr.String())
+	if err != nil {
+		t.Fatalf("Failed to connect to dedicated Portico port: %v", err)
+	}
+	defer connDedicated.Close()
+
+	var welcomeBuf [8]byte
+	if _, err := connDedicated.Read(welcomeBuf[:]); err != nil {
+		t.Fatalf("Failed to read Portico greeting on dedicated port: %v", err)
+	}
+	elapsedDedicated := time.Since(start)
+
+	if elapsedDedicated >= 50*time.Millisecond {
+		t.Errorf("Dedicated Portico port suffered peeking delay: %v (expected < 20ms)", elapsedDedicated)
+	}
+
+	// 2. Conectar na porta unificada multiplexada (peekTimeout = 100ms): Deve esperar os 100ms
+	startMux := time.Now()
+	connMux, err := net.Dial("tcp", srv.Addr().String())
+	if err != nil {
+		t.Fatalf("Failed to connect to multiplexed port: %v", err)
+	}
+	defer connMux.Close()
+
+	if _, err := connMux.Read(welcomeBuf[:]); err != nil {
+		t.Fatalf("Failed to read Portico greeting on multiplexed port: %v", err)
+	}
+	elapsedMux := time.Since(startMux)
+
+	if elapsedMux < 90*time.Millisecond {
+		t.Errorf("Multiplexed port did not respect peek timeout: %v (expected >= 90ms)", elapsedMux)
+	}
+}
+
+func TestServer_DedicatedNativePort_ZeroLatency(t *testing.T) {
+	srv := NewServer("127.0.0.1:0")
+	srv.SetNativeAddr("127.0.0.1:0")
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer srv.Stop()
+
+	nativeAddr := srv.NativeAddr()
+	if nativeAddr == nil {
+		t.Fatal("Server.NativeAddr() is nil")
+	}
+
+	// Conectar diretamente na porta dedicada Nativa
+	conn, err := net.Dial("tcp", nativeAddr.String())
+	if err != nil {
+		t.Fatalf("Failed to connect to dedicated Native port: %v", err)
+	}
+	defer conn.Close()
+
+	// Enviar preambulo VAL4
+	if _, err := conn.Write([]byte("VAL4")); err != nil {
+		t.Fatalf("Failed to write VAL4 preamble: %v", err)
+	}
+
+	session := NewNativeSession(conn)
+
+	// 1. Criar federação
+	createReq := common.FederationExecutionPayload{
+		FederationName: "DedicatedFed",
+	}
+	createPayload, _ := createReq.MarshalBinary()
+	createHdr := NativeHeader{
+		Magic:      NativeHeaderMagic,
+		Version:    NativeProtocolVer,
+		Flags:      0x01,
+		PayloadLen: uint32(len(createPayload)),
+		MsgType:    NativeMsgCreateFederation,
+		ReqID:      1,
+	}
+	if err := session.SendMessage(createHdr, createPayload); err != nil {
+		t.Fatalf("Failed to send NativeMsgCreateFederation: %v", err)
+	}
+	respHdr, err := ReadNativeHeader(conn)
+	if err != nil {
+		t.Fatalf("Failed to read Create response: %v", err)
+	}
+	if respHdr.MsgType != NativeMsgSuccessOK {
+		t.Fatalf("Expected NativeMsgSuccessOK (%d), got %d", NativeMsgSuccessOK, respHdr.MsgType)
+	}
+
+	// 2. Join na federação
+	joinReq := common.JoinFederationPayload{
+		FederateName:   "FastNative",
+		FederateType:   "native-fast",
+		FederationName: "DedicatedFed",
+	}
+	joinPayload, _ := joinReq.MarshalBinary()
+
+	joinHdr := NativeHeader{
+		Magic:      NativeHeaderMagic,
+		Version:    NativeProtocolVer,
+		Flags:      0x01,
+		PayloadLen: uint32(len(joinPayload)),
+		MsgType:    NativeMsgJoin,
+		ReqID:      2,
+	}
+	if err := session.SendMessage(joinHdr, joinPayload); err != nil {
+		t.Fatalf("Failed to send NativeMsgJoin: %v", err)
+	}
+
+	respHdr, err = ReadNativeHeader(conn)
+	if err != nil {
+		t.Fatalf("Failed to read Native response on dedicated port: %v", err)
+	}
+	if respHdr.MsgType != NativeMsgJoinSuccess {
+		t.Errorf("Expected NativeMsgJoinSuccess (%d), got %d", NativeMsgJoinSuccess, respHdr.MsgType)
+	}
+}
+
+func TestServer_ConfigurablePeekTimeout(t *testing.T) {
+	srv := NewServer("127.0.0.1:0")
+	srv.SetPeekTimeout(10 * time.Millisecond)
+	if srv.PeekTimeout() != 10*time.Millisecond {
+		t.Errorf("Expected peekTimeout 10ms, got %v", srv.PeekTimeout())
+	}
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Server.Start failed: %v", err)
+	}
+	defer srv.Stop()
+
+	// Portico na porta unificada com peekTimeout reduzido (10ms)
+	start := time.Now()
+	conn, err := net.Dial("tcp", srv.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	var welcomeBuf [8]byte
+	if _, err := conn.Read(welcomeBuf[:]); err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// Com timeout de 10ms, deve demorar entre 10ms e 40ms, bem abaixo dos 50ms forçados anteriores
+	if elapsed > 45*time.Millisecond {
+		t.Errorf("Elapsed time too high for 10ms peek timeout: %v", elapsed)
+	}
+}
