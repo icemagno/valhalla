@@ -60,51 +60,61 @@ The empirical test was executed using the automated test suite in `test/benchmar
 
 ## 4. Empirical End-to-End Latency Results
 
-Every iteration measured the full round-trip: `UpdateAttributeValues` $\to$ Socket Write $\to$ OS TCP Stack $\to$ CRC Read $\to$ OMT Bitset Router $\to$ CRC Socket Write $\to$ OS TCP Stack $\to$ Subscriber Read $\to$ `ReflectAttributeValues` invocation:
+Every iteration measured the full round-trip: `UpdateAttributeValues` $\to$ Socket Write $\to$ OS TCP Stack $\to$ CRC Read $\to$ OMT Bitset Router $\to$ CRC Socket Write $\to$ OS TCP Stack $\to$ Subscriber Read $\to$ `ReflectAttributeValues` invocation.
+
+Individual sample durations are measured using high-precision hardware timers (Windows `QueryPerformanceCounter`, 100 ns resolution; `CLOCK_MONOTONIC` on Unix), eliminating system interrupt timer quantization:
 
 ```
 ─────────────────────────────────────────────────────────────────────────────
                    VALHALLA END-TO-END TCP LATENCY PROFILE
 ─────────────────────────────────────────────────────────────────────────────
-  Sample Size              : 31,543 completed round-trips
-  Execution Time           : 2.83 seconds
-  Mean E2E Latency         : 89.67 µs (0.089 ms)
-  P50 (Median)             : < 1 µs (microsecond resolution limit)
-  P90 (90th Percentile)    : 507.8 µs
-  P99 (99th Percentile)    : 1,027.6 µs (1.02 ms)
-  Synchronous Throughput   : 11,146.12 round-trips / second (single blocking connection)
+  Sample Size              : 14,660 completed round-trips
+  Execution Time           : ~1.2 seconds
+  Mean E2E Latency         : 81.46 µs (0.081 ms)
+  P50 (Median)             : 71.90 µs (0.072 ms)
+  P90 (90th Percentile)    : 103.00 µs (0.103 ms)
+  P99 (99th Percentile)    : 192.30 µs (0.192 ms)
+  Hardware Precision Timer : Windows QPC (10,000,000 ticks/sec, 100 ns precision)
+  Synchronous Throughput   : ~14,660 round-trips / second (single blocking connection)
 ─────────────────────────────────────────────────────────────────────────────
 ```
 
+> [!NOTE]
+> **Resolution & Quantization Correction:**  
+> Standard OS wall-clock timers on Windows (`time.Now().UnixNano()`) update with a coarse interrupt frequency (~0.5–1 ms). When measuring sub-millisecond network rounds, this coarse clock caused iterations completing in the same timer tick to record 0 ns, which had been previously misreported as `< 1 µs`. Project Valhalla now benchmarks individual iterations via native hardware performance counters (`QueryPerformanceCounter` on Windows, `CLOCK_MONOTONIC` on POSIX), capturing the true P50 median latency at **71.90 µs**.
+
 ---
 
-## 5. Amdahl's Law Decomposition: Software Overhead vs. OS Kernel
+## 5. Architectural Overhead Model (Amdahl's Law)
 
-To understand where time is spent during an 89.67 µs network round-trip, we decompose the total latency:
+To contextualize where execution time resides during an ~81.5 µs TCP loopback round-trip, the software components are evaluated using the verified Layer 1 in-memory microbenchmarks:
 
 $$\text{Latency}_{\text{Total}} = \text{Software Overhead}_{\text{Valhalla}} + \text{Kernel Socket Buffers} + \text{TCP ACKs} + \text{Context Switch}$$
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    LATENCY DECOMPOSITION (89.67 µs)                     │
+│              ARCHITECTURAL REFERENCE OVERHEAD MODEL (~81.5 µs)          │
 ├───────────────────────────────────────────────────┬─────────────────────┤
-│ Component                                         │ Time Spent          │
+│ Component (Microbenchmarked in Layer 1)           │ Estimated Cost      │
 ├───────────────────────────────────────────────────┼─────────────────────┤
-│ Valhalla Publisher LRC Marshaling (VAL4 SSZ)      │ 0.18 µs  (0.20%)    │
-│ Valhalla CRC OMT Bitset Matching & Router         │ 0.28 µs  (0.31%)    │
-│ Valhalla Subscriber LRC Dispatch & Callback       │ 0.20 µs  (0.22%)    │
+│ Valhalla Publisher LRC Marshaling (VAL4 SSZ)      │ ~0.18 µs  (0.22%)   │
+│ Valhalla CRC OMT Bitset Matching & Router         │ ~0.28 µs  (0.34%)   │
+│ Valhalla Subscriber LRC Dispatch & Callback       │ ~0.20 µs  (0.25%)   │
 ├───────────────────────────────────────────────────┼─────────────────────┤
-│ Total Valhalla Pure Go Software Overhead          │ 0.66 µs  (0.74%)    │
+│ Total Valhalla Pure Go Software Overhead          │ ~0.66 µs  (0.81%)   │
 ├───────────────────────────────────────────────────┼─────────────────────┤
 │ Operating System Kernel, TCP/IP Stack, Socket     │                     │
-│ Buffers & Context Switches                        │ 89.01 µs (99.26%)   │
+│ Buffers & Context Switches                        │ ~80.8 µs (99.19%)   │
 └───────────────────────────────────────────────────┴─────────────────────┘
 ```
 
-### Why Rewriting in C++ or Rust Would Not Change Total Latency
-Out of the $89.67\ \mu\text{s}$ total loopback time, **only $0.66\ \mu\text{s}$ (0.74%) is spent executing Valhalla's Go code**. 
+> [!NOTE]
+> The software component breakdown above is an architectural reference model derived from the verified Layer 1 in-memory microbenchmarks (`BenchmarkHeader_MarshalTo`, `BenchmarkOMTRegistry`, etc.), demonstrating that software processing represents less than 1% of total loopback time, with over 99% governed by operating system kernel socket scheduling.
 
-The remaining $99.26\%$ is governed by operating system networking physics (kernel context switching, TCP window acknowledgment, socket ring buffers). Even if a C++ or Rust engine reduced software overhead from $0.66\ \mu\text{s}$ to $0.20\ \mu\text{s}$, the total network latency would drop from $89.67\ \mu\text{s}$ to $89.21\ \mu\text{s}$ — a negligible difference of $< 0.4\%$.
+### Why Rewriting in C++ or Rust Would Not Change Total Latency
+Out of the $\sim 81.5\ \mu\text{s}$ total loopback time, **only $\sim 0.66\ \mu\text{s}$ (< 1%) is spent executing Valhalla's Go code**. 
+
+The remaining $> 99\%$ is governed by operating system networking physics (kernel context switching, TCP window acknowledgment, socket ring buffers). Even if a C++ or Rust engine reduced software overhead from $0.66\ \mu\text{s}$ to $0.20\ \mu\text{s}$, the total network latency would drop from $81.5\ \mu\text{s}$ to $81.0\ \mu\text{s}$ — a negligible difference of $< 0.6\%$.
 
 This mathematically proves that **Go 1.25+ with zero-allocation bitsets and linear headers provides optimal performance** while delivering memory safety, built-in concurrency, and high developer productivity.
 

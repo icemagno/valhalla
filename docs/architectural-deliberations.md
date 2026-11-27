@@ -267,8 +267,8 @@ Our technical strategy delivers a **sovereign, high-performance Go-based RTI whi
 | - Handshake Feature Negotiation (SSZ, Merkle, Wire Protocol Dialect)             |
 +---------------------------------------------------------------------------------+
 | LAYER 1: Core High-Performance Network Transport                                |
-| - Native Portico Wire Compatibility (PorticoMessage / JGroups / TCP / UDP)      |
-| - Sovereign native Go engine with P2P UDP, TCP, and zero-allocation framing     |
+| - Native Portico Wire Compatibility (PorticoMessage / JGroups / TCP)            |
+| - Sovereign native Go engine with TCP and zero-allocation framing (UDP: Roadmap)|
 +---------------------------------------------------------------------------------+
 ```
 
@@ -279,7 +279,7 @@ Our technical strategy delivers a **sovereign, high-performance Go-based RTI whi
 2. **Feature Negotiation during Handshake:**
    * On joining a federation, nodes exchange capability flags.
    * If the peer is an original Java Portico node, the connection adheres to the classic Portico dialect.
-   * If the peer is a modern Valhalla node, the channel activates high-speed UDP framing, Merkle root verification, and SSZ streaming.
+   * If the peer is a modern Valhalla node, the channel activates high-throughput VAL4 TCP streaming, Merkle root verification, and SSZ streaming (UDP framing planned in future roadmap).
 3. **Hybrid Edge Bridge (LAN Portico <-> Cloud/Web):**
    * The Valhalla node participates as a legitimate Portico federate on the physical LAN while concurrently serving WebSockets/JSON to browsers and cloud nodes.
 

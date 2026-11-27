@@ -2,14 +2,46 @@ package benchmark_test
 
 import (
 	"encoding/binary"
+	"runtime"
 	"sort"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc"
 	"github.com/icemagno/valhalla/pkg/lrc"
 )
+
+var (
+	qpcAvailable bool
+	qpcProc      *syscall.LazyProc
+	qpfFreq      int64
+)
+
+func init() {
+	if runtime.GOOS == "windows" {
+		k32 := syscall.NewLazyDLL("kernel32.dll")
+		qpcProc = k32.NewProc("QueryPerformanceCounter")
+		qpfProc := k32.NewProc("QueryPerformanceFrequency")
+		var freq int64
+		r, _, _ := qpfProc.Call(uintptr(unsafe.Pointer(&freq)))
+		if r != 0 && freq > 0 {
+			qpcAvailable = true
+			qpfFreq = freq
+		}
+	}
+}
+
+func getPreciseTimeNs() int64 {
+	if qpcAvailable {
+		var counter int64
+		_, _, _ = qpcProc.Call(uintptr(unsafe.Pointer(&counter)))
+		return (counter * 1_000_000_000) / qpfFreq
+	}
+	return time.Now().UnixNano()
+}
 
 type latencyAmbassador struct {
 	lrc.NullFederateAmbassador
@@ -105,16 +137,16 @@ func BenchmarkEndToEnd_UpdateAttributeValues_Latency(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		nowNano := time.Now().UnixNano()
-		binary.BigEndian.PutUint64(tagBuf[0:8], uint64(nowNano))
+		t0 := getPreciseTimeNs()
+		binary.BigEndian.PutUint64(tagBuf[0:8], uint64(i))
 
 		if err := ambPub.UpdateAttributeValues(objHandle, attrs, tagBuf[:]); err != nil {
 			b.Fatalf("falha no UpdateAttributeValues na iteração %d: %v", i, err)
 		}
 
 		select {
-		case sentNano := <-chRecv:
-			elapsed := time.Duration(time.Now().UnixNano() - sentNano)
+		case <-chRecv:
+			elapsed := time.Duration(getPreciseTimeNs() - t0)
 			latencies = append(latencies, elapsed)
 		case <-time.After(1 * time.Second):
 			b.Fatalf("timeout aguardando reflexão de atributo na iteração %d", i)
