@@ -10,17 +10,17 @@ import (
 )
 
 var (
-	ErrClassNotFound        = errors.New("hla omt: class not found in FOM registry")
-	ErrAttributeNotFound    = errors.New("hla omt: attribute not found in class hierarchy")
-	ErrInteractionNotFound  = errors.New("hla omt: interaction class not found in FOM registry")
-	ErrParameterNotFound    = errors.New("hla omt: parameter not found in interaction hierarchy")
-	ErrDuplicateClass       = errors.New("hla omt: class name already registered")
-	ErrDuplicateAttribute   = errors.New("hla omt: attribute name already exists in class")
-	ErrDuplicateInteraction = errors.New("hla omt: interaction name already registered")
-	ErrDuplicateParameter   = errors.New("hla omt: parameter name already exists in interaction")
-	ErrInvalidParentClass   = errors.New("hla omt: invalid or non-existent parent class")
-	ErrAmbiguousClass       = errors.New("hla omt: ambiguous class name matches multiple classes; use fully qualified name")
-	ErrAmbiguousInteraction = errors.New("hla omt: ambiguous interaction name matches multiple classes; use fully qualified name")
+	ErrClassNotFound        = common.ErrClassNotFound
+	ErrAttributeNotFound    = common.ErrAttributeNotFound
+	ErrInteractionNotFound  = common.ErrInteractionNotFound
+	ErrParameterNotFound    = common.ErrParameterNotFound
+	ErrDuplicateClass       = common.ErrDuplicateClass
+	ErrDuplicateAttribute   = common.ErrDuplicateAttribute
+	ErrDuplicateInteraction = common.ErrDuplicateInteraction
+	ErrDuplicateParameter   = common.ErrDuplicateParameter
+	ErrInvalidParentClass   = common.ErrInvalidParentClass
+	ErrAmbiguousClass       = common.ErrAmbiguousClass
+	ErrAmbiguousInteraction = common.ErrAmbiguousInteraction
 )
 
 // Normative Standard MIM Constants (IEEE 1516-2025)

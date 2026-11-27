@@ -13,7 +13,6 @@ import (
 
 	"github.com/icemagno/valhalla/pkg/common"
 	"github.com/icemagno/valhalla/pkg/crc"
-	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/lrc"
 )
 
@@ -72,11 +71,11 @@ func TestCABI_TypedErrorMapping(t *testing.T) {
 		{"direct federate name in use", common.ErrFederateNameAlreadyInUse, ValhallaErrFederateNameInUse},
 		{"wrapped federate name in use", fmt.Errorf("join failed: %w", common.ErrFederateNameAlreadyInUse), ValhallaErrFederateNameInUse},
 		{"direct class not defined", common.ErrObjectClassNotDefined, ValhallaErrClassNotFound},
-		{"wrapped core class not found", fmt.Errorf("metamodel: %w", core.ErrClassNotFound), ValhallaErrClassNotFound},
+		{"wrapped core class not found", fmt.Errorf("metamodel: %w", common.ErrClassNotFound), ValhallaErrClassNotFound},
 		{"direct attr not defined", common.ErrAttributeNotDefined, ValhallaErrAttrNotFound},
-		{"wrapped core attr not found", fmt.Errorf("omt: %w", core.ErrAttributeNotFound), ValhallaErrAttrNotFound},
+		{"wrapped core attr not found", fmt.Errorf("omt: %w", common.ErrAttributeNotFound), ValhallaErrAttrNotFound},
 		{"direct interaction not defined", common.ErrInteractionClassNotDefined, ValhallaErrInteractionNotFound},
-		{"wrapped core interaction not found", fmt.Errorf("fom: %w", core.ErrInteractionNotFound), ValhallaErrInteractionNotFound},
+		{"wrapped core interaction not found", fmt.Errorf("fom: %w", common.ErrInteractionNotFound), ValhallaErrInteractionNotFound},
 		{"direct object not known", common.ErrObjectInstanceNotKnown, ValhallaErrObjectNotFound},
 		{"wrapped object not known", fmt.Errorf("reflect error: %w", common.ErrObjectInstanceNotKnown), ValhallaErrObjectNotFound},
 		{"direct attribute not owned", common.ErrAttributeNotOwned, ValhallaErrNotOwner},
@@ -86,9 +85,9 @@ func TestCABI_TypedErrorMapping(t *testing.T) {
 		{"wrapped lrc already member", fmt.Errorf("cannot join twice: %w", lrc.ErrFederateAlreadyExecutionMember), ValhallaErrNotMember},
 		{"direct not connected", lrc.ErrNotConnected, ValhallaErrNotConnected},
 		{"wrapped connection closed", fmt.Errorf("socket EOF: %w", lrc.ErrConnectionClosed), ValhallaErrNotConnected},
-		{"invalid parent class", core.ErrInvalidParentClass, ValhallaErrInvalidArg},
-		{"ambiguous class", core.ErrAmbiguousClass, ValhallaErrInvalidArg},
-		{"ambiguous interaction", core.ErrAmbiguousInteraction, ValhallaErrInvalidArg},
+		{"invalid parent class", common.ErrInvalidParentClass, ValhallaErrInvalidArg},
+		{"ambiguous class", common.ErrAmbiguousClass, ValhallaErrInvalidArg},
+		{"ambiguous interaction", common.ErrAmbiguousInteraction, ValhallaErrInvalidArg},
 		{"invalid logical time", common.ErrInvalidLogicalTime, ValhallaErrInvalidArg},
 		{"invalid lookahead", common.ErrInvalidLookahead, ValhallaErrInvalidArg},
 		{"unknown custom error falls back to rti exception", errors.New("some unexpected internal panic"), ValhallaErrRtiException},

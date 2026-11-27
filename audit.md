@@ -96,6 +96,9 @@ O projeto demonstra engenhosidade na concepção de estruturas de dados e no par
 ### 🔴 1.8. Estrutura de Diretórios Fictícia no README
 * O [README.md](README.md#L87-L91) indica os pacotes `pkg/euler/`, `pkg/fom/`, `pkg/morton/`, `pkg/vector/`, `pkg/ssz/` e `pkg/crypto/`. Nenhum deles existe na raiz de `pkg/` (foram fundidos em `pkg/crc/core` ou não existem).
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commit `b6bacf0`)  
+> Substituída a árvore fictícia em `README.md` pela estrutura real e canônica do repositório, removendo todos os diretórios inexistentes (`pkg/euler/`, `pkg/fom/`, `pkg/morton/`, `pkg/vector/`) e eliminando a menção indevida a PQC em `pkg/common/`. Conferido 100% contra o sistema de arquivos real.
+
 ---
 
 ## 2. Stubs e Mocks Silenciosos no Código de Produção
@@ -192,8 +195,14 @@ O registro de OMT indexa as classes pelo seu nome simples (`omt.objectNameToClas
 ### ⚠️ 4.4. Mapeamento Frágil de Erros via Strings na C-ABI ([pkg/cabi/cabi.go](pkg/cabi/cabi.go#L38-L66))
 A conversão de erros Go para códigos de status da C-ABI é realizada através de busca textual com `strings.Contains(msg, ...)` em vez de erros tipados (`errors.Is` / `errors.As`). Pequenas alterações em textos descritivos quebram o lançamento de exceções nos SDKs C++ e Java.
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commit `61f2151`)  
+> Eliminação completa de correspondência textual via strings (`strings.Contains`) na conversão de erros para a C-ABI em `pkg/cabi/cabi.go`. Implementada resolução de erros canônicos remotos via `common.AsCanonicalError` no LRC (`pkg/lrc/rti_ambassador.go`), e mapeamento 100% tipado com `errors.Is` abrangendo todos os sentinelas normativos de `lrc` e `common`. Conforme nota do auditor, os sentinelas de OMT foram centralizados em `pkg/common`, desacoplando totalmente a camada cliente C-ABI do pacote `pkg/crc/core`. Validado por `TestCABI_TypedErrorMapping` com 30 casos de teste cobrindo erros diretos e encapsulados (`%w`).
+
 ### ⚠️ 4.5. Falta de Guarda de Ponteiros Nulos na C-ABI
 Funções exportadas como `valhalla_connect`, `valhalla_create_federation`, etc., invocam `C.GoString(address)` e `C.GoString(fedName)` sem verificar se o ponteiro C é `NULL`. Se um ponteiro nulo for repassado, ocorre falha de segmentação (SIGSEGV) irreversível na JVM ou processo C++.
+
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commits `1b21db2`, `fc1969b`, `61f2151`)  
+> Adicionadas guardas exaustivas contra ponteiros nulos (`NULL`) em todas as funções exportadas pela C-ABI (`pkg/cabi/cabi.go`): validação de handle de embaixador (`amb == nil`), strings C (`address == nil`, `fedName == nil`, etc.), ponteiros de saída (`outHandle == nil`, `outOwner == nil`, `outIsOwned == nil`, `outRegionHandle == nil`, `outEvoked == nil`) e contadores negativos / arrays nulos (`count < 0`, `tagLen < 0`, `timeoutSeconds < 0`), retornando `VALHALLA_ERR_INVALID_ARG` determinístico e blindando clientes C/C++/JNA contra falhas de segmentação (SIGSEGV). Validado por `TestCABI_NullPointerSafety` sob `go test -race` e `GOEXPERIMENT=cgocheck2`.
 
 ---
 
@@ -283,4 +292,20 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **1.6** | Temporizadores de Alta Precisão Multiplataforma (QPC / CLOCK_MONOTONIC) e Remoção de P50 < 1 µs | `3edf7b6` | **✅ CORRIGIDO** |
 | **1.7** | Ingestão e Validação Modular Ponta-a-Ponta dos 14 Módulos Normativos do SISO RPR-FOM v2.0 | `4c96732` | **✅ CORRIGIDO** |
 | **4.3** | Indexação Canônica FQCN na OMT e Resolução Hierárquica por Pai no Parser XML (Zero Colisão) | `f299929` | **✅ CORRIGIDO** |
+| **1.8** | Alinhamento da Estrutura de Diretórios no `README.md` com a Árvore Real do Repositório | `b6bacf0` | **✅ CORRIGIDO** |
+| **4.4** | Mapeamento 100% Tipado via `errors.Is` na C-ABI e Centralização de Sentinelas em `pkg/common` | `61f2151` | **✅ CORRIGIDO** |
+| **4.5** | Guardas Exaustivas contra Ponteiros `NULL` e Limites Negativos nas Funções Exportadas da C-ABI | `1b21db2`, `fc1969b`, `61f2151` | **✅ CORRIGIDO** |
+
+---
+
+## 🔴 Itens Pendentes de Remediação (5 de 23)
+
+| Item | Categoria | Descrição | Severidade | Situação Atual |
+| :---: | :--- | :--- | :---: | :--- |
+| **1.1** | **Vaporware / Segurança** | Post-Quantum Cryptography (ML-KEM-768 / Kyber / HPKE / AES-256-GCM) | **CRÍTICO** | Inexistente no código; implementar ou reclassificar como Roadmap na documentação. |
+| **3.1** | **Tratamento de Erros** | Supressão em massa de erros (`_ = `) | **ALTO** | Centenas de supressões em `native_handler.go`, `portico_handler.go` e `web_gateway.go`. |
+| **3.2** | **Tratamento de Erros** | Falhas críticas de transporte e `UpdateObjectAttributes` ignoradas | **ALTO** | Erros de `SendMessage`, `SendNotification` e `UpdateObjectAttributes` ainda descartados. |
+| **4.1** | **Arquitetura / SRP** | "God Handlers" (> 1.000 linhas) e triplicação da lógica de domínio | **MÉDIO** | Handlers de transporte monolíticos e com lógica de federação duplicada. |
+| **5.1** | **Desempenho** | Recálculo global da árvore Merkle (`GetGlobalRoot()`) a cada `UpdateAttributes` | **ALTO** | `native_handler.go` ainda invoca `GetGlobalRoot()` sincronamente em cada atualização. |
+
 

@@ -50,7 +50,6 @@ import (
 	"unsafe"
 
 	"github.com/icemagno/valhalla/pkg/common"
-	"github.com/icemagno/valhalla/pkg/crc/core"
 	"github.com/icemagno/valhalla/pkg/lrc"
 )
 
@@ -89,24 +88,24 @@ func mapErrorToStatusCode(err error) C.int32_t {
 			return C.VALHALLA_ERR_NOT_OWNER, true
 
 		case errors.Is(e, common.ErrObjectClassNotDefined),
-			errors.Is(e, core.ErrClassNotFound):
+			errors.Is(e, common.ErrClassNotFound):
 			return C.VALHALLA_ERR_CLASS_NOT_FOUND, true
 
 		case errors.Is(e, common.ErrAttributeNotDefined),
-			errors.Is(e, core.ErrAttributeNotFound):
+			errors.Is(e, common.ErrAttributeNotFound):
 			return C.VALHALLA_ERR_ATTR_NOT_FOUND, true
 
 		case errors.Is(e, common.ErrInteractionClassNotDefined),
-			errors.Is(e, core.ErrInteractionNotFound),
-			errors.Is(e, core.ErrParameterNotFound):
+			errors.Is(e, common.ErrInteractionNotFound),
+			errors.Is(e, common.ErrParameterNotFound):
 			return C.VALHALLA_ERR_INTERACTION_NOT_FOUND, true
 
 		case errors.Is(e, common.ErrObjectInstanceNotKnown):
 			return C.VALHALLA_ERR_OBJECT_NOT_FOUND, true
 
-		case errors.Is(e, core.ErrInvalidParentClass),
-			errors.Is(e, core.ErrAmbiguousClass),
-			errors.Is(e, core.ErrAmbiguousInteraction),
+		case errors.Is(e, common.ErrInvalidParentClass),
+			errors.Is(e, common.ErrAmbiguousClass),
+			errors.Is(e, common.ErrAmbiguousInteraction),
 			errors.Is(e, common.ErrInvalidLogicalTime),
 			errors.Is(e, common.ErrInvalidLookahead),
 			errors.Is(e, common.ErrSyncPointLabelNotUnique):

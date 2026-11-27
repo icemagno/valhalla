@@ -36,6 +36,19 @@ var (
 	ErrTimeConstrainedNotEnabled       = errors.New("hla: time constrained not enabled")
 	ErrLogicalTimeAlreadyPassed        = errors.New("hla: logical time already passed")
 	ErrRequestForTimeAdvancePending    = errors.New("hla: request for time advance pending")
+
+	// OMT & Metamodel (FOM / MIM)
+	ErrClassNotFound        = errors.New("hla omt: class not found in FOM registry")
+	ErrAttributeNotFound    = errors.New("hla omt: attribute not found in class hierarchy")
+	ErrInteractionNotFound  = errors.New("hla omt: interaction class not found in FOM registry")
+	ErrParameterNotFound    = errors.New("hla omt: parameter not found in interaction hierarchy")
+	ErrDuplicateClass       = errors.New("hla omt: class name already registered")
+	ErrDuplicateAttribute   = errors.New("hla omt: attribute name already exists in class")
+	ErrDuplicateInteraction = errors.New("hla omt: interaction name already registered")
+	ErrDuplicateParameter   = errors.New("hla omt: parameter name already exists in interaction")
+	ErrInvalidParentClass   = errors.New("hla omt: invalid or non-existent parent class")
+	ErrAmbiguousClass       = errors.New("hla omt: ambiguous class name matches multiple classes; use fully qualified name")
+	ErrAmbiguousInteraction = errors.New("hla omt: ambiguous interaction name matches multiple classes; use fully qualified name")
 )
 
 // AsCanonicalError resolves an error message back to its canonical typed sentinel error
@@ -91,6 +104,28 @@ func AsCanonicalError(msg string) error {
 		return ErrLogicalTimeAlreadyPassed
 	case ErrRequestForTimeAdvancePending.Error():
 		return ErrRequestForTimeAdvancePending
+	case ErrClassNotFound.Error():
+		return ErrClassNotFound
+	case ErrAttributeNotFound.Error():
+		return ErrAttributeNotFound
+	case ErrInteractionNotFound.Error():
+		return ErrInteractionNotFound
+	case ErrParameterNotFound.Error():
+		return ErrParameterNotFound
+	case ErrDuplicateClass.Error():
+		return ErrDuplicateClass
+	case ErrDuplicateAttribute.Error():
+		return ErrDuplicateAttribute
+	case ErrDuplicateInteraction.Error():
+		return ErrDuplicateInteraction
+	case ErrDuplicateParameter.Error():
+		return ErrDuplicateParameter
+	case ErrInvalidParentClass.Error():
+		return ErrInvalidParentClass
+	case ErrAmbiguousClass.Error():
+		return ErrAmbiguousClass
+	case ErrAmbiguousInteraction.Error():
+		return ErrAmbiguousInteraction
 	default:
 		return errors.New(msg)
 	}
