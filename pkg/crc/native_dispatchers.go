@@ -196,7 +196,9 @@ func (ctx *nativeContext) handleFederationManagement(hdr NativeHeader, payload [
 			return true, err
 		}
 		logCRCNative.Info("Federate [%d] registered synchronization point '%s'", ctx.federateID, syncReq.Label)
-		_ = ctx.currentFed.BroadcastSyncPointAnnounce(syncReq.Label, syncReq.Tag)
+		if err := ctx.currentFed.BroadcastSyncPointAnnounce(syncReq.Label, syncReq.Tag); err != nil {
+			logCRCNative.Warn("failed to broadcast sync point announce: %v", err)
+		}
 		return true, nil
 
 	case NativeMsgAchieveSyncPoint:
@@ -236,7 +238,9 @@ func (ctx *nativeContext) handleFederationManagement(hdr NativeHeader, payload [
 
 		if isSynced {
 			logCRCNative.Info(">>> FEDERATION SYNCHRONIZED at point '%s'!", labelReq.Label)
-			_ = ctx.currentFed.BroadcastFederationSynchronized(labelReq.Label)
+			if err := ctx.currentFed.BroadcastFederationSynchronized(labelReq.Label); err != nil {
+				logCRCNative.Warn("failed to broadcast federation synchronized: %v", err)
+			}
 		}
 		return true, nil
 	}
