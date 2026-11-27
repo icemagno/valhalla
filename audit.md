@@ -215,6 +215,9 @@ globalRoot := currentFed.StateTree().GetGlobalRoot()
 ```
 O método `GetGlobalRoot()` adquire lock exclusivo, aloca slices na heap com todos os identificadores de entidades, executa ordenação com `sort.Ints()`, calcula SHA-256 de todas as entidades e realiza redução binária completa. Sob tráfego de simulação em tempo real (milhares de entidades a 60–100 Hz), esse padrão causa **severa contenção de locks e degradação de throughput**.
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commit `6933754`)  
+> Implementada árvore Merkle esparsa incremental (Sparse Merkle Tree - SMT) mantendo níveis pré-alocados (`treeLevels [][][32]byte`) em `pkg/common/merkle.go`. Em atualizações de entidades existentes, `updateLeafPathLocked` recalcula unicamente o caminho folha $\to$ raiz ($\lceil\log_2 N\rceil$ nós) com zero alocações de heap e zero cópias de fatias. `GetGlobalRoot()` e `GenerateProof()` passaram a operar sob `RLock()` compartilhado em $O(1)$ (~12 ns) e $O(\log N)$ respectivamente, eliminando completamente a contenção de lock exclusivo e a recomputação global em leituras concorrentes; `rebuildTreeLocked()` ocorre unicamente na inserção ou remoção estrutural de entidades. Implementado desacoplamento e controle de auditoria sob demanda via `SetMerkleAuditEnabled(bool)` e `IsMerkleAuditEnabled()` em `pkg/crc/models.go` e `pkg/crc/native_handler.go`, omitindo o cálculo de hash e o flag `FlagNativeMerkle` quando desabilitado. Resultados empíricos de benchmark com 1.000 entidades ativas: latência de atualização reduzida de 125,1 µs para **1,319 µs (~95x mais rápido)** e alocações de heap reduzidas de 32.768 B/op (1 allocs/op) para **0 B/op e 0 allocs/op**. Validado sob concorrência e race detector com `TestMerkleTree_ConcurrentReadersAndIncrementalUpdates`, `TestFederationExecution_MerkleAuditToggleAndDecoupling` e `go test -race ./...` (100% PASS, 0 data races).
+
 ### 🐢 5.2. Alocações Desnecessárias na Heap em `EvokeCallback`
 Em [`pkg/lrc/rti_ambassador.go`](pkg/lrc/rti_ambassador.go#L1002):
 ```go
@@ -295,17 +298,18 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **1.8** | Alinhamento da Estrutura de Diretórios no `README.md` com a Árvore Real do Repositório | `b6bacf0` | **✅ CORRIGIDO** |
 | **4.4** | Mapeamento 100% Tipado via `errors.Is` na C-ABI e Centralização de Sentinelas em `pkg/common` | `61f2151` | **✅ CORRIGIDO** |
 | **4.5** | Guardas Exaustivas contra Ponteiros `NULL` e Limites Negativos nas Funções Exportadas da C-ABI | `1b21db2`, `fc1969b`, `61f2151` | **✅ CORRIGIDO** |
+| **5.1** | Árvore Merkle Incremental O(log N) com Zero Alocações (0 B/op) e Toggle Sob Demanda de Auditoria | `6933754` | **✅ CORRIGIDO** |
 
 ---
 
-## 🔴 Itens Pendentes de Remediação (5 de 23)
+## 🔴 Itens Pendentes de Remediação (4 de 23)
 
 | Item | Categoria | Descrição | Severidade | Situação Atual |
 | :---: | :--- | :--- | :---: | :--- |
-| **1.1** | **Vaporware / Segurança** | Post-Quantum Cryptography (ML-KEM-768 / Kyber / HPKE / AES-256-GCM) | **CRÍTICO** | Inexistente no código; implementar ou reclassificar como Roadmap na documentação. |
+| **1.1** | **Vaporware / Segurança** | Post-Quantum Cryptography (ML-KEM-768 / Kyber / HPKE / AES-256-GCM) | **CRÍTICO** | Inexistente no código; implementar ou reclassificar como Roadmap na documentação (commit `5b1f528`). |
 | **3.1** | **Tratamento de Erros** | Supressão em massa de erros (`_ = `) | **ALTO** | Centenas de supressões em `native_handler.go`, `portico_handler.go` e `web_gateway.go`. |
 | **3.2** | **Tratamento de Erros** | Falhas críticas de transporte e `UpdateObjectAttributes` ignoradas | **ALTO** | Erros de `SendMessage`, `SendNotification` e `UpdateObjectAttributes` ainda descartados. |
 | **4.1** | **Arquitetura / SRP** | "God Handlers" (> 1.000 linhas) e triplicação da lógica de domínio | **MÉDIO** | Handlers de transporte monolíticos e com lógica de federação duplicada. |
-| **5.1** | **Desempenho** | Recálculo global da árvore Merkle (`GetGlobalRoot()`) a cada `UpdateAttributes` | **ALTO** | `native_handler.go` ainda invoca `GetGlobalRoot()` sincronamente em cada atualização. |
+
 
 
