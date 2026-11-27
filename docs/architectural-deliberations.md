@@ -285,7 +285,9 @@ Our technical strategy delivers a **sovereign, high-performance Go-based RTI whi
 
 ---
 
-## 12. Post-Quantum Cryptography (PQC) and KEM
+## 12. Post-Quantum Cryptography (PQC) and KEM [Roadmap / Target Architecture]
+
+> **Implementation Status:** Post-Quantum Cryptography is formally designated as an architectural roadmap proposal for a future security hardening release. The current production engine operates over high-throughput plaintext TCP VAL4 and WebSockets. Wire negotiation capability is reserved via the `FlagNativePQC` bit in `pkg/common/protocol.go`.
 
 ### 12.1. Key Encapsulation Mechanisms (KEM)
 KEM is an asymmetric cryptographic primitive designed to securely establish shared symmetric keys over unencrypted channels:

@@ -4,7 +4,7 @@
 > **Lead Developer & Creator:** Carlos Magno Oliveira de Abreu (<magno.mabreu@gmail.com>)  
 > **License:** Apache License, Version 2.0  
 > **Primary Language:** Go (Golang) — with optional zero-copy C-ABI/FFI extensions where SIMD or hardware acceleration is strictly required.  
-> **Primary Objective:** Deliver a sovereign, ultra-high-performance RTI based on **IEEE 1516-2025 (HLA-4)**, integrating deterministic blockchain-grade serialization (**SSZ**), state verification via **Sparse Merkle Trees**, 3D Morton Space-Filling Curves for zero-overhead **Data Distribution Management (DDM)**, post-quantum key exchange (**ML-KEM / Kyber**), and **100% native wire compatibility with Portico RTI** (no proxies, adapters, or third-party gateways), validated against **RPR-FOM v2.0**.  
+> **Primary Objective:** Deliver a sovereign, ultra-high-performance RTI based on **IEEE 1516-2025 (HLA-4)**, integrating deterministic blockchain-grade serialization (**SSZ**), state verification via **Sparse Merkle Trees**, 3D Morton Space-Filling Curves for zero-overhead **Data Distribution Management (DDM)**, post-quantum key exchange (**ML-KEM / Kyber [Roadmap]**), and **100% native wire compatibility with Portico RTI** (no proxies, adapters, or third-party gateways), validated against **RPR-FOM v2.0**.  
 > **Secondary Objective:** Systematically solve legacy simulation bottlenecks (cloud-native deployment, game engine frame-loop integration, fine-grained multi-level security, and fault-tolerant time advancement).  
 > **Methodology:** Strict Test-Driven Development (TDD), zero-allocation hot paths, race-free concurrency audits, and empirical latency benchmarking.
 

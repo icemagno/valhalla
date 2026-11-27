@@ -104,14 +104,14 @@ const (
 const (
 	FlagNativeSSZ    uint8 = 0x01 // Bit 0: SSZ-encoded payload
 	FlagNativeMerkle uint8 = 0x02 // Bit 1: Valid Merkle Root present in header
-	FlagNativePQC    uint8 = 0x04 // Bit 2: Payload protected with PQC key (ML-KEM / Kyber)
+	FlagNativePQC    uint8 = 0x04 // Bit 2: Reserved for future PQC (ML-KEM / Kyber) wire handshake [Roadmap]
 )
 
 // NativeHeader defines the canonical, high-speed linear binary header for Project Valhalla
 type NativeHeader struct {
 	Magic      uint16   // 0x5641 ("VA")
 	Version    uint8    // 4 (HLA-4 / IEEE 1516-2025)
-	Flags      uint8    // Bit 0: SSZ, Bit 1: Merkle, Bit 2: PQC
+	Flags      uint8    // Bit 0: SSZ, Bit 1: Merkle, Bit 2: PQC (Reserved)
 	PayloadLen uint32   // SSZ payload length
 	MsgType    uint8    // Native message type identifier
 	Reserved   uint8    // Alignment byte

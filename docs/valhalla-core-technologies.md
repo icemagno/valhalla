@@ -162,7 +162,7 @@ Valhalla operates on a single unified TCP port (`:52295`), supporting both nativ
                    /                           \
          [Native Adapter]               [Portico Adapter]
        HLA-4 / IEEE 1516-2025         Legacy HLA 1.3 / 1516e
-         (SSZ / VAL4 / PQC)           (JOS / 0xCAFE / 0xBEEF)
+         (SSZ / VAL4 / Native)        (JOS / 0xCAFE / 0xBEEF)
                    \                           /
                     ▼                         ▼
               ┌─────────────────────────────────────┐

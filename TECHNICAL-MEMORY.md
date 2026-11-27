@@ -5,7 +5,7 @@
 > **Creator & Lead Developer:** Carlos Magno Oliveira de Abreu ([@icemagno](https://github.com/icemagno) | `magno.mabreu@gmail.com`)  
 > **License:** Apache License, Version 2.0  
 > **Repository:** `github.com/icemagno/valhalla`  
-> **Core Scope:** Evolution of the Portico RTI ecosystem to the **IEEE 1516-2025 (HLA-4)** specification, incorporating **Simple Serialize (SSZ)**, **Sparse Merkle Trees**, **Post-Quantum Cryptography (ML-KEM/Kyber)**, **3D Morton Space-Filling Curves for DDM**, and **Native Wire-Compatibility with Portico RTI**, using **RPR-FOM v2.0** as the strict normative test baseline.
+> **Core Scope:** Evolution of the Portico RTI ecosystem to the **IEEE 1516-2025 (HLA-4)** specification, incorporating **Simple Serialize (SSZ)**, **Sparse Merkle Trees**, **Post-Quantum Cryptography (ML-KEM/Kyber) [Roadmap]**, **3D Morton Space-Filling Curves for DDM**, and **Native Wire-Compatibility with Portico RTI**, using **RPR-FOM v2.0** as the strict normative test baseline.
 
 ---
 
@@ -56,18 +56,19 @@ Identified the 7 core friction points in distributed simulation:
   * **Instant Desync Detection:** In deterministic physics simulations, federates compare the 32-byte Merkle root hash each cycle; any 1-bit state divergence is flagged immediately.
   * **Multi-Level Security (MLS / Zero Trust):** Leverages compact Merkle Inclusion Proofs to allow a federate to mathematically prove that its coordinate position belongs to the global state, without exposing classified payload attributes (e.g., secret electronic warfare frequencies or ammunition counts).
 
-### 6. Post-Quantum Cryptography: KEM (Key Encapsulation Mechanism) Primitive
+### 6. Post-Quantum Cryptography: KEM (Key Encapsulation Mechanism) Primitive [Architectural Specification / Roadmap]
 * **Strategic Requirement:** Modern military and national security standards (NIST FIPS 203, NSA CNSA 2.0, NATO STO) require transition to PQC to neutralize "Harvest Now, Decrypt Later" adversaries.
-* **Decision Taken:** Integration of **ML-KEM-768 (Kyber)** via the hybrid HPKE framework (RFC 9180).
-* **Two-Phase Architecture:**
-  1. *Handshake Phase:* ML-KEM executes **once** upon connection (15 to 40 µs CPU cost), encapsulating an ephemeral symmetric key.
+* **Target Architecture (In Development / Roadmap):** Proposed integration of **ML-KEM-768 (Kyber)** via the hybrid HPKE framework (RFC 9180).
+* **Two-Phase Architecture (Planned):**
+  1. *Handshake Phase:* ML-KEM executes **once** upon connection (modeled at 15 to 40 µs CPU cost), encapsulating an ephemeral symmetric key.
   2. *High-Frequency Streaming Phase (60 to 100+ Hz):* Symmetric authenticated encryption via **AES-256-GCM** utilizing processor hardware acceleration (**AES-NI**).
-* **Performance Profile:** Additional per-packet latency is $< 0.002\ \text{ms}$ ($< 2\ \mu\text{s}$), enabling gigabytes-per-second throughput with zero frame drops.
+* **Target Performance Profile:** Additional per-packet latency is modeled at $< 2\ \mu\text{s}$, enabling gigabytes-per-second throughput with zero frame drops once implemented.
+* **Current Operational Status:** Active wire communication currently operates in plaintext over TCP VAL4 and WebSockets. PQC wire negotiation is reserved via protocol flag `FlagNativePQC` in `pkg/common/protocol.go` for future production implementation.
 
 ### 7. Dual-Stream Segregated Dispatch
 * **Identified Challenge:** In a federation with 99 modern SSZ nodes and 1 legacy Portico node expecting standard SISO byte buffers, how to prevent the entire network from degrading to legacy throughput?
 * **Decision Taken:** Implementation of **Dual-Stream Segregated Dispatch**:
-  1. The 99 modern nodes communicate exclusively via the high-speed **SSZ + Merkle Root + KEM** channel.
+  1. The 99 modern nodes communicate exclusively via the high-speed **SSZ + Merkle Root** channel (PQC encryption in Roadmap).
   2. For the legacy node, the publisher generates an on-demand IEEE 1516 serialized buffer delivered via standard unicast (Go CPU overhead of ~200-300 ns).
   3. Dual-stream conversion occurs only for attributes the legacy node explicitly subscribed to.
 
@@ -197,7 +198,7 @@ Audited official Portico source classes (`openlvc/portico`):
    * Project Valhalla is not merely a client adapter: **Valhalla is the Sovereign Central RTI Component (CRC)**, a high-performance simulation executive.
    * **Pitch RTI Model Separation:**
      * `pkg/crc`: Central RTI Component daemon. Manages `FederationExecution`, object instances, barrier synchronization (`SyncPoint`), and time progression.
-     * `pkg/lrc`: Modern Local RTI Component client library for IEEE 1516-2025 (HLA-4), SSZ serialization, Sparse Merkle Trees, and ML-KEM-768.
+     * `pkg/lrc`: Modern Local RTI Component client library for IEEE 1516-2025 (HLA-4), SSZ serialization, and Sparse Merkle Trees.
      * Legacy Gateway: Contained strictly in `pkg/crc`, enabling legacy Java nodes (e.g., Thor) to participate seamlessly.
 2. **Single-Port Multiplexer on Port 52295 (`pkg/crc/multiplexer.go`):**
    * Eliminated port sprawl by multiplexing on standard port `52295`.

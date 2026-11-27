@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>The Next Generation of HLA/RTI: Portico-Compatible HLA-4 (IEEE 1516-2025)</strong><br>
-  <em>Ultra-High-Performance Distributed Simulation with Dual-Dialect Multiplexing, Euler Tour Hierarchy Indexing, Vector Bitsets, SSZ Merkle State Verification, 3D Morton DDM, and Post-Quantum Security (ML-KEM).</em>
+  <em>Ultra-High-Performance Distributed Simulation with Dual-Dialect Multiplexing, Euler Tour Hierarchy Indexing, Vector Bitsets, SSZ Merkle State Verification, and 3D Morton DDM.</em>
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@ The Project Valhalla emblem is a classic **Nordic shield** rendered in **emerald
    * **SSZ Serialization & Sparse Merkle Trees:** Canonical binary layouts with native 32-byte `hash_tree_root` calculation for instant state desync detection and Multi-Level Security (MLS) attribute proofs.
    * **3D Morton Space-Filling Curves (Z-Order Hashing):** High-speed Data Distribution Management (DDM) mapping ECEF $(X, Y, Z)$ coordinates into 64-bit Morton codes for bitwise spatial containment checks in $< 2\ \text{ns}$. Standard subscriptions remain 100% opt-in with zero overhead, coexisting seamlessly with high-speed ballistic and orbital dead reckoning.
 3. **Post-Quantum Cryptography (PQC) & Zero-Trust Security [Roadmap]:**
-   * Handshake key establishment powered by **ML-KEM-768 (Kyber / FIPS 203)** via HPKE (RFC 9180), followed by hardware-accelerated **AES-256-GCM** (AES-NI) for high-frequency coordinate streaming (Planned Architecture / In Development).
+   * Proposed handshake key establishment powered by **ML-KEM-768 (Kyber / FIPS 203)** via HPKE (RFC 9180), followed by hardware-accelerated **AES-256-GCM** (AES-NI) for high-frequency coordinate streaming (Architecture Proposal / In Development for Future Release). Current runtime communication operates over high-throughput TCP VAL4 and WebSockets plaintext transport.
 4. **Cloud-Native & IEEE 1516-2025 Web Profile:**
    * Eliminates hard dependencies on raw IP Multicast, running seamlessly across Docker, Kubernetes (DNS-based discovery), and cloud environments.
    * Native **WebSockets and JSON** interfaces for zero-install browser dashboards, telemetry visualizers, and web federates.
@@ -350,7 +350,7 @@ LD_LIBRARY_PATH=dist/bin ./test/c_test/c_test
 * **Data Model Standard:** IEEE 1516-2025 (HLA-4) & IEEE 1516-2010 (HLA Evolved)
 * **Canonical Object Model:** RPR-FOM v2.0 (SISO-STD-001-2015)
 * **Serialization & State Verification:** SSZ (Simple Serialize) & Sparse Merkle Trees
-* **Cryptographic Suite:** ML-KEM-768 (FIPS 203), HPKE (RFC 9180), AES-256-GCM
+* **Cryptographic Suite [Roadmap]:** ML-KEM-768 (FIPS 203), HPKE (RFC 9180), AES-256-GCM
 
 ---
 
