@@ -110,3 +110,102 @@ func TestXMLParser_RPR_FOM_BaseAndPhysical(t *testing.T) {
 	t.Logf("RPR-FOM verified: Aircraft (%d) is a BaseEntity (%d) in $O(1)$ Euler Tour!",
 		aircraft.Handle, baseEntity.Handle)
 }
+
+func TestXMLParser_All14_RPR_FOM_Modules(t *testing.T) {
+	omt := core.NewOMTRegistry()
+
+	rprDir := filepath.Join("..", "..", "test", "resources", "rpr-fom-v2.0")
+
+	// The 14 official SISO RPR-FOM v2.0 modules
+	modules := []string{
+		"RPR-Foundation_v2.0.xml",
+		"RPR-Enumerations_v2.0.xml",
+		"RPR-Base_v2.0.xml",
+		"RPR-Physical_v2.0.xml",
+		"RPR-Aggregate_v2.0.xml",
+		"RPR-Communication_v2.0.xml",
+		"RPR-DER_v2.0.xml",
+		"RPR-Logistics_v2.0.xml",
+		"RPR-Minefield_v2.0.xml",
+		"RPR-SE_v2.0.xml",
+		"RPR-SIMAN_v2.0.xml",
+		"RPR-Switches_v2.0.xml",
+		"RPR-UA_v2.0.xml",
+		"RPR-Warfare_v2.0.xml",
+	}
+
+	for _, modName := range modules {
+		filePath := filepath.Join(rprDir, modName)
+		if err := metamodel.ParseFOMFile(omt, filePath); err != nil {
+			t.Fatalf("failed to ingest RPR-FOM module %s: %v", modName, err)
+		}
+		t.Logf("Successfully ingested module: %s", modName)
+	}
+
+	// Verify key classes across the modules
+	expectedClasses := []string{
+		"HLAobjectRoot",
+		"BaseEntity",                 // RPR-Base
+		"PhysicalEntity",             // RPR-Physical
+		"Platform",                   // RPR-Physical
+		"Aircraft",                   // RPR-Physical
+		"AggregateEntity",            // RPR-Aggregate
+		"RadioTransmitter",           // RPR-Communication
+		"RadioReceiver",              // RPR-Communication
+		"Minefield",                  // RPR-Minefield
+		"MinefieldObject",            // RPR-Minefield
+		"MinefieldLaneMarkerObject",  // RPR-Minefield
+		"Munition",                   // RPR-Warfare
+		"ActiveSonarBeam",            // RPR-UA
+	}
+
+	for _, clsName := range expectedClasses {
+		cls, ok := omt.GetObjectClassByName(clsName)
+		if !ok {
+			t.Errorf("expected class '%s' to be present after ingesting all 14 modules", clsName)
+		} else {
+			t.Logf("Found class '%s' -> Handle=%d, Subtree=[%d, %d]", cls.Name, cls.Handle, cls.IntervalLeft, cls.IntervalRight)
+		}
+	}
+
+	// Verify key interactions across the modules
+	expectedInteractions := []string{
+		"HLAinteractionRoot",
+		"WeaponFire",       // RPR-Warfare
+		"MunitionDetonation", // RPR-Warfare
+		"ActionRequest",    // RPR-SIMAN
+		"ActionResponse",   // RPR-SIMAN
+		"ResupplyOffer",    // RPR-Logistics
+		"ResupplyReceived", // RPR-Logistics
+		"RadioSignal",      // RPR-Communication
+	}
+
+	for _, interName := range expectedInteractions {
+		inter, ok := omt.GetInteractionClassByName(interName)
+		if !ok {
+			t.Errorf("expected interaction '%s' to be present after ingesting all 14 modules", interName)
+		} else {
+			t.Logf("Found interaction '%s' -> Handle=%d, Subtree=[%d, %d]", inter.Name, inter.Handle, inter.IntervalLeft, inter.IntervalRight)
+		}
+	}
+
+	// Verify Euler Tour Subclass Relationships spanning modules
+	// Aircraft -> Platform -> PhysicalEntity -> BaseEntity -> HLAobjectRoot
+	aircraft, _ := omt.GetObjectClassByName("Aircraft")
+	baseEntity, _ := omt.GetObjectClassByName("BaseEntity")
+	root, _ := omt.GetObjectClassByName("HLAobjectRoot")
+
+	if !omt.IsSubclassOfObject(aircraft.Handle, baseEntity.Handle) {
+		t.Errorf("expected Aircraft to be subclass of BaseEntity")
+	}
+	if !omt.IsSubclassOfObject(aircraft.Handle, root.Handle) {
+		t.Errorf("expected Aircraft to be subclass of HLAobjectRoot")
+	}
+
+	// WeaponFire -> HLAinteractionRoot
+	weaponFire, _ := omt.GetInteractionClassByName("WeaponFire")
+	interRoot, _ := omt.GetInteractionClassByName("HLAinteractionRoot")
+	if !omt.IsSubclassOfInteraction(weaponFire.Handle, interRoot.Handle) {
+		t.Errorf("expected WeaponFire to be subclass of HLAinteractionRoot")
+	}
+}

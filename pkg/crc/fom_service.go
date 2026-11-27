@@ -36,7 +36,9 @@ func ResolveFOMPath(rawPath string) string {
 		filepath.Join("examples", "java-federate", "foms", base),
 		filepath.Join("examples", "java-federate", "foms", "siso-rpr-v2.0", base),
 		filepath.Join("test", "resources", "rpr-fom-v2.0", base),
+		filepath.Join("resources", "rpr-fom-v2.0", base),
 		filepath.Join("..", "test", "resources", "rpr-fom-v2.0", base),
+		filepath.Join("..", "..", "test", "resources", "rpr-fom-v2.0", base),
 	}
 
 	for _, target := range candidates {
