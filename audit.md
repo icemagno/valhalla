@@ -68,6 +68,9 @@ O projeto demonstra engenhosidade na concepção de estruturas de dados e no par
 * **Realidade no Código:**
   **Não existe uma única linha de código UDP** em todo o repositório. Toda a comunicação do servidor e dos clientes opera exclusivamente sobre conexões TCP e WebSockets.
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commit `292be6c`)  
+> Todas as alegações de UDP framing em `README.md:38` e `docs/architectural-deliberations.md:282` foram corrigidas para refletir estritamente a realidade atual do código (TCP de alta vazão com preâmbulo VAL4 e cabeçalho linear de 56 bytes + WebSockets IEEE 1516-2025). O suporte a streaming não-confiável via UDP framing foi formal e explicitamente reclassificado como proposta futura de Roadmap.
+
 ### 🔴 1.6. Distorções em Benchmarks e "P50 < 1 µs" Artificial
 * **Alegações em Documentação ([BENCHMARK.md](BENCHMARK.md#L40-L45), [README.md](README.md#L58-L66)):**
   - Apresenta tabelas comparando Valhalla contra *Pitch pRTI 5.4*, *MÄK RTI 4.5*, *CERTI* e *Portico* com precisão de frações de nanosegundos (ex.: "OMT Class Lookup: 1.14 ns vs 48.20 ns no Pitch"). Produtos proprietários comerciais em C++ não disponibilizam microbenchmarks isolados de chamadas internas em nanosegundos.
