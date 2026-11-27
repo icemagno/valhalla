@@ -27,6 +27,9 @@ O projeto demonstra engenhosidade na concepção de estruturas de dados e no par
   - Toda a comunicação de rede trafega em **texto plano (*plaintext*)**.
   - A constante `FlagNativePQC` **nunca é avaliada ou verificada** em nenhuma parte do CRC ou do LRC.
 
+> ✅ **STATUS DE REMEDIAÇÃO (27/11/2026): CORRIGIDO E APROVADO** (commits `5b1f528`, `155efa8`)  
+> Reclassificada formalmente a Criptografia Pós-Quântica (ML-KEM-768 / Kyber / HPKE RFC 9180 / AES-256-GCM) em toda a documentação oficial (`README.md`, `TECHNICAL-MEMORY.md`, `docs/architectural-deliberations.md`, `docs/project-master-plan.md`, `docs/valhalla-core-technologies.md`) e no código (`pkg/common/protocol.go`, `pkg/common/handles.go`, `pkg/crc/portico/wire/header.go`) como proposta futura de Roadmap. O protocolo nativo foi protegido em `pkg/crc/native_handler.go` com verificação estrita de flags: clientes que enviarem `FlagNativePQC (0x04)` têm o frame rejeitado imediatamente com erro 400 (`post-quantum cryptography (PQC) framing is not supported in this version; see Roadmap`), impedindo tentativas de decodificar ciphertext como SSZ plaintext. Validado com teste ponta-a-ponta `TestServer_NativeRejectPQCFlag` em `pkg/crc/server_test.go` e `go test -race ./...` (100% PASS, 0 data races).
+
 ### 🔴 1.2. Falsa "Serialização SSZ" (Simple Serialize do Ethereum 2.0)
 * **Alegações em Documentação ([README.md](README.md#L42), [TECHNICAL-MEMORY.md](TECHNICAL-MEMORY.md#L53-L58)):**
   > *"Adoption of Simple Serialize (SSZ from Ethereum 2.0 consensus layer) replacing manual IEEE Encoding Helpers with contiguous linear binary layouts supporting zero-copy parsing."*
@@ -299,14 +302,14 @@ Quando o servidor CRC é configurado para escutar em porta dinâmica atribuída 
 | **4.4** | Mapeamento 100% Tipado via `errors.Is` na C-ABI e Centralização de Sentinelas em `pkg/common` | `61f2151` | **✅ CORRIGIDO** |
 | **4.5** | Guardas Exaustivas contra Ponteiros `NULL` e Limites Negativos nas Funções Exportadas da C-ABI | `1b21db2`, `fc1969b`, `61f2151` | **✅ CORRIGIDO** |
 | **5.1** | Árvore Merkle Incremental O(log N) com Zero Alocações (0 B/op) e Toggle Sob Demanda de Auditoria | `6933754` | **✅ CORRIGIDO** |
+| **1.1** | Post-Quantum Cryptography reclassificado como Roadmap na documentação e rejeição de FlagNativePQC no CRC | `5b1f528`, `155efa8` | **✅ CORRIGIDO** |
 
 ---
 
-## 🔴 Itens Pendentes de Remediação (4 de 23)
+## 🔴 Itens Pendentes de Remediação (3 de 23)
 
 | Item | Categoria | Descrição | Severidade | Situação Atual |
 | :---: | :--- | :--- | :---: | :--- |
-| **1.1** | **Vaporware / Segurança** | Post-Quantum Cryptography (ML-KEM-768 / Kyber / HPKE / AES-256-GCM) | **CRÍTICO** | Inexistente no código; implementar ou reclassificar como Roadmap na documentação (commit `5b1f528`). |
 | **3.1** | **Tratamento de Erros** | Supressão em massa de erros (`_ = `) | **ALTO** | Centenas de supressões em `native_handler.go`, `portico_handler.go` e `web_gateway.go`. |
 | **3.2** | **Tratamento de Erros** | Falhas críticas de transporte e `UpdateObjectAttributes` ignoradas | **ALTO** | Erros de `SendMessage`, `SendNotification` e `UpdateObjectAttributes` ainda descartados. |
 | **4.1** | **Arquitetura / SRP** | "God Handlers" (> 1.000 linhas) e triplicação da lógica de domínio | **MÉDIO** | Handlers de transporte monolíticos e com lógica de federação duplicada. |
