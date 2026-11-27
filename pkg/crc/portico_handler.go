@@ -89,7 +89,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 				// Conexão encerrada normalmente pelo cliente
 				if currentFed != nil && federateID > 0 {
-					_, _ = currentFed.Resign(federateID)
+					if _, err := currentFed.Resign(federateID); err != nil {
+						logCRCPortico.Warn("failed to resign federate %d on disconnect: %v", federateID, err)
+					}
 				}
 				return nil
 			}
@@ -106,21 +108,27 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			obj, err := wire.DeserializePorticoControlMessage(payload)
 			if err != nil {
 				logCRCPortico.Error("Error deserializing CreateFederation: %v", err)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "CouldNotOpenFDD: malformed CreateFederation request")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "CouldNotOpenFDD: malformed CreateFederation request"); err != nil {
+					return err
+				}
 				continue
 			}
 			if n, ok := obj.Get("federationName").(string); ok && n != "" {
 				fedName = n
 			}
 			if fedName == "" {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "CouldNotOpenFDD: empty federation name")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "CouldNotOpenFDD: empty federation name"); err != nil {
+					return err
+				}
 				continue
 			}
 
 			fedExec, err := fedManager.CreateFederation(fedName)
 			if err != nil {
 				logCRCPortico.Error("CreateFederation failed for [%s]: %v", fedName, err)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
+					return err
+				}
 				continue
 			}
 			currentFed = fedExec
@@ -160,7 +168,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			}
 
 			respPayload := wire.BuildCreateFederationResponsePayload(currentFed.Handle, fedName)
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federation [%s] created with handle [%d]", fedName, currentFed.Handle)
 
 		case wire.MsgJoinFederation:
@@ -188,14 +198,18 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			}
 
 			if fedName == "" || nodeName == "" {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: federation and federate names are mandatory")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: federation and federate names are mandatory"); err != nil {
+					return err
+				}
 				continue
 			}
 
 			fedExec, exists := fedManager.GetFederation(fedName)
 			if !exists {
 				logCRCPortico.Error("Join error: federation [%s] does not exist", fedName)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederationExecutionDoesNotExist: "+fedName)
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederationExecutionDoesNotExist: "+fedName); err != nil {
+					return err
+				}
 				continue
 			}
 
@@ -203,7 +217,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			fed, err := currentFed.Join(nodeName, nodeType, ProtocolPortico, session)
 			if err != nil {
 				logCRCPortico.Error("Join error for %s: %v", nodeName, err)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
+					return err
+				}
 				continue
 			}
 
@@ -235,16 +251,22 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			wpPayload, err := wire.BuildWelcomePackPayloadWithFOM(currentFed.Handle, federateID, currentFed.OMT(), fedName, nodeName, nodeType)
 			if err != nil {
 				logCRCPortico.Error("Error generating WelcomePack: %v", err)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: failed to build WelcomePack")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: failed to build WelcomePack"); err != nil {
+					return err
+				}
 				continue
 			}
 
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wpPayload)
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wpPayload); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%s] joined with handle [%d] to federation [%s]", nodeName, federateID, fedName)
 
 		case wire.MsgRegisterSyncPoint:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			var label string
@@ -254,17 +276,23 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 			if label == "" {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: empty sync point label")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: empty sync point label"); err != nil {
+					return err
+				}
 				continue
 			}
 
 			_, err := currentFed.RegisterSyncPoint(label, nil, federateID)
 			if err != nil {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
+					return err
+				}
 				continue
 			}
 
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Synchronization point '%s' registered by federate [%d]", label, federateID)
 
 			annPayload, _ := wire.BuildAnnounceSyncPointPayload(label)
@@ -272,16 +300,22 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			for _, f := range currentFed.GetAllFederates() {
 				if f.Session != nil {
 					if f.Protocol == ProtocolPortico && annPayload != nil {
-						_ = f.Session.SendNotification(uint8(wire.MsgAnnounceSyncPoint), annPayload)
+						if err := f.Session.SendNotification(uint8(wire.MsgAnnounceSyncPoint), annPayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					} else {
-						_ = f.Session.SendNotification(common.NativeMsgAnnounceSyncPoint, nativeAnnounce)
+						if err := f.Session.SendNotification(common.NativeMsgAnnounceSyncPoint, nativeAnnounce); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					}
 				}
 			}
 
 		case wire.MsgAchieveSyncPoint:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			var label string
@@ -291,18 +325,24 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 			if label == "" {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: empty sync point label")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "RTIinternalError: empty sync point label"); err != nil {
+					return err
+				}
 				continue
 			}
 
 			isSynced, err := currentFed.AchieveSyncPoint(label, federateID)
 			if err != nil {
 				logCRCPortico.Error("AchieveSyncPoint error: %v", err)
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
+					return err
+				}
 				continue
 			}
 
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] achieved synchronization point '%s'", federateID, label)
 
 			if isSynced {
@@ -312,9 +352,13 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				for _, f := range currentFed.GetAllFederates() {
 					if f.Session != nil {
 						if f.Protocol == ProtocolPortico && syncPayload != nil {
-							_ = f.Session.SendNotification(uint8(wire.MsgFederationSynchronized), syncPayload)
+							if err := f.Session.SendNotification(uint8(wire.MsgFederationSynchronized), syncPayload); err != nil {
+								logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+							}
 						} else {
-							_ = f.Session.SendNotification(common.NativeMsgFederationSynchronized, nativeSync)
+							if err := f.Session.SendNotification(common.NativeMsgFederationSynchronized, nativeSync); err != nil {
+								logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+							}
 						}
 					}
 				}
@@ -322,61 +366,103 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 
 		case wire.MsgPublishObjectClass:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
 				classHandle, _ := obj.Get("classHandle").(int32)
 				attrHandles := extractAttributeHandles(obj.Get("attributes"))
 				if currentFed.Router() != nil && classHandle > 0 {
-					_ = currentFed.Router().PublishObjectClass(common.FederateHandle(federateID), common.ObjectClassHandle(classHandle), attrHandles)
+					if err := currentFed.Router().PublishObjectClass(common.FederateHandle(federateID), common.ObjectClassHandle(classHandle), attrHandles); err != nil {
+				logCRCPortico.Warn("failed to publish object class: %v", err)
+				if sendErr := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+					return sendErr
+				}
+				continue
+			}
 				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 		case wire.MsgSubscribeObjectClass:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
 				classHandle, _ := obj.Get("classHandle").(int32)
 				attrHandles := extractAttributeHandles(obj.Get("attributes"))
 				if currentFed.Router() != nil && classHandle > 0 {
-					_ = currentFed.Router().SubscribeObjectClass(common.FederateHandle(federateID), common.ObjectClassHandle(classHandle), attrHandles, true)
+					if err := currentFed.Router().SubscribeObjectClass(common.FederateHandle(federateID), common.ObjectClassHandle(classHandle), attrHandles, true); err != nil {
+				logCRCPortico.Warn("failed to subscribe object class: %v", err)
+				if sendErr := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+					return sendErr
+				}
+				continue
+			}
 				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 		case wire.MsgPublishInteractionClass:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
 				classHandle, _ := obj.Get("classHandle").(int32)
 				if currentFed.Router() != nil && classHandle > 0 {
-					_ = currentFed.Router().PublishInteractionClass(common.FederateHandle(federateID), common.InteractionClassHandle(classHandle))
+					if err := currentFed.Router().PublishInteractionClass(common.FederateHandle(federateID), common.InteractionClassHandle(classHandle)); err != nil {
+				logCRCPortico.Warn("failed to publish interaction class: %v", err)
+				if sendErr := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+					return sendErr
+				}
+				continue
+			}
 				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 		case wire.MsgSubscribeInteractionClass:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			if obj, err := wire.DeserializePorticoControlMessage(payload); err == nil && obj != nil {
 				classHandle, _ := obj.Get("classHandle").(int32)
 				if currentFed.Router() != nil && classHandle > 0 {
-					_ = currentFed.Router().SubscribeInteractionClass(common.FederateHandle(federateID), common.InteractionClassHandle(classHandle), true)
+					if err := currentFed.Router().SubscribeInteractionClass(common.FederateHandle(federateID), common.InteractionClassHandle(classHandle), true); err != nil {
+				logCRCPortico.Warn("failed to subscribe interaction class: %v", err)
+				if sendErr := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); sendErr != nil {
+					return sendErr
+				}
+				continue
+			}
 				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 		case wire.MsgRegisterObject:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			var classHandle int32
@@ -390,19 +476,25 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 			if classHandle <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectClassNotDefined")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectClassNotDefined"); err != nil {
+					return err
+				}
 				continue
 			}
 
 			objInst, err := currentFed.RegisterObjectInstance(classHandle, objectName, federateID)
 			if err != nil {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error())
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, err.Error()); err != nil {
+					return err
+				}
 				continue
 			}
 
 			// Respond with the assigned ObjectInstanceHandle and keys expected by RegisterObjectHandler
 			respPayload := wire.BuildRegisterObjectResponsePayload(objInst.Handle, classHandle, objInst.Name)
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Object registered by federate [%d]: handle [%d], name '%s'", federateID, objInst.Handle, objInst.Name)
 
 			// Notify other federates (both Native and Portico)
@@ -417,16 +509,22 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			for _, f := range currentFed.GetAllFederates() {
 				if f.ID != federateID && f.Session != nil {
 					if f.Protocol == ProtocolPortico && porticoDiscPayload != nil {
-						_ = f.Session.SendNotification(uint8(wire.MsgDiscoverObject), porticoDiscPayload)
+						if err := f.Session.SendNotification(uint8(wire.MsgDiscoverObject), porticoDiscPayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					} else {
-						_ = f.Session.SendNotification(common.NativeMsgDiscoverObject, nativeDiscPayload)
+						if err := f.Session.SendNotification(common.NativeMsgDiscoverObject, nativeDiscPayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					}
 				}
 			}
 
 		case wire.MsgUpdateAttributes:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			var objectId int32
@@ -443,15 +541,21 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			}
 
 			if objectId <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown"); err != nil {
+					return err
+				}
 				continue
 			}
 
 			if err := currentFed.UpdateObjectAttributes(objectId, attrsMap, [32]byte{}); err != nil {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "ObjectInstanceNotKnown"); err != nil {
+					return err
+				}
 				continue
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 			// Routing reflections to interested subscribers (Native or Portico)
 			nativeUavAttrs := make(map[common.AttributeHandle][]byte, len(attrsMap))
@@ -469,16 +573,22 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			for _, f := range currentFed.GetAllFederates() {
 				if f.ID != federateID && f.Session != nil {
 					if f.Protocol == ProtocolPortico && porticoReflectPayload != nil {
-						_ = f.Session.SendNotification(uint8(wire.MsgReflectAttributes), porticoReflectPayload)
+						if err := f.Session.SendNotification(uint8(wire.MsgReflectAttributes), porticoReflectPayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					} else {
-						_ = f.Session.SendNotification(common.NativeMsgReflectAttributes, nativeUavPayload)
+						if err := f.Session.SendNotification(common.NativeMsgReflectAttributes, nativeUavPayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					}
 				}
 			}
 
 		case wire.MsgSendInteraction:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 
@@ -496,15 +606,21 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			}
 
 			if interactionId <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined"); err != nil {
+					return err
+				}
 				continue
 			}
 			if _, exists := currentFed.OMT().GetInteractionClass(common.InteractionClassHandle(interactionId)); !exists {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InteractionClassNotDefined"); err != nil {
+					return err
+				}
 				continue
 			}
 
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 			nativeParams := make(map[common.ParameterHandle][]byte, len(paramsMap))
 			for k, v := range paramsMap {
@@ -519,60 +635,84 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			for _, f := range currentFed.GetAllFederates() {
 				if f.ID != federateID && f.Session != nil {
 					if f.Protocol == ProtocolPortico {
-						_ = f.Session.SendNotification(uint8(wire.MsgReceiveInteraction), payload)
+						if err := f.Session.SendNotification(uint8(wire.MsgReceiveInteraction), payload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					} else {
-						_ = f.Session.SendNotification(common.NativeMsgReceiveInteraction, nativeInterPayload)
+						if err := f.Session.SendNotification(common.NativeMsgReceiveInteraction, nativeInterPayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					}
 				}
 			}
 
 		case wire.MsgEnableTimeRegulation:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			fed, exists := currentFed.GetFederate(federateID)
 			if !exists {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound"); err != nil {
+					return err
+				}
 				continue
 			}
 			if fed.IsRegulating {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "TimeRegulationAlreadyEnabled")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "TimeRegulationAlreadyEnabled"); err != nil {
+					return err
+				}
 				continue
 			}
 			fed.IsRegulating = true
 
 			respPayload := wire.BuildDoubleResponsePayload(fed.CurrentTime)
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload)
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, respPayload); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] enabled time regulation at time %f", federateID, fed.CurrentTime)
 
 		case wire.MsgEnableTimeConstrained:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			fed, exists := currentFed.GetFederate(federateID)
 			if !exists {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound"); err != nil {
+					return err
+				}
 				continue
 			}
 			if fed.IsConstrained {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "TimeConstrainedAlreadyEnabled")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "TimeConstrainedAlreadyEnabled"); err != nil {
+					return err
+				}
 				continue
 			}
 			fed.IsConstrained = true
 
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] enabled time constrained", federateID)
 
 		case wire.MsgTimeAdvanceRequest, wire.MsgNextEventRequest, wire.MsgFlushQueueRequest:
 			if currentFed == nil || federateID <= 0 {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotExecutionMember"); err != nil {
+					return err
+				}
 				continue
 			}
 			fed, exists := currentFed.GetFederate(federateID)
 			if !exists {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederateNotFound"); err != nil {
+					return err
+				}
 				continue
 			}
 			var requestedTime float64
@@ -584,22 +724,32 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				}
 			}
 			if !hasTime || requestedTime < fed.CurrentTime {
-				_ = session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidLogicalTime")
+				if err := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "InvalidLogicalTime"); err != nil {
+					return err
+				}
 				continue
 			}
 			fed.CurrentTime = requestedTime
 
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			if tagPayload, err := wire.BuildTimeAdvanceGrantPayload(federateID, requestedTime); err == nil {
-				_ = session.SendNotification(uint8(wire.MsgTimeAdvanceGrant), tagPayload)
+				if err := session.SendNotification(uint8(wire.MsgTimeAdvanceGrant), tagPayload); err != nil {
+				logCRCPortico.Warn("failed to send TimeAdvanceGrant to federate %d: %v", federateID, err)
+			}
 			}
 			logCRCPortico.Info("Federate [%d] granted time advance to %f", federateID, requestedTime)
 
 		case wire.MsgResignFederation:
 			if currentFed != nil && federateID > 0 {
-				_, _ = currentFed.Resign(federateID)
+				if _, err := currentFed.Resign(federateID); err != nil {
+					logCRCPortico.Warn("failed to resign federate %d: %v", federateID, err)
+				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] resigned gracefully", federateID)
 			federateID = 0
 
@@ -612,7 +762,13 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 					}
 				}
 				if objHandle > 0 {
-					_, _ = currentFed.DeleteObjectInstance(objHandle, federateID, nil)
+					if _, err := currentFed.DeleteObjectInstance(objHandle, federateID, nil); err != nil {
+						logCRCPortico.Warn("failed to delete object [%d] for federate [%d]: %v", objHandle, federateID, err)
+						if sendErr := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "DeletePrivilegeNotHeld"); sendErr != nil {
+							return sendErr
+						}
+						continue
+					}
 					logCRCPortico.Info("Object [%d] deleted by federate [%d]", objHandle, federateID)
 
 					removePayload, _ := common.RemoveObjectInstancePayload{
@@ -623,15 +779,21 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 					for _, f := range currentFed.GetAllFederates() {
 						if f.ID != federateID && f.Session != nil {
 							if f.Protocol == ProtocolPortico && porticoDeletePayload != nil {
-								_ = f.Session.SendNotification(uint8(wire.MsgDeleteObject), porticoDeletePayload)
+								if err := f.Session.SendNotification(uint8(wire.MsgDeleteObject), porticoDeletePayload); err != nil {
+									logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+								}
 							} else {
-								_ = f.Session.SendNotification(common.NativeMsgRemoveObjectInstance, removePayload)
+								if err := f.Session.SendNotification(common.NativeMsgRemoveObjectInstance, removePayload); err != nil {
+									logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+								}
 							}
 						}
 					}
 				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 		case wire.MsgDestroyFederation:
 			var fedName string
@@ -644,14 +806,24 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 				fedName = currentFed.Name
 			}
 			if fedName != "" {
-				_ = fedManager.DestroyFederation(fedName)
+				if err := fedManager.DestroyFederation(fedName); err != nil {
+					logCRCPortico.Warn("failed to destroy federation [%s]: %v", fedName, err)
+					if sendErr := session.SendControlResponseErr(hdr.RequestId, hdr.MessageType, "FederationExecutionDoesNotExist: "+fedName); sendErr != nil {
+						return sendErr
+					}
+					continue
+				}
 				logCRCPortico.Info("Federation [%s] destroyed", fedName)
 				currentFed = nil
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 		case wire.MsgDisconnect:
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Connection disconnected gracefully")
 			return nil
 
@@ -662,7 +834,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 					label = l
 				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] requested federation save with label '%s'", federateID, label)
 
 			saveInitObj := metamodel.NewJavaObject(metamodel.ClassDescObject)
@@ -670,20 +844,28 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			if savePayload, err := wire.SerializePorticoControlMessage(saveInitObj); err == nil {
 				for _, f := range currentFed.GetAllFederates() {
 					if f.Session != nil && f.Protocol == ProtocolPortico {
-						_ = f.Session.SendNotification(uint8(wire.MsgSaveInitiate), savePayload)
+						if err := f.Session.SendNotification(uint8(wire.MsgSaveInitiate), savePayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					}
 				}
 			}
 
 		case wire.MsgSaveBegun:
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 
 		case wire.MsgSaveComplete:
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] completed save. Broadcasting FederationSaved.", federateID)
 			for _, f := range currentFed.GetAllFederates() {
 				if f.Session != nil && f.Protocol == ProtocolPortico {
-					_ = f.Session.SendNotification(uint8(wire.MsgFederationSaved), wire.BuildSuccessResponsePayload())
+					if err := f.Session.SendNotification(uint8(wire.MsgFederationSaved), wire.BuildSuccessResponsePayload()); err != nil {
+						logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+					}
 				}
 			}
 
@@ -694,7 +876,9 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 					label = l
 				}
 			}
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] requested federation restore with label '%s'", federateID, label)
 
 			restoreInitObj := metamodel.NewJavaObject(metamodel.ClassDescObject)
@@ -702,31 +886,43 @@ func HandlePorticoConnection(conn net.Conn, reader io.Reader, fedManager *Federa
 			if restPayload, err := wire.SerializePorticoControlMessage(restoreInitObj); err == nil {
 				for _, f := range currentFed.GetAllFederates() {
 					if f.Session != nil && f.Protocol == ProtocolPortico {
-						_ = f.Session.SendNotification(uint8(wire.MsgRestoreInitiate), restPayload)
+						if err := f.Session.SendNotification(uint8(wire.MsgRestoreInitiate), restPayload); err != nil {
+							logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+						}
 					}
 				}
 			}
 
 		case wire.MsgRestoreComplete:
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] completed restore. Broadcasting FederationRestored.", federateID)
 			for _, f := range currentFed.GetAllFederates() {
 				if f.Session != nil && f.Protocol == ProtocolPortico {
-					_ = f.Session.SendNotification(uint8(wire.MsgFederationRestored), wire.BuildSuccessResponsePayload())
+					if err := f.Session.SendNotification(uint8(wire.MsgFederationRestored), wire.BuildSuccessResponsePayload()); err != nil {
+						logCRCPortico.Warn("failed to dispatch notification to federate %d: %v", f.ID, err)
+					}
 				}
 			}
 
 		case wire.MsgAttributeDivest:
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] divested attribute ownership", federateID)
 
 		case wire.MsgQueryOwnership:
-			_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+			if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+				return err
+			}
 			logCRCPortico.Info("Federate [%d] queried attribute ownership", federateID)
 
 		default:
 			if hdr.CallType == wire.CallTypeControlRequest {
-				_ = session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload())
+				if err := session.SendControlResponseOK(hdr.RequestId, hdr.MessageType, wire.BuildSuccessResponsePayload()); err != nil {
+					return err
+				}
 			}
 		}
 	}

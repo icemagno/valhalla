@@ -101,6 +101,44 @@ func TestHLA4_WebProfile_11Stages(t *testing.T) {
 		}
 	}
 
+	callActionExpectError := func(action string, params map[string]interface{}) string {
+		reqID++
+		req := map[string]interface{}{
+			"id":     reqID,
+			"action": action,
+			"params": params,
+		}
+		data, _ := json.Marshal(req)
+		if err := writeMaskedWebSocketFrame(conn, data); err != nil {
+			t.Fatalf("Action %s: write failed: %v", action, err)
+		}
+
+		for {
+			opcode, payload, err := readWSFrame(reader)
+			if err != nil {
+				t.Fatalf("Action %s: read failed: %v", action, err)
+			}
+			if opcode != 1 {
+				continue
+			}
+
+			var resp map[string]interface{}
+			if err := json.Unmarshal(payload, &resp); err != nil {
+				t.Fatalf("Action %s: invalid JSON: %v", action, err)
+			}
+
+			if rID, ok := resp["id"].(float64); ok && int64(rID) == reqID {
+				if status, _ := resp["status"].(string); status != "ERROR" {
+					t.Fatalf("Action %s expected ERROR status, got %s", action, status)
+				}
+				if code, ok := resp["code"].(string); ok {
+					return code
+				}
+				return ""
+			}
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	// Stage 1: Connect
 	// -------------------------------------------------------------------------
@@ -198,6 +236,15 @@ func TestHLA4_WebProfile_11Stages(t *testing.T) {
 			fmt.Sprintf("%d", payloadH): "OK",
 		},
 	})
+
+	// Verify error propagation on invalid object handle (Item 3.2 remediation)
+	errCode := callActionExpectError("updateAttributeValues", map[string]interface{}{
+		"objectHandle": 999999,
+		"attributes":   map[string]string{"1": "val"},
+	})
+	if errCode != "ObjectInstanceNotKnown" && errCode != "UpdateAttributesFailed" {
+		t.Fatalf("Expected ObjectInstanceNotKnown or UpdateAttributesFailed, got %s", errCode)
+	}
 
 	// -------------------------------------------------------------------------
 	// Stage 7: Ownership Management

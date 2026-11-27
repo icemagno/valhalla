@@ -130,14 +130,18 @@ func (g *WebGateway) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"federations": feds,
 		"timestamp":   time.Now().Unix(),
 	}
-	_ = json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		logCRCWeb.Warn("failed to encode JSON status: %v", err)
+	}
 }
 
 // handleDashboard renders a high-performance tactical monitoring dashboard
 func (g *WebGateway) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(valhallaDashboardHTML))
+	if _, err := w.Write([]byte(valhallaDashboardHTML)); err != nil {
+		logCRCWeb.Warn("failed to write dashboard HTML: %v", err)
+	}
 }
 
 // handleWebSocket performs RFC 6455 handshake and dispatches incoming HLA requests
@@ -200,7 +204,9 @@ func (g *WebGateway) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		if currentFed != nil && federateID > 0 {
-			_, _ = currentFed.Resign(federateID)
+			if _, err := currentFed.Resign(federateID); err != nil {
+				logCRCWeb.Warn("failed to resign web federate %d on disconnect: %v", federateID, err)
+			}
 			logCRCWeb.Info("Web federate %d resigned upon WebSocket disconnect", federateID)
 		}
 	}()
@@ -217,7 +223,9 @@ func (g *WebGateway) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if opcode == 8 { // Close frame
 			break
 		} else if opcode == 9 { // Ping
-			_ = writeWebSocketTextFrame(conn, []byte{})
+			if err := writeWebSocketTextFrame(conn, []byte{}); err != nil {
+				logCRCWeb.Warn("failed to write WebSocket close frame: %v", err)
+			}
 			continue
 		} else if opcode != 1 { // Not text frame
 			continue
@@ -230,11 +238,13 @@ func (g *WebGateway) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := json.Unmarshal(payload, &req); err != nil {
-			_ = session.SendJSON(map[string]interface{}{
+			if sendErr := session.SendJSON(map[string]interface{}{
 				"id":     0,
 				"status": "ERROR",
 				"error":  "Invalid JSON payload: " + err.Error(),
-			})
+			}); sendErr != nil {
+				logCRCWeb.Warn("failed to send JSON error response: %v", sendErr)
+			}
 			continue
 		}
 
@@ -252,20 +262,24 @@ func (g *WebGateway) processWebAction(
 	federateID *int32,
 ) {
 	sendSuccess := func(result map[string]interface{}) {
-		_ = session.SendJSON(map[string]interface{}{
+		if err := session.SendJSON(map[string]interface{}{
 			"id":     reqID,
 			"status": "OK",
 			"result": result,
-		})
+		}); err != nil {
+			logCRCWeb.Warn("failed to send JSON success response (reqID=%d): %v", reqID, err)
+		}
 	}
 
 	sendError := func(errCode string, msg string) {
-		_ = session.SendJSON(map[string]interface{}{
+		if err := session.SendJSON(map[string]interface{}{
 			"id":      reqID,
 			"status":  "ERROR",
 			"code":    errCode,
 			"message": msg,
-		})
+		}); err != nil {
+			logCRCWeb.Warn("failed to send JSON error response (reqID=%d, code=%s): %v", reqID, errCode, err)
+		}
 	}
 
 	switch action {
@@ -353,7 +367,9 @@ func (g *WebGateway) processWebAction(
 			sendError("FederateNotExecutionMember", "Not joined to federation")
 			return
 		}
-		_, _ = (*currentFed).Resign(*federateID)
+		if _, err := (*currentFed).Resign(*federateID); err != nil {
+			logCRCWeb.Warn("failed to resign federate %d: %v", *federateID, err)
+		}
 		*currentFed = nil
 		*federateID = 0
 		session.SetFederateID(0)
@@ -511,7 +527,9 @@ func (g *WebGateway) processWebAction(
 
 		for _, f := range (*currentFed).GetAllFederates() {
 			if f.ID != *federateID && f.Session != nil {
-				_ = f.Session.SendNotification(common.NativeMsgDiscoverObject, discPayload)
+				if err := f.Session.SendNotification(common.NativeMsgDiscoverObject, discPayload); err != nil {
+					logCRCWeb.Warn("failed to dispatch DiscoverObject to federate %d: %v", f.ID, err)
+				}
 			}
 		}
 
@@ -538,7 +556,9 @@ func (g *WebGateway) processWebAction(
 
 		for _, f := range (*currentFed).GetAllFederates() {
 			if f.ID != *federateID && f.Session != nil {
-				_ = f.Session.SendNotification(common.NativeMsgRemoveObjectInstance, remPayload)
+				if err := f.Session.SendNotification(common.NativeMsgRemoveObjectInstance, remPayload); err != nil {
+					logCRCWeb.Warn("failed to dispatch RemoveObjectInstance to federate %d: %v", f.ID, err)
+				}
 			}
 		}
 		sendSuccess(nil)
@@ -572,7 +592,11 @@ func (g *WebGateway) processWebAction(
 			}
 		}
 
-		_ = (*currentFed).UpdateObjectAttributes(objH, attrsMap, [32]byte{})
+		if err := (*currentFed).UpdateObjectAttributes(objH, attrsMap, [32]byte{}); err != nil {
+			logCRCWeb.Warn("failed to update object attributes: %v", err)
+			sendError("UpdateAttributesFailed", err.Error())
+			return
+		}
 
 		uavPayload, _ := common.UpdateAttributesPayload{
 			ObjectHandle: common.ObjectInstanceHandle(objH),
@@ -592,7 +616,9 @@ func (g *WebGateway) processWebAction(
 
 		for sub := range targetSubs {
 			if f, exists := (*currentFed).GetFederate(int32(sub)); exists && f.Session != nil {
-				_ = f.Session.SendNotification(common.NativeMsgReflectAttributes, uavPayload)
+				if err := f.Session.SendNotification(common.NativeMsgReflectAttributes, uavPayload); err != nil {
+					logCRCWeb.Warn("failed to dispatch ReflectAttributes to federate %d: %v", f.ID, err)
+				}
 			}
 		}
 		sendSuccess(nil)
@@ -624,7 +650,11 @@ func (g *WebGateway) processWebAction(
 			return
 		}
 
-		_ = (*currentFed).UpdateObjectAttributes(objH, attrsMap, [32]byte{})
+		if err := (*currentFed).UpdateObjectAttributes(objH, attrsMap, [32]byte{}); err != nil {
+			logCRCWeb.Warn("failed to update object attributes: %v", err)
+			sendError("UpdateAttributesFailed", err.Error())
+			return
+		}
 
 		uavPayload, _ := common.UpdateAttributesPayload{
 			ObjectHandle: common.ObjectInstanceHandle(objH),
@@ -645,7 +675,9 @@ func (g *WebGateway) processWebAction(
 
 		for sub := range targetSubs {
 			if f, exists := (*currentFed).GetFederate(int32(sub)); exists && f.Session != nil {
-				_ = f.Session.SendNotification(common.NativeMsgReflectAttributes, uavPayload)
+				if err := f.Session.SendNotification(common.NativeMsgReflectAttributes, uavPayload); err != nil {
+					logCRCWeb.Warn("failed to dispatch ReflectAttributes to federate %d: %v", f.ID, err)
+				}
 			}
 		}
 		sendSuccess(nil)
@@ -718,7 +750,9 @@ func (g *WebGateway) processWebAction(
 		for _, gFed := range grants {
 			if int32(gFed.Federate) == *federateID {
 				grantPayload, _ := common.TimeFloat64Payload{Time: gFed.Time}.MarshalBinary()
-				_ = session.SendNotification(common.NativeMsgTimeAdvanceGrant, grantPayload)
+				if err := session.SendNotification(common.NativeMsgTimeAdvanceGrant, grantPayload); err != nil {
+					logCRCWeb.Warn("failed to send TimeAdvanceGrant to web session: %v", err)
+				}
 			}
 		}
 		sendSuccess(nil)
